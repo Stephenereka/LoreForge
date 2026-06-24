@@ -3,8 +3,9 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
 from database.session import get_db
-from database.models import Character
+from database.models import Character, PendingApproval, GuildConfig
 from services.combat_engine import STARTER_WEAPONS, STARTER_ATTACKS, WEAPON_DAMAGE
+from services.leveling import xp_bar, xp_for_next_level, check_level_up
 import math
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -152,7 +153,7 @@ def build_sheet_embed(char: Character) -> discord.Embed:
         "int": char.intelligence, "wis": char.wisdom, "cha": char.charisma,
     }
     pb = proficiency_bonus(char.level)
-    saves = CLASSES[char.char_class]["saves"]
+    saves = CLASSES.get(char.char_class, {}).get("saves", [])
 
     active_tag = "  ★" if char.is_active else ""
     embed = discord.Embed(
@@ -182,7 +183,8 @@ def build_sheet_embed(char: Character) -> discord.Embed:
         value=f"💰 {char.gold} gp\n📦 {len(char.inventory or [])} item(s)",
         inline=True,
     )
-    embed.add_field(name="Progress", value=f"XP: `{char.xp}`\nProf. Bonus: `+{pb}`", inline=True)
+    xp_display = xp_bar(char.xp, char.level)
+    embed.add_field(name="Progress", value=f"{xp_display}\nProf. Bonus: `+{pb}`", inline=True)
 
     attacks = (char.class_resources or {}).get("attacks", [])
     if attacks:
@@ -547,6 +549,7 @@ async def _create_character(
     avatar_url: str | None = None,
     proxy_open: str | None = None,
     proxy_close: str | None = None,
+    is_custom: bool = False,
 ):
     async with get_db() as db:
         result = await db.execute(
@@ -565,51 +568,87 @@ async def _create_character(
                 await interaction.response.send_message(msg, ephemeral=True)
             return
 
-        stats = assign_stats(char_class, race)
-
-        weapon_key = STARTER_WEAPONS.get(char_class, "unarmed")
-        starting_inventory = (
-            [{"key": weapon_key, "type": "weapon", "equipped": True}]
-            if weapon_key != "unarmed" else []
-        )
-
-        resources = _starting_resources(char_class)
-        resources["attacks"] = [atk["name"] for atk in STARTER_ATTACKS.get(char_class, [])]
-
         # First character is auto-set as active
         is_first = len(existing) == 0
 
-        char = Character(
-            user_id=interaction.user.id,
-            guild_id=interaction.guild_id,
-            name=char_name,
-            race=race,
-            char_class=char_class,
-            background=background,
-            level=1,
-            xp=0,
-            strength=stats["str"],
-            dexterity=stats["dex"],
-            constitution=stats["con"],
-            intelligence=stats["int"],
-            wisdom=stats["wis"],
-            charisma=stats["cha"],
-            hp_max=calc_hp(char_class, stats["con"]),
-            hp_current=calc_hp(char_class, stats["con"]),
-            armor_class=calc_ac(stats["dex"]),
-            gold=100,
-            inventory=starting_inventory,
-            conditions=[],
-            skill_proficiencies=[],
-            class_resources=resources,
-            backstory=backstory,
-            avatar_url=avatar_url,
-            proxy_open=proxy_open,
-            proxy_close=proxy_close,
-            is_dead=False,
-            is_unconscious=False,
-            is_active=is_first,
-        )
+        if is_custom:
+            # Custom characters: flat 10 in all stats, base HP/AC, no starter gear
+            char = Character(
+                user_id=interaction.user.id,
+                guild_id=interaction.guild_id,
+                name=char_name,
+                race=race,
+                char_class=char_class,
+                background=background,
+                level=1,
+                xp=0,
+                is_custom=True,
+                strength=10,
+                dexterity=10,
+                constitution=10,
+                intelligence=10,
+                wisdom=10,
+                charisma=10,
+                hp_max=10,
+                hp_current=10,
+                armor_class=10,
+                gold=100,
+                inventory=[],
+                conditions=[],
+                skill_proficiencies=[],
+                class_resources={},
+                backstory=backstory,
+                avatar_url=avatar_url,
+                proxy_open=proxy_open,
+                proxy_close=proxy_close,
+                is_dead=False,
+                is_unconscious=False,
+                is_active=is_first,
+            )
+        else:
+            stats = assign_stats(char_class, race)
+
+            weapon_key = STARTER_WEAPONS.get(char_class, "unarmed")
+            starting_inventory = (
+                [{"key": weapon_key, "type": "weapon", "equipped": True}]
+                if weapon_key != "unarmed" else []
+            )
+
+            resources = _starting_resources(char_class)
+            resources["attacks"] = [atk["name"] for atk in STARTER_ATTACKS.get(char_class, [])]
+
+            char = Character(
+                user_id=interaction.user.id,
+                guild_id=interaction.guild_id,
+                name=char_name,
+                race=race,
+                char_class=char_class,
+                background=background,
+                level=1,
+                xp=0,
+                is_custom=False,
+                strength=stats["str"],
+                dexterity=stats["dex"],
+                constitution=stats["con"],
+                intelligence=stats["int"],
+                wisdom=stats["wis"],
+                charisma=stats["cha"],
+                hp_max=calc_hp(char_class, stats["con"]),
+                hp_current=calc_hp(char_class, stats["con"]),
+                armor_class=calc_ac(stats["dex"]),
+                gold=100,
+                inventory=starting_inventory,
+                conditions=[],
+                skill_proficiencies=[],
+                class_resources=resources,
+                backstory=backstory,
+                avatar_url=avatar_url,
+                proxy_open=proxy_open,
+                proxy_close=proxy_close,
+                is_dead=False,
+                is_unconscious=False,
+                is_active=is_first,
+            )
         db.add(char)
 
     embed = build_sheet_embed(char)
@@ -800,6 +839,75 @@ class ProxySetModal(discord.ui.Modal, title="Set Proxy"):
             ephemeral=True,
         )
 
+# ── Custom character creation ─────────────────────────────────────────────────
+
+class CustomCharacterModal(discord.ui.Modal, title="Create Custom Character"):
+    char_class = discord.ui.TextInput(
+        label="Class / Role",
+        placeholder="e.g. Shadow Assassin, Arcane Archer",
+        max_length=50,
+    )
+    race = discord.ui.TextInput(
+        label="Race / Species",
+        placeholder="e.g. Aasimar, Kitsune, Half-Dragon",
+        max_length=50,
+    )
+    background = discord.ui.TextInput(
+        label="Background",
+        placeholder="e.g. Fallen Noble, Street Rat, War Veteran",
+        max_length=50,
+    )
+    backstory = discord.ui.TextInput(
+        label="Backstory (optional)",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=1000,
+    )
+    avatar_url = discord.ui.TextInput(
+        label="Avatar URL (optional)",
+        required=False,
+        max_length=500,
+    )
+
+    def __init__(self, char_name: str):
+        super().__init__()
+        self.char_name = char_name
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw_url = self.avatar_url.value.strip() or None
+        if raw_url and not await _is_valid_image_url(raw_url):
+            await interaction.response.send_message(
+                "That URL doesn't point to an image. Make sure it's a direct link to a `.jpg`, `.png`, `.gif`, `.webp`, or any image hosted online.",
+                ephemeral=True,
+            )
+            return
+
+        await _create_character(
+            interaction,
+            char_name=self.char_name,
+            race=self.race.value.strip(),
+            char_class=self.char_class.value.strip(),
+            background=self.background.value.strip(),
+            backstory=self.backstory.value.strip() or None,
+            avatar_url=raw_url,
+            is_custom=True,
+        )
+
+
+class CharTypeView(discord.ui.View):
+    def __init__(self, char_name: str):
+        super().__init__(timeout=300)
+        self.char_name = char_name
+
+    @discord.ui.button(label="DnD Character", style=discord.ButtonStyle.primary, emoji="⚔️")
+    async def dnd_char(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(embed=step1_embed(self.char_name), view=RaceView(self.char_name))
+
+    @discord.ui.button(label="Custom Character", style=discord.ButtonStyle.secondary, emoji="✏️")
+    async def custom_char(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CustomCharacterModal(self.char_name))
+
+
 # ── Command group ─────────────────────────────────────────────────────────────
 
 character_group = app_commands.Group(name="character", description="Create and manage your character")
@@ -825,7 +933,18 @@ async def character_create(interaction: discord.Interaction, name: str):
         )
         return
 
-    await interaction.response.send_message(embed=step1_embed(name), view=RaceView(name), ephemeral=True)
+    type_embed = discord.Embed(
+        title="⚔️ Create Character — Choose Type",
+        description=(
+            f"**{name}**\n\n"
+            "What kind of character do you want to create?\n\n"
+            "**DnD Character** — Standard races, classes, and stat system (5-step wizard)\n"
+            "**Custom Character** — Completely free-form: any race, class, and background you imagine"
+        ),
+        color=0x8B5CF6,
+    )
+    type_embed.set_footer(text="Custom characters can only do manual combat (no AI resolution)")
+    await interaction.response.send_message(embed=type_embed, view=CharTypeView(name), ephemeral=True)
 
 
 @character_group.command(name="use", description="Set your active character — all commands use them automatically")
@@ -1032,6 +1151,102 @@ async def character_proxy_remove(interaction: discord.Interaction):
         await interaction.response.send_message(
             embed=pick_embed("remove proxy from"), view=CharacterPickView(chars, "proxy_remove"), ephemeral=True
         )
+
+
+@character_group.command(name="edit", description="Request a stat change (requires GM approval)")
+@app_commands.describe(field="Which stat to change", value="New value for the stat")
+@app_commands.choices(field=[
+    app_commands.Choice(name="Strength", value="strength"),
+    app_commands.Choice(name="Dexterity", value="dexterity"),
+    app_commands.Choice(name="Constitution", value="constitution"),
+    app_commands.Choice(name="Intelligence", value="intelligence"),
+    app_commands.Choice(name="Wisdom", value="wisdom"),
+    app_commands.Choice(name="Charisma", value="charisma"),
+    app_commands.Choice(name="Gold", value="gold"),
+    app_commands.Choice(name="XP", value="xp"),
+    app_commands.Choice(name="HP Max", value="hp_max"),
+])
+async def character_edit(interaction: discord.Interaction, field: app_commands.Choice[str], value: str):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    # Validate value is a positive integer
+    try:
+        new_value_int = int(value)
+        if new_value_int < 0:
+            raise ValueError
+    except ValueError:
+        await interaction.response.send_message(
+            "Value must be a positive whole number (e.g. `15`, `250`, `10`).",
+            ephemeral=True,
+        )
+        return
+
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not chars:
+        await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
+        return
+    if not char:
+        await interaction.response.send_message(
+            "You have multiple characters — use `/character use` to set an active one first.",
+            ephemeral=True,
+        )
+        return
+
+    # Get old value
+    old_value = str(getattr(char, field.value, "?"))
+
+    # Create PendingApproval record
+    async with get_db() as db:
+        approval = PendingApproval(
+            guild_id=interaction.guild_id,
+            user_id=interaction.user.id,
+            character_id=char.id,
+            character_name=char.name,
+            field_name=field.value,
+            old_value=old_value,
+            new_value=str(new_value_int),
+            status="pending",
+        )
+        db.add(approval)
+        await db.flush()
+        approval_id = approval.id
+
+    # Try to notify GM channel
+    gm_channel = None
+    try:
+        async with get_db() as db:
+            result = await db.execute(
+                select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id)
+            )
+            config = result.scalar_one_or_none()
+            if config and config.gm_channel_id:
+                gm_channel = interaction.guild.get_channel(config.gm_channel_id)
+    except Exception:
+        pass
+
+    if gm_channel:
+        gm_embed = discord.Embed(
+            title="📋 Stat Change Request",
+            color=0xF59E0B,
+        )
+        gm_embed.add_field(name="Character", value=char.name, inline=True)
+        gm_embed.add_field(name="Player", value=interaction.user.mention, inline=True)
+        gm_embed.add_field(name="Field", value=field.name, inline=True)
+        gm_embed.add_field(name="Change", value=f"`{old_value}` → `{new_value_int}`", inline=True)
+        gm_embed.add_field(name="Request ID", value=f"`#{approval_id}`", inline=True)
+        gm_embed.set_footer(text=f"Use /gm approve {approval_id} or /gm deny {approval_id}")
+        try:
+            await gm_channel.send(embed=gm_embed)
+        except Exception:
+            pass
+
+    await interaction.response.send_message(
+        f"Your request to change **{field.name}** from `{old_value}` to `{new_value_int}` has been submitted. "
+        "A GM will review it.",
+        ephemeral=True,
+    )
 
 
 # ── Cog ───────────────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ from services.combat_engine import (
     resolve_grapple, resolve_shove, resolve_hide, resolve_taunt,
 )
 from services.ai_service import classify_combat_action
+from services.leveling import pvp_xp_reward, check_level_up, hp_gain_on_level, feature_at_level, xp_bar, ASI_LEVELS
 from cogs.character import resolve_character, CharacterPickView, pick_embed
 
 # ── Active sessions: channel_id → CombatSession (infinite per guild) ─────────
@@ -757,6 +758,58 @@ async def _end_combat(session: CombatSession, winner: Combatant | None):
                     char.is_dead = True
                     char.hp_current = 0
 
+    # ── XP Awards ────────────────────────────────────────────────────────────
+    winners = [p for p in session.players if not p.is_dead and not p.is_unconscious]
+    losers  = [p for p in session.players if p.is_dead or p.is_unconscious]
+
+    if winners and losers:
+        total_xp_per_winner = sum(pvp_xp_reward(loser.level, len(winners)) for loser in losers)
+
+        level_up_embeds: list[discord.Embed] = []
+        async with get_db() as db:
+            for i, p in enumerate(session.players):
+                if p not in winners:
+                    continue
+                uid = session.player_user_ids[i]
+                result = await db.execute(
+                    select(Character).where(Character.user_id == uid, Character.guild_id == session.guild_id)
+                )
+                char = result.scalar_one_or_none()
+                if not char:
+                    continue
+                char.xp = (char.xp or 0) + total_xp_per_winner
+                new_level = check_level_up(char.xp, char.level)
+                if new_level:
+                    hp_gain = hp_gain_on_level(char.char_class, char.constitution)
+                    char.level = new_level
+                    char.hp_max = char.hp_max + hp_gain
+                    char.hp_current = min(char.hp_current + hp_gain, char.hp_max)
+                    feature = feature_at_level(char.char_class, new_level)
+                    asi = new_level in ASI_LEVELS
+                    lu_embed = discord.Embed(
+                        title=f"🎉 {char.name} levelled up! → Lv{new_level}",
+                        color=0xA855F7,
+                    )
+                    lu_embed.add_field(name="❤️ HP", value=f"+{hp_gain} (now {char.hp_max} max)", inline=True)
+                    lu_embed.add_field(name="✨ XP", value=xp_bar(char.xp, new_level), inline=False)
+                    if feature:
+                        lu_embed.add_field(name="🌟 New Feature", value=feature, inline=False)
+                    if asi:
+                        lu_embed.add_field(name="⬆️ ASI Available", value="You can increase an ability score! Use `/character edit` to apply it.", inline=False)
+                    level_up_embeds.append(lu_embed)
+
+        channel = session.status_message.channel if session.status_message else None
+        if channel:
+            xp_lines = [f"• **{p.name}** earned **{total_xp_per_winner} XP**" for p in winners]
+            xp_embed = discord.Embed(
+                title="⚔️ PvP XP Awarded",
+                description="\n".join(xp_lines),
+                color=0xF59E0B,
+            )
+            await channel.send(embed=xp_embed)
+            for lu_embed in level_up_embeds:
+                await channel.send(embed=lu_embed)
+
     if session.status_message:
         await session.status_message.channel.send(embed=session.winner_embed(winner))
 
@@ -1006,11 +1059,364 @@ async def combat_forfeit(interaction: discord.Interaction):
         session.status_message = await session.status_message.channel.send(embed=session.status_embed())
 
 
+# ── New Commands ──────────────────────────────────────────────────────────────
+
+@combat_group.command(name="list", description="List all active combats in this server")
+async def combat_list(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    server_sessions = [s for s in _sessions.values() if s.guild_id == interaction.guild_id]
+    if not server_sessions:
+        await interaction.response.send_message("No active combats in this server.", ephemeral=True)
+        return
+    embed = discord.Embed(
+        title="⚔️ Active Combats",
+        description=f"**{len(server_sessions)}** combat(s) in this server.",
+        color=0x8B5CF6,
+    )
+    for s in server_sessions:
+        fight_label = "DnD (AI)" if s.fight_type == "dnd" else "Manual"
+        state_label = s.state.capitalize()
+        embed.add_field(
+            name=f"📌 {s.title}",
+            value=(
+                f"**Type:** {fight_label}  **State:** {state_label}\n"
+                f"**Players:** {len(s.players)}  **Round:** {s.round}\n"
+                f"**Channel:** <#{s.channel_id}>"
+            ),
+            inline=False,
+        )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@combat_group.command(name="overview", description="Show everyone's current stats in this fight")
+async def combat_overview(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    session = _sessions.get(interaction.channel_id)
+    if not session:
+        await interaction.response.send_message("No combat active in this channel.", ephemeral=True)
+        return
+    await interaction.response.send_message(embed=session.status_embed())
+
+
+@combat_group.command(name="pause", description="Pause the current fight (manual fights only)")
+async def combat_pause(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    session = _sessions.get(interaction.channel_id)
+    if not session or session.state != "active":
+        await interaction.response.send_message("No active combat in this channel.", ephemeral=True)
+        return
+    if session.fight_type != "manual":
+        await interaction.response.send_message("Only manual fights can be paused.", ephemeral=True)
+        return
+    from services.utils import is_gm
+    user_is_gm = await is_gm(interaction)
+    if not user_is_gm and interaction.user.id != session.initiator_id:
+        await interaction.response.send_message("Only the GM or fight host can pause combat.", ephemeral=True)
+        return
+    session.state = "paused"
+    await interaction.response.send_message(
+        embed=discord.Embed(
+            title="⏸️ Combat Paused",
+            description=f"**{session.title}** has been paused. Use `/combat resume` to continue.",
+            color=0xF59E0B,
+        )
+    )
+
+
+@combat_group.command(name="resume", description="Resume a paused fight (manual fights only)")
+async def combat_resume(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    session = _sessions.get(interaction.channel_id)
+    if not session or session.state != "paused":
+        await interaction.response.send_message("No paused combat in this channel.", ephemeral=True)
+        return
+    from services.utils import is_gm
+    user_is_gm = await is_gm(interaction)
+    if not user_is_gm and interaction.user.id != session.initiator_id:
+        await interaction.response.send_message("Only the GM or fight host can resume combat.", ephemeral=True)
+        return
+    session.state = "active"
+    await interaction.response.send_message(
+        embed=discord.Embed(
+            title="▶️ Combat Resumed",
+            description=f"**{session.title}** is back in action!",
+            color=0x22C55E,
+        )
+    )
+    await _update_status_and_prompt(session, session.current_combatant)
+
+
+@combat_group.command(name="hp", description="Update HP for a combatant (manual fights or GM)")
+@app_commands.describe(
+    amount="New HP value, or +/- for relative change (e.g. +5 or -10)",
+    target="Target player (GM only — defaults to yourself)",
+)
+async def combat_hp(interaction: discord.Interaction, amount: str, target: discord.Member | None = None):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    session = _sessions.get(interaction.channel_id)
+    if not session or session.state not in ("active", "paused"):
+        await interaction.response.send_message("No active combat in this channel.", ephemeral=True)
+        return
+    from services.utils import is_gm
+    user_is_gm = await is_gm(interaction)
+
+    # Determine which combatant to update
+    if target and target.id != interaction.user.id:
+        if not user_is_gm:
+            await interaction.response.send_message("Only the GM can update another player's HP.", ephemeral=True)
+            return
+        target_uid = target.id
+    else:
+        target_uid = interaction.user.id
+
+    if not user_is_gm and session.fight_type != "manual":
+        await interaction.response.send_message("Players can only update HP in manual fights.", ephemeral=True)
+        return
+
+    if target_uid not in session.player_user_ids:
+        await interaction.response.send_message("That player is not in this fight.", ephemeral=True)
+        return
+
+    idx = session.player_user_ids.index(target_uid)
+    combatant = session.players[idx]
+
+    # Parse amount
+    amount = amount.strip()
+    try:
+        if amount.startswith("+"):
+            delta = int(amount[1:])
+            new_hp = min(combatant.hp_current + delta, combatant.hp_max)
+        elif amount.startswith("-"):
+            delta = int(amount[1:])
+            new_hp = max(combatant.hp_current - delta, 0)
+        else:
+            new_hp = max(0, min(int(amount), combatant.hp_max))
+    except ValueError:
+        await interaction.response.send_message("Invalid amount. Use a number like `25`, `+5`, or `-10`.", ephemeral=True)
+        return
+
+    old_hp = combatant.hp_current
+    combatant.hp_current = new_hp
+    if new_hp <= 0 and not combatant.is_dead:
+        combatant.is_unconscious = True
+
+    await interaction.response.send_message(
+        embed=discord.Embed(
+            title=f"❤️ {combatant.name} HP Updated",
+            description=f"`{old_hp}` → `{new_hp}/{combatant.hp_max}`",
+            color=0x22C55E if new_hp > combatant.hp_max * 0.5 else (0xF97316 if new_hp > 0 else 0xEF4444),
+        )
+    )
+    # Re-post status embed
+    if session.status_message:
+        await session.status_message.channel.send(embed=session.status_embed())
+
+
+@combat_group.command(name="log", description="Show the full combat log for this fight")
+async def combat_log(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    session = _sessions.get(interaction.channel_id)
+    if not session:
+        await interaction.response.send_message("No combat active in this channel.", ephemeral=True)
+        return
+    log_text = "\n".join(session.log) if session.log else "*No log entries yet.*"
+    embed = discord.Embed(
+        title=f"📜 Combat Log — {session.title}",
+        description=log_text,
+        color=0x8B5CF6,
+    )
+    embed.set_footer(text="Showing most recent entries (last 8 lines)")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@combat_group.command(name="edit", description="Edit conditions or temp HP for a combatant (manual/GM)")
+@app_commands.describe(
+    field="What to edit",
+    value="New value (for temp_hp: number; for conditions: comma-separated condition names to SET)",
+    target="Target player (GM only)",
+)
+@app_commands.choices(field=[
+    app_commands.Choice(name="Temp HP", value="temp_hp"),
+    app_commands.Choice(name="Conditions (set list)", value="conditions"),
+    app_commands.Choice(name="Clear all conditions", value="clear_conditions"),
+])
+async def combat_edit(
+    interaction: discord.Interaction,
+    field: app_commands.Choice[str],
+    value: str = "",
+    target: discord.Member | None = None,
+):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    session = _sessions.get(interaction.channel_id)
+    if not session or session.state not in ("active", "paused"):
+        await interaction.response.send_message("No active combat in this channel.", ephemeral=True)
+        return
+    from services.utils import is_gm
+    user_is_gm = await is_gm(interaction)
+
+    # Determine target combatant
+    if target and target.id != interaction.user.id:
+        if not user_is_gm:
+            await interaction.response.send_message("Only the GM can edit another player's stats.", ephemeral=True)
+            return
+        target_uid = target.id
+    else:
+        if not user_is_gm and session.fight_type != "manual":
+            await interaction.response.send_message("Players can only edit their own stats in manual fights.", ephemeral=True)
+            return
+        target_uid = interaction.user.id
+
+    if target_uid not in session.player_user_ids:
+        await interaction.response.send_message("That player is not in this fight.", ephemeral=True)
+        return
+
+    idx = session.player_user_ids.index(target_uid)
+    combatant = session.players[idx]
+
+    field_val = field.value
+    if field_val == "temp_hp":
+        try:
+            combatant.hp_temp = max(0, int(value))
+        except ValueError:
+            await interaction.response.send_message("Invalid value for temp HP — must be a number.", ephemeral=True)
+            return
+        desc = f"Temp HP set to **{combatant.hp_temp}**"
+    elif field_val == "conditions":
+        condition_names = [c.strip().lower() for c in value.split(",") if c.strip()]
+        for cond_name in condition_names:
+            apply_condition(combatant, cond_name, 3)
+        desc = f"Conditions applied: **{', '.join(condition_names)}** (3 rounds each)"
+    elif field_val == "clear_conditions":
+        combatant.conditions = []
+        desc = "All conditions cleared."
+    else:
+        await interaction.response.send_message("Unknown field.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=f"✏️ {combatant.name} Updated",
+        description=desc,
+        color=0x8B5CF6,
+    )
+    await interaction.response.send_message(embed=embed)
+    if session.status_message:
+        await session.status_message.channel.send(embed=session.status_embed())
+
+
+def _build_summary_embed(session: CombatSession) -> discord.Embed:
+    """Build a formatted Battle Report embed from session log and player states."""
+    embed = discord.Embed(
+        title=f"📋 Battle Report — {session.title}",
+        color=0x6366F1,
+    )
+    embed.add_field(name="Round", value=str(session.round), inline=True)
+    fight_label = "DnD (AI)" if session.fight_type == "dnd" else "Manual"
+    embed.add_field(name="Fight Type", value=fight_label, inline=True)
+
+    # Player states
+    player_lines = []
+    for p in session.players:
+        if p.is_dead:
+            status = "💀 Dead"
+        elif p.is_unconscious:
+            status = "😵 Unconscious"
+        else:
+            status = "✅ Standing"
+        player_lines.append(f"**{p.name}** (Lv{p.level} {p.char_class}) — {status}  ❤️ `{p.hp_current}/{p.hp_max}`")
+    if player_lines:
+        embed.add_field(name="Combatants", value="\n".join(player_lines), inline=False)
+
+    # Log
+    if session.log:
+        embed.add_field(name="📜 Recent Log", value="\n".join(session.log), inline=False)
+
+    embed.set_footer(text="LoreForge Battle Report")
+    return embed
+
+
+@combat_group.command(name="summary", description="Generate a summary of this fight")
+async def combat_summary(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    session = _sessions.get(interaction.channel_id)
+    if not session:
+        await interaction.response.send_message("No combat active in this channel.", ephemeral=True)
+        return
+    await interaction.response.send_message(embed=_build_summary_embed(session))
+
+
+@combat_group.command(name="save", description="Pin the fight summary to a channel")
+@app_commands.describe(channel="Channel to post the summary in")
+async def combat_save(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    session = _sessions.get(interaction.channel_id)
+    if not session:
+        await interaction.response.send_message("No combat active in this channel.", ephemeral=True)
+        return
+    from services.utils import is_gm
+    user_is_gm = await is_gm(interaction)
+    if not user_is_gm and interaction.user.id != session.initiator_id:
+        await interaction.response.send_message("Only the GM or fight host can save the summary.", ephemeral=True)
+        return
+    summary_embed = _build_summary_embed(session)
+    await channel.send(embed=summary_embed)
+    await interaction.response.send_message(f"✅ Summary posted to {channel.mention}.", ephemeral=True)
+
+
+# ── Config subgroup ───────────────────────────────────────────────────────────
+
+combat_config = app_commands.Group(name="config", description="Configure combat settings")
+
+
+@combat_config.command(name="log-channel", description="Set the audit log channel for character edits")
+@app_commands.describe(channel="Channel for audit logs")
+async def combat_config_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("You need the **Manage Server** permission to use this.", ephemeral=True)
+        return
+    async with get_db() as db:
+        result = await db.execute(select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id))
+        config = result.scalar_one_or_none()
+        if config:
+            config.log_channel_id = channel.id
+        else:
+            db.add(GuildConfig(guild_id=interaction.guild_id, log_channel_id=channel.id))
+    await interaction.response.send_message(
+        embed=discord.Embed(
+            title="✅ Log Channel Set",
+            description=f"Audit logs will be posted to {channel.mention}.",
+            color=0x22C55E,
+        ),
+        ephemeral=True,
+    )
+
+
 # ── Cog ───────────────────────────────────────────────────────────────────────
 
 class CombatCog(commands.Cog, name="Combat"):
     def __init__(self, bot):
         self.bot = bot
+        combat_group.add_command(combat_config)
         bot.tree.add_command(combat_group)
 
     async def cog_unload(self):
@@ -1027,13 +1433,26 @@ class CombatCog(commands.Cog, name="Combat"):
         if message.content.startswith("/"):
             return
 
+        # Manual fights: log declarations only, don't classify or resolve
+        if session.fight_type == "manual":
+            if message.author.bot:
+                return
+            current = session.current_combatant
+            uid = session.user_id_for(current)
+            if message.author.id != uid:
+                return
+            if session.pending_action is not None:
+                return
+            # Just log the declaration and advance turn
+            session.add_log(f"📜 **{current.name}**: {message.content[:80]}")
+            session.advance_turn()
+            await _update_status_and_prompt(session, session.current_combatant)
+            return
+
         # DnD fights: ONLY read proxy webhook messages (PluralKit / Tupperbox)
         if session.fight_type == "dnd":
             if not message.webhook_id:
                 return  # ignore all non-proxy messages as OOC
-        else:
-            if message.author.bot:
-                return
 
         current = session.current_combatant
         uid = session.user_id_for(current)

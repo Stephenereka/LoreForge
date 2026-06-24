@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Integer, String, Text, Boolean, DateTime, JSON
+from sqlalchemy import BigInteger, Integer, String, Text, Boolean, DateTime, JSON, UniqueConstraint
 from sqlalchemy.orm import mapped_column, Mapped
 from datetime import datetime
 from database.session import Base
@@ -17,6 +17,7 @@ class Character(Base):
     background: Mapped[str] = mapped_column(String(50), nullable=True)
     level: Mapped[int] = mapped_column(Integer, default=1)
     xp: Mapped[int] = mapped_column(Integer, default=0)
+    is_custom: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Ability scores (raw — modifiers calculated in code)
     strength: Mapped[int] = mapped_column(Integer, default=10)
@@ -69,7 +70,37 @@ class GuildConfig(Base):
     world_data: Mapped[dict] = mapped_column(JSON, default=dict)
     combat_active: Mapped[bool] = mapped_column(Boolean, default=False)
     combat_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    log_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    gm_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class GuildGM(Base):
+    """DB-backed GM roster per guild (supplements the role-based check)."""
+    __tablename__ = "guild_gms"
+    __table_args__ = (UniqueConstraint("guild_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    added_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PendingApproval(Base):
+    """Stat change requests waiting for GM approval."""
+    __tablename__ = "pending_approvals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    character_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    character_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    field_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    old_value: Mapped[str] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    requested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class WorldEvent(Base):

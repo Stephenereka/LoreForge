@@ -14,59 +14,78 @@ def _help_pages() -> list[discord.Embed]:
             "LoreForge turns your Discord server into a living RPG world.\n"
             "The GM builds the world — players make characters and fight inside it.\n\n"
             "**Getting started:**\n"
-            "1️⃣ `/character create` — build your character (5-step wizard)\n"
-            "2️⃣ `/combat start` — pick an enemy and begin a fight\n"
-            "3️⃣ Type your actions in RP — the bot reads and resolves them\n\n"
+            "1️⃣ `/character create` — build your character (DnD wizard or custom free-form)\n"
+            "2️⃣ `/combat start` — open a lobby, choose DnD or Manual fight type\n"
+            "3️⃣ **DnD fights:** type your action in RP — bot reads, confirms, rolls\n"
+            "3️⃣ **Manual fights:** declare actions freely — GM resolves via `/combat hp`\n\n"
             "Use the buttons below to browse all commands."
         ),
         color=0x8B5CF6,
     )
-    e.set_footer(text="Page 1 / 5  —  LoreForge")
+    e.set_footer(text="Page 1 / 6  —  LoreForge")
     pages.append(e)
 
     # Page 2 — Character
     e = discord.Embed(title="🧙 Character Commands", color=0x8B5CF6)
     e.add_field(
         name="/character create <name>",
-        value="5-step wizard: race → class → background → loadout → backstory & proxy",
+        value="Choose **DnD** (5-step wizard: race → class → background → loadout → details) or **Custom** (free-form: any race, class, and background you imagine — manual combat only)",
         inline=False,
     )
-    e.add_field(name="/character sheet", value="View your character sheet privately", inline=False)
+    e.add_field(name="/character sheet", value="View your character sheet privately (shows XP bar, loadout, proxy)", inline=False)
     e.add_field(name="/character show", value="Post your character sheet to the channel", inline=False)
-    e.add_field(name="/character list [public]", value="List all your characters — choose public or private", inline=False)
-    e.add_field(name="/character proxy", value="Set or update your proxy brackets & avatar (accepts any direct image URL)", inline=False)
-    e.add_field(name="/character proxy_remove", value="Remove your proxy", inline=False)
-    e.add_field(name="/character delete", value="Permanently delete your character", inline=False)
-    e.set_footer(text="Page 2 / 5  —  Character")
+    e.add_field(name="/character list [public]", value="List all your characters including dead ones", inline=False)
+    e.add_field(name="/character use / unuse", value="Set or clear your active character (auto-used in all commands)", inline=False)
+    e.add_field(name="/character edit <field> <value>", value="Request a mechanical stat change — submitted for GM approval", inline=False)
+    e.add_field(name="/character proxy / proxy_remove", value="Set or remove proxy brackets & avatar for roleplay", inline=False)
+    e.add_field(name="/character delete", value="Permanently delete a character", inline=False)
+    e.set_footer(text="Page 2 / 6  —  Character")
     pages.append(e)
 
-    # Page 3 — Combat + Conditions
+    # Page 3 — Combat
     e = discord.Embed(
-        title="⚔️ Combat",
+        title="⚔️ Combat — Starting & Joining",
         description=(
-            "**How it works:** Type your action as RP — the bot reads it, asks you to confirm, then rolls.\n"
-            "Use your character's named attacks (e.g. *Power Strike*, *Eldritch Blast*) for special mechanics.\n"
-            "Dice rolls appear in the channel for everyone to see."
+            "**DnD fights** — Type your action as RP; the bot reads it, shows a confirm, then rolls dice.\n"
+            "Use named attacks (*Power Strike*, *Eldritch Blast*, etc.) for special mechanics.\n\n"
+            "**Manual fights** — Freely declare actions; the bot logs them. GM resolves results via `/combat hp`."
         ),
         color=0xEF4444,
     )
-    e.add_field(name="/combat start", value="Pick an enemy and open a public lobby (others can join)", inline=False)
-    e.add_field(name="/combat status", value="Check the current combat state", inline=False)
+    e.add_field(name="/combat start <title> <type> [@invite]", value="Open a lobby — choose DnD or Manual, optionally invite someone", inline=False)
+    e.add_field(name="/combat join", value="Join an open lobby in this server (pick from list if multiple)", inline=False)
+    e.add_field(name="/combat invite @user", value="Invite a specific user to the current lobby", inline=False)
+    e.add_field(name="/combat status", value="Check current combat state (ephemeral)", inline=False)
+    e.add_field(name="/combat overview", value="Post the live status embed publicly", inline=False)
+    e.add_field(name="/combat list", value="List all active combats in this server", inline=False)
+    e.add_field(name="/combat log", value="Show the recent action log for this fight", inline=False)
     e.add_field(name="/combat forfeit", value="Leave an active fight mid-combat", inline=False)
+    e.add_field(name="/combat end", value="End the fight (GM or host only)", inline=False)
+    e.set_footer(text="Page 3 / 6  —  Combat: Start & Join")
+    pages.append(e)
+
+    # Page 4 — Combat management + Conditions
+    e = discord.Embed(title="⚔️ Combat — Management & Conditions", color=0xEF4444)
+    e.add_field(name="/combat pause / resume", value="Pause or resume a manual fight (GM or host only)", inline=False)
+    e.add_field(name="/combat hp <amount> [@target]", value="Update HP: `+5`, `-10`, or `25` (absolute). GM can target anyone; players update own HP in manual fights only", inline=False)
+    e.add_field(name="/combat edit <field> <value> [@target]", value="Edit Temp HP, set conditions (comma-separated), or clear all conditions. Manual fights + GM", inline=False)
+    e.add_field(name="/combat summary", value="Generate a Battle Report embed from the fight log", inline=False)
+    e.add_field(name="/combat save <#channel>", value="Pin the fight summary to a channel (GM or host only)", inline=False)
+    e.add_field(name="/combat config log-channel <#channel>", value="Set the audit log channel for character edits *(Manage Server required)*", inline=False)
     e.add_field(
         name="⚡ Conditions",
         value=(
-            "**DoT:** 🟢 Poisoned · 🔥 Burning · 🩸 Bleeding\n"
-            "**Status:** ⚡ Stunned · 🌫️ Blinded · 😨 Frightened · 🌀 Prone\n"
-            "**Buffs:** 🛡️ Parrying (+2 AC) · 🔰 Shielded (+5 AC) · 💢 Raging\n"
-            "**Debuffs:** 💀 Hexed · ⚠️ Reckless (−2 AC)"
+            "**DoT:** 🤢 Poisoned · 🔥 Burning · 🩸 Bleeding\n"
+            "**Status:** ⭐ Stunned · 🫥 Blinded · 😨 Frightened · ⬇️ Prone · 🤜 Grappled\n"
+            "**Buffs:** 🛡️ Parrying (+2 AC) · ✨ Shielded (+5 AC) · 💢 Raging · 👁️ Hidden\n"
+            "**Debuffs:** 🔮 Hexed (+1d6 on hits) · 🔴 Reckless (−2 AC)"
         ),
         inline=False,
     )
-    e.set_footer(text="Page 3 / 5  —  Combat & Conditions")
+    e.set_footer(text="Page 4 / 6  —  Combat: Management & Conditions")
     pages.append(e)
 
-    # Page 4 — Rest + Shop + Inventory
+    # Page 5 — Rest + Shop + Inventory
     e = discord.Embed(title="💤 Rest  ·  🏪 Shop  ·  🎒 Inventory", color=0x6366F1)
     e.add_field(
         name="Rest",
@@ -95,21 +114,44 @@ def _help_pages() -> list[discord.Embed]:
         ),
         inline=False,
     )
-    e.set_footer(text="Page 4 / 5  —  Rest, Shop & Inventory")
+    e.set_footer(text="Page 5 / 6  —  Rest, Shop & Inventory")
     pages.append(e)
 
-    # Page 5 — Server setup + Coming Soon
-    e = discord.Embed(title="⚙️ Server Setup  ·  🗺️ Coming Soon", color=0x4F46E5)
+    # Page 6 — GM + Server Setup + Coming Soon
+    e = discord.Embed(title="🛡️ GM Commands  ·  ⚙️ Server Setup", color=0x4F46E5)
     e.add_field(
-        name="Server Setup",
-        value="`/server setup <world_name> <gm_role>` — Configure LoreForge *(Manage Server required)*",
+        name="Server Setup *(Manage Server required)*",
+        value=(
+            "`/server setup <world_name> <gm_role>` — Configure LoreForge\n"
+            "`/combat config log-channel <#ch>` — Set audit log channel"
+        ),
         inline=False,
     )
-    e.add_field(name="Utility", value="`/ping` — Check if the bot is online\n`/help` — Show this menu", inline=False)
     e.add_field(
-        name="GM Commands",
+        name="GM — Roster *(server owner only)*",
         value=(
-            "`/gm revive <character_name>` — Bring a dead character back to life at 1 HP *(GM only)*"
+            "`/gm add @user` — Grant GM status\n"
+            "`/gm remove @user` — Revoke GM status\n"
+            "`/gm list` — List all GMs in this server"
+        ),
+        inline=False,
+    )
+    e.add_field(
+        name="GM — Characters",
+        value=(
+            "`/gm sheet view [@user]` — View any player's character sheet(s)\n"
+            "`/gm sheet edit @user` — Edit any stat on any player's character (instant, no approval needed)\n"
+            "`/gm revive <name>` — Revive a dead character at 1 HP\n"
+            "`/gm xp @user <amount>` — Award XP manually (triggers level-up if threshold reached)"
+        ),
+        inline=False,
+    )
+    e.add_field(
+        name="GM — Approval Queue",
+        value=(
+            "`/gm pending` — View all pending stat change requests\n"
+            "`/gm approve <id>` — Approve a pending request (applies the change)\n"
+            "`/gm deny <id> [reason]` — Deny a pending request"
         ),
         inline=False,
     )
@@ -123,7 +165,7 @@ def _help_pages() -> list[discord.Embed]:
         ),
         inline=False,
     )
-    e.set_footer(text="Page 5 / 5  —  Server & More")
+    e.set_footer(text="Page 6 / 6  —  GM & Server")
     pages.append(e)
 
     return pages
