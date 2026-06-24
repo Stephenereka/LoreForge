@@ -47,8 +47,11 @@ class Character(Base):
     skill_proficiencies: Mapped[dict] = mapped_column(JSON, default=list)
     class_resources: Mapped[dict] = mapped_column(JSON, default=dict)
 
-    # Lore
+    # Lore & proxy
     backstory: Mapped[str] = mapped_column(Text, nullable=True)
+    avatar_url: Mapped[str] = mapped_column(Text, nullable=True)
+    proxy_open: Mapped[str] = mapped_column(String(10), nullable=True)
+    proxy_close: Mapped[str] = mapped_column(String(10), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

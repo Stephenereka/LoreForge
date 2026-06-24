@@ -8,7 +8,7 @@ from database.session import init_db
 load_dotenv()
 
 intents = discord.Intents.default()
-intents.message_content = False
+intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
@@ -18,6 +18,7 @@ COGS = [
     "cogs.combat",
     "cogs.shop",
     "cogs.inventory",
+    "cogs.proxy",
 ]
 
 @bot.event

@@ -70,9 +70,11 @@ class AdminCog(commands.Cog, name="Admin"):
         embed.add_field(
             name="🧙 `/character` — Your character",
             value=(
-                "`/character create <name>` — Start the character creation wizard\n"
+                "`/character create <name>` — 4-step wizard: race → class → background → backstory & proxy\n"
                 "`/character sheet` — View your character sheet (only you see it)\n"
-                "`/character show` — Post your character sheet to the channel"
+                "`/character show` — Post your character sheet to the channel\n"
+                "`/character proxy` — Set or update your proxy brackets & avatar\n"
+                "`/character proxy_remove` — Remove your proxy"
             ),
             inline=False,
         )

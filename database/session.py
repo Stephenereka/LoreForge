@@ -30,5 +30,13 @@ async def get_db():
 
 async def init_db():
     from database import models  # noqa: F401 — registers all models
+    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add new columns to existing tables without breaking live data
+        for stmt in [
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS avatar_url TEXT",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS proxy_open VARCHAR(10)",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS proxy_close VARCHAR(10)",
+        ]:
+            await conn.execute(text(stmt))
