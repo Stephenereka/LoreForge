@@ -14,6 +14,7 @@ from services.combat_engine import (
 from services.ai_service import classify_combat_action
 from services.leveling import pvp_xp_reward, check_level_up, hp_gain_on_level, feature_at_level, xp_bar, ASI_LEVELS
 from cogs.character import resolve_character, CharacterPickView, pick_embed
+from services.utils import is_gm
 
 # ── Active sessions: channel_id → CombatSession (infinite per guild) ─────────
 _sessions: dict[int, "CombatSession"] = {}
@@ -101,7 +102,7 @@ class CombatSession:
 
     def add_log(self, line: str):
         self.log.append(line)
-        if len(self.log) > 8:
+        if len(self.log) > 15:
             self.log.pop(0)
 
     def advance_turn(self):
@@ -133,7 +134,7 @@ class CombatSession:
         if self.players:
             lines = [f"• **{p.name}** (Lv{p.level} {p.char_class})" for p in self.players]
             embed.add_field(name=f"Fighters ({len(self.players)})", value="\n".join(lines), inline=False)
-        embed.set_footer(text="Click Join Fight to enter • Host clicks Start Battle when ready (min 2 fighters)")
+        embed.set_footer(text="Click Join Fight to enter • Host clicks Start Battle when ready (min 2 fighters) • Lobby closes in 10 minutes")
         return embed
 
     def status_embed(self) -> discord.Embed:
@@ -228,7 +229,7 @@ class CombatJoinCharView(discord.ui.View):
 
 class LobbyView(discord.ui.View):
     def __init__(self, session: "CombatSession"):
-        super().__init__(timeout=None)
+        super().__init__(timeout=600)
         self.session = session
 
     @discord.ui.button(label="Join Fight", style=discord.ButtonStyle.success, emoji="⚔️")
@@ -286,14 +287,25 @@ class LobbyView(discord.ui.View):
         if session.state == "lobby":
             session.state = "over"
             _sessions.pop(session.channel_id, None)
+            await _set_combat_active(session.guild_id, None)
+            if session.lobby_message:
+                try:
+                    await session.lobby_message.edit(
+                        content="⏱️ **Lobby expired** — no battle started within 10 minutes.",
+                        embed=None,
+                        view=None,
+                    )
+                except Exception:
+                    pass
 
 
 # ── Invite View — sent when host invites a specific user ─────────────────────
 
 class InviteView(discord.ui.View):
     def __init__(self, session: "CombatSession"):
-        super().__init__(timeout=None)
+        super().__init__(timeout=600)
         self.session = session
+        self._message: discord.Message | None = None
 
     @discord.ui.button(label="Join Fight", style=discord.ButtonStyle.success, emoji="⚔️")
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -327,6 +339,17 @@ class InviteView(discord.ui.View):
         if session.lobby_message:
             await session.lobby_message.edit(embed=session.lobby_embed(), view=LobbyView(session))
         self.stop()
+
+    async def on_timeout(self):
+        self.stop()
+        if self._message:
+            try:
+                await self._message.edit(
+                    content="⏱️ **Invite expired** — this invitation is no longer valid.",
+                    view=None,
+                )
+            except Exception:
+                pass
 
 
 # ── Fuzzy target matching ─────────────────────────────────────────────────────
@@ -754,8 +777,14 @@ async def _end_combat(session: CombatSession, winner: Combatant | None):
             if char:
                 char.hp_current = p.hp_current
                 char.hp_temp = p.hp_temp
+                char.is_unconscious = p.is_unconscious
+                char.death_saves_success = p.death_saves_success
+                char.death_saves_failure = p.death_saves_failure
+                char.conditions = list(p.conditions or [])
                 if p.is_dead:
                     char.is_dead = True
+                    char.hp_current = 0
+                elif p.is_unconscious:
                     char.hp_current = 0
 
     # ── XP Awards ────────────────────────────────────────────────────────────
@@ -870,10 +899,12 @@ async def combat_start(interaction: discord.Interaction, title: str, fight_type:
     session.lobby_message = await interaction.channel.send(embed=session.lobby_embed(), view=lobby_view)
     await interaction.response.send_message("✅ Combat lobby created!", ephemeral=True)
     if invite:
-        await interaction.channel.send(
+        invite_view = InviteView(session)
+        invite_msg = await interaction.channel.send(
             f"⚔️ {invite.mention} — you've been invited to join **{session.title}**!",
-            view=InviteView(session),
+            view=invite_view,
         )
+        invite_view._message = invite_msg
 
 
 @combat_group.command(name="invite", description="Invite a user to the active combat lobby in this channel")
@@ -893,10 +924,12 @@ async def combat_invite(interaction: discord.Interaction, user: discord.Member):
         await interaction.response.send_message(f"**{user.display_name}** is already in this fight.", ephemeral=True)
         return
     await interaction.response.send_message("✅ Invite sent!", ephemeral=True)
-    await interaction.channel.send(
+    invite_view = InviteView(session)
+    invite_msg = await interaction.channel.send(
         f"⚔️ {user.mention} — you've been invited to join **{session.title}**!",
-        view=InviteView(session),
+        view=invite_view,
     )
+    invite_view._message = invite_msg
 
 
 @combat_group.command(name="join", description="Join an active combat lobby in this server")
@@ -995,7 +1028,6 @@ async def combat_end(interaction: discord.Interaction):
         await interaction.response.send_message("No active combat in this channel.", ephemeral=True)
         return
 
-    from services.utils import is_gm
     user_is_gm = await is_gm(interaction)
     user_is_initiator = interaction.user.id == session.initiator_id
 
@@ -1114,7 +1146,6 @@ async def combat_pause(interaction: discord.Interaction):
     if session.fight_type != "manual":
         await interaction.response.send_message("Only manual fights can be paused.", ephemeral=True)
         return
-    from services.utils import is_gm
     user_is_gm = await is_gm(interaction)
     if not user_is_gm and interaction.user.id != session.initiator_id:
         await interaction.response.send_message("Only the GM or fight host can pause combat.", ephemeral=True)
@@ -1138,7 +1169,6 @@ async def combat_resume(interaction: discord.Interaction):
     if not session or session.state != "paused":
         await interaction.response.send_message("No paused combat in this channel.", ephemeral=True)
         return
-    from services.utils import is_gm
     user_is_gm = await is_gm(interaction)
     if not user_is_gm and interaction.user.id != session.initiator_id:
         await interaction.response.send_message("Only the GM or fight host can resume combat.", ephemeral=True)
@@ -1167,7 +1197,6 @@ async def combat_hp(interaction: discord.Interaction, amount: str, target: disco
     if not session or session.state not in ("active", "paused"):
         await interaction.response.send_message("No active combat in this channel.", ephemeral=True)
         return
-    from services.utils import is_gm
     user_is_gm = await is_gm(interaction)
 
     # Determine which combatant to update
@@ -1265,7 +1294,6 @@ async def combat_edit(
     if not session or session.state not in ("active", "paused"):
         await interaction.response.send_message("No active combat in this channel.", ephemeral=True)
         return
-    from services.utils import is_gm
     user_is_gm = await is_gm(interaction)
 
     # Determine target combatant
@@ -1370,7 +1398,6 @@ async def combat_save(interaction: discord.Interaction, channel: discord.TextCha
     if not session:
         await interaction.response.send_message("No combat active in this channel.", ephemeral=True)
         return
-    from services.utils import is_gm
     user_is_gm = await is_gm(interaction)
     if not user_is_gm and interaction.user.id != session.initiator_id:
         await interaction.response.send_message("Only the GM or fight host can save the summary.", ephemeral=True)

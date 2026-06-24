@@ -348,31 +348,6 @@ def roll_initiative(combatants: list[Combatant]) -> list[Combatant]:
         c.initiative = roll(20) + modifier(c.dexterity)
     return sorted(combatants, key=lambda c: c.initiative, reverse=True)
 
-# ── XP thresholds (D&D 5e) ────────────────────────────────────────────────────
-
-XP_THRESHOLDS = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000,
-                 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000]
-
-def xp_for_level(level: int) -> int:
-    if level >= len(XP_THRESHOLDS):
-        return XP_THRESHOLDS[-1]
-    return XP_THRESHOLDS[level]
-
-def check_level_up(current_xp: int, current_level: int) -> Optional[int]:
-    """Return the new level if a level-up occurred, else None."""
-    if current_level >= 20:
-        return None
-    needed = xp_for_level(current_level)
-    if current_xp >= needed:
-        return current_level + 1
-    return None
-
-def hp_gain_on_level(char_class: str, con_score: int, new_level: int) -> int:
-    hit_die = {"Fighter": 10, "Barbarian": 12, "Rogue": 8,
-               "Cleric": 8, "Wizard": 6, "Warlock": 8}.get(char_class, 8)
-    avg_roll = math.ceil(hit_die / 2) + 1
-    return avg_roll + modifier(con_score)
-
 
 # ── Conditions ────────────────────────────────────────────────────────────────
 
@@ -597,7 +572,7 @@ def _shield_bash(attacker: Combatant, target: Combatant) -> dict:
         con_save = roll(20) + modifier(target.constitution)
         if con_save < 13:
             apply_condition(target, "stunned", 1)
-            r["conditions_applied"].append((target, "stunned", 1))
+            r["conditions_applied"].append({"name": "stunned", "duration": 1})
             lines.append(f"⭐ {target.name} fails CON save ({con_save} vs DC 13) — **Stunned** for 1 round!")
         else:
             lines.append(f"{target.name} passes CON save ({con_save}) — not stunned.")
@@ -608,7 +583,7 @@ def _shield_bash(attacker: Combatant, target: Combatant) -> dict:
 def _parry(attacker: Combatant, target: Combatant) -> dict:
     r = _base_result("Parry")
     apply_condition(attacker, "parrying", 1)
-    r["self_conditions"].append(("parrying", 1))
+    r["self_conditions"].append({"name": "parrying", "duration": 1})
     r["ac_bonus"] = 2
     r["log_lines"] = [
         f"🛡️ **{attacker.name}** uses **Parry** — bracing to deflect the next blow!",
@@ -642,7 +617,7 @@ def _sneak_stab(attacker: Combatant, target: Combatant) -> dict:
     if hit:
         lines.append(f"💥 {dc}d{ds}({sum(rolls)}) + DEX({sm:+}) + {sneak_n}d6 Sneak({sum(sneak_r)}) = **{dmg} damage**")
         apply_condition(target, "bleeding", 2)
-        r["conditions_applied"].append((target, "bleeding", 2))
+        r["conditions_applied"].append({"name": "bleeding", "duration": 2})
         lines.append(f"🩸 {target.name} is **Bleeding** for 2 rounds!")
     r["log_lines"] = lines
     return r
@@ -666,7 +641,7 @@ def _smoke_feint(attacker: Combatant, target: Combatant) -> dict:
     if hit:
         lines.append(f"💥 {dc}d{ds}({sum(rolls)}) + DEX({sm:+}) + Feint(+1) = **{dmg} damage**")
         apply_condition(target, "blinded", 1)
-        r["conditions_applied"].append((target, "blinded", 1))
+        r["conditions_applied"].append({"name": "blinded", "duration": 1})
         lines.append(f"🫥 {target.name} is **Blinded** for 1 round!")
     r["log_lines"] = lines
     return r
@@ -721,7 +696,7 @@ def _fire_bolt(attacker: Combatant, target: Combatant) -> dict:
     if hit:
         lines.append(f"💥 {'2' if crit else '1'}d10({sum(fire_r)}) = **{dmg} fire damage**")
         apply_condition(target, "burning", 1)
-        r["conditions_applied"].append((target, "burning", 1))
+        r["conditions_applied"].append({"name": "burning", "duration": 1})
         lines.append(f"🔥 {target.name} is **Burning** for 1 round!")
     r["log_lines"] = lines
     return r
@@ -730,7 +705,7 @@ def _fire_bolt(attacker: Combatant, target: Combatant) -> dict:
 def _wizard_shield(attacker: Combatant, target: Combatant) -> dict:
     r = _base_result("Shield")
     apply_condition(attacker, "shielded", 1)
-    r["self_conditions"].append(("shielded", 1))
+    r["self_conditions"].append({"name": "shielded", "duration": 1})
     r["ac_bonus"] = 5
     r["log_lines"] = [
         f"✨ **{attacker.name}** casts **Shield** — a glimmering magical barrier!",
@@ -753,7 +728,7 @@ def _reckless_swing(attacker: Combatant, target: Combatant) -> dict:
     rolls = roll_dice(dc, ds)
     dmg = max(1, sum(rolls) + sm + 3)
     apply_condition(attacker, "reckless", 1)
-    r["self_conditions"].append(("reckless", 1))
+    r["self_conditions"].append({"name": "reckless", "duration": 1})
     r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
     rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
     lines = [
@@ -788,7 +763,7 @@ def _rage_charge(attacker: Combatant, target: Combatant) -> dict:
         str_save = roll(20) + modifier(target.strength)
         if str_save < 14:
             apply_condition(target, "prone", 1)
-            r["conditions_applied"].append((target, "prone", 1))
+            r["conditions_applied"].append({"name": "prone", "duration": 1})
             lines.append(f"⬇️ {target.name} fails STR save ({str_save} vs DC 14) — **Knocked Prone** for 1 round!")
         else:
             lines.append(f"{target.name} passes STR save ({str_save}) — stays on their feet.")
@@ -809,7 +784,7 @@ def _intimidate(attacker: Combatant, target: Combatant) -> dict:
     ]
     if success:
         apply_condition(target, "frightened", 2)
-        r["conditions_applied"].append((target, "frightened", 2))
+        r["conditions_applied"].append({"name": "frightened", "duration": 2})
         lines.append(f"😨 {target.name} is **Frightened** for 2 rounds — disadvantage on attacks!")
     else:
         lines.append(f"{target.name} stands firm, unshaken.")
@@ -873,7 +848,7 @@ def _turn_undead(attacker: Combatant, target: Combatant) -> dict:
         lines.append(f"🎲 {target.name} WIS save: {wis_save} vs DC {dc}")
         if wis_save < dc:
             apply_condition(target, "frightened", 2)
-            r["conditions_applied"].append((target, "frightened", 2))
+            r["conditions_applied"].append({"name": "frightened", "duration": 2})
             r["hit"] = True
             lines.append(f"😨 **{target.name} is Turned!** Frightened for 2 rounds — cannot attack!")
         else:
@@ -911,7 +886,7 @@ def _eldritch_blast(attacker: Combatant, target: Combatant) -> dict:
 def _hex_spell(attacker: Combatant, target: Combatant) -> dict:
     r = _base_result("Hex")
     apply_condition(target, "hexed", 3)
-    r["conditions_applied"].append((target, "hexed", 3))
+    r["conditions_applied"].append({"name": "hexed", "duration": 3})
     r["log_lines"] = [
         f"🔮 **{attacker.name}** places a **Hex** on {target.name}!",
         f"💀 {target.name} is **Hexed** for 3 rounds — each hit deals +1d6 necrotic damage!",
@@ -961,7 +936,7 @@ def _ray_of_frost(attacker: Combatant, target: Combatant) -> dict:
     if hit:
         lines.append(f"💥 {'2' if crit else '1'}d8({sum(cold_r)}) = **{dmg} cold damage**")
         apply_condition(target, "slowed", 1)
-        r["conditions_applied"].append((target, "slowed", 1))
+        r["conditions_applied"].append({"name": "slowed", "duration": 1})
         lines.append(f"🐌 {target.name} is **Slowed** — speed reduced by 10ft for 1 round!")
     r["log_lines"] = lines
     return r
@@ -985,7 +960,7 @@ def _guiding_bolt(attacker: Combatant, target: Combatant) -> dict:
     if hit:
         lines.append(f"💥 {'8' if crit else '4'}d6({sum(rad_r)}) = **{dmg} radiant damage**")
         apply_condition(target, "blinded", 1)
-        r["conditions_applied"].append((target, "blinded", 1))
+        r["conditions_applied"].append({"name": "blinded", "duration": 1})
         lines.append(f"🫥 {target.name} is **outlined in radiance** — Blinded for 1 round (next attack against them has advantage)!")
     r["log_lines"] = lines
     return r
@@ -1007,7 +982,7 @@ def _hellish_rebuke(attacker: Combatant, target: Combatant) -> dict:
         f"🔥 2d10({sum(fire_r)}) = **{dmg} fire damage** to {target.name}",
     ]
     apply_condition(target, "burning", 1)
-    r["conditions_applied"].append((target, "burning", 1))
+    r["conditions_applied"].append({"name": "burning", "duration": 1})
     lines.append(f"🔥 {target.name} is **Burning** for 1 round!")
     r["log_lines"] = lines
     return r
