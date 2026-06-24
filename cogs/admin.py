@@ -15,8 +15,9 @@ class AdminCog(commands.Cog, name="Admin"):
             ephemeral=True
         )
 
-    @app_commands.command(name="setup", description="Set up LoreForge in this server (GM only)")
+    @app_commands.command(name="setup", description="Set up LoreForge in this server (requires Manage Server)")
     @app_commands.describe(world_name="Name of your world", gm_role="The role that acts as Game Master")
+    @app_commands.default_permissions(manage_guild=True)
     async def setup(self, interaction: discord.Interaction, world_name: str, gm_role: discord.Role):
         from database.session import get_db
         from database.models import GuildConfig
