@@ -202,6 +202,14 @@ class AdminCog(commands.Cog, name="Admin"):
     async def cog_unload(self):
         self.bot.tree.remove_command("server")
 
+    @commands.command(name="sync")
+    @commands.is_owner()
+    async def sync_commands(self, ctx):
+        guild = discord.Object(id=ctx.guild.id)
+        self.bot.tree.copy_global_to(guild=guild)
+        synced = await self.bot.tree.sync(guild=guild)
+        await ctx.send(f"✅ Synced {len(synced)} commands to this server.")
+
     @app_commands.command(name="ping", description="Check if LoreForge is online")
     async def ping(self, interaction: discord.Interaction):
         latency = round(self.bot.latency * 1000)
