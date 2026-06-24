@@ -28,10 +28,10 @@ class Combatant:
 
     level: int
     char_class: str
-    weapon: str = "unarmed"
 
     hp_max: int
     hp_current: int
+    weapon: str = "unarmed"
     hp_temp: int = 0
 
     strength: int = 10
