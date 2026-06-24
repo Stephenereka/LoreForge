@@ -15,7 +15,7 @@ from services.ai_service import classify_combat_action
 from cogs.character import resolve_character, get_characters, CharacterPickView, pick_embed
 import random
 
-# ── Active sessions: guild_id → CombatSession ────────────────────────────────
+# ── Active sessions: channel_id → CombatSession (infinite per guild) ─────────
 _sessions: dict[int, "CombatSession"] = {}
 
 
@@ -347,7 +347,7 @@ class LobbyView(discord.ui.View):
         session = self.session
         if session.state == "lobby":
             session.state = "over"
-            _sessions.pop(session.guild_id, None)
+            _sessions.pop(session.channel_id, None)
 
 
 # ── Confirm View — shown after AI classifies a player's action ────────────────
@@ -445,7 +445,7 @@ class DeathSaveView(discord.ui.View):
         next_c = session.current_combatant
 
         if session.status_message:
-            await session.status_message.edit(embed=session.status_embed())
+            session.status_message = await session.status_message.channel.send(embed=session.status_embed())
 
         if not next_c.is_player:
             await _resolve_enemy_turn(session)
@@ -487,7 +487,7 @@ async def _update_status_and_prompt(session: CombatSession, next_c: Combatant):
     # Skip turn if stunned
     if has_condition(next_c, "stunned"):
         session.add_log(f"⚡ **{next_c.name}** is stunned and loses their turn!")
-        await session.status_message.edit(embed=session.status_embed())
+        session.status_message = await session.status_message.channel.send(embed=session.status_embed())
         session.advance_turn()
         next_next = session.current_combatant
         if not next_next.is_player:
@@ -498,7 +498,7 @@ async def _update_status_and_prompt(session: CombatSession, next_c: Combatant):
 
     if next_c.is_unconscious:
         uid = session.user_id_for(next_c)
-        await session.status_message.edit(
+        session.status_message = await session.status_message.channel.send(
             content=f"😵 **{next_c.name}** is unconscious.",
             embed=session.status_embed(),
         )
@@ -507,7 +507,7 @@ async def _update_status_and_prompt(session: CombatSession, next_c: Combatant):
             view=DeathSaveView(session, uid),
         )
     else:
-        await session.status_message.edit(
+        session.status_message = await session.status_message.channel.send(
             content=f"**{next_c.name}** — it's your turn. Type your action in RP.",
             embed=session.status_embed(),
         )
@@ -595,17 +595,17 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
 
             if not session.players:
                 session.state = "over"
-                _sessions.pop(session.guild_id, None)
+                _sessions.pop(session.channel_id, None)
                 await _set_combat_active(session.guild_id, None)
                 embed = discord.Embed(title="💨 All fighters fled.", color=0xF59E0B)
                 if session.status_message:
-                    await session.status_message.edit(content="", embed=embed)
+                    await session.status_message.channel.send(embed=embed)
                 return
 
             # After removing player, current_idx already points to next combatant
             next_c = session.turn_order[session.current_idx % len(session.turn_order)]
             if session.status_message:
-                await session.status_message.edit(embed=session.status_embed())
+                session.status_message = await session.status_message.channel.send(embed=session.status_embed())
             if not next_c.is_player:
                 await _resolve_enemy_turn(session)
             else:
@@ -627,7 +627,7 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
 
     if not next_c.is_player:
         if session.status_message:
-            await session.status_message.edit(embed=session.status_embed())
+            session.status_message = await session.status_message.channel.send(embed=session.status_embed())
         await _resolve_enemy_turn(session)
     else:
         await _update_status_and_prompt(session, next_c)
@@ -662,7 +662,7 @@ async def _resolve_enemy_turn(session: CombatSession):
     if has_condition(enemy, "frightened") and random.random() < 0.5:
         session.add_log(f"😨 **{enemy.name}** cowers in fear and cannot act!")
         if session.status_message:
-            await session.status_message.edit(embed=session.status_embed())
+            session.status_message = await session.status_message.channel.send(embed=session.status_embed())
         session.advance_turn()
         next_c = session.current_combatant
         if not next_c.is_player:
@@ -747,11 +747,11 @@ async def _end_victory(session: CombatSession):
                 char.is_dead = True
                 char.hp_current = 0
 
-    _sessions.pop(session.guild_id, None)
+    _sessions.pop(session.channel_id, None)
     await _set_combat_active(session.guild_id, None)
 
     if session.status_message:
-        await session.status_message.edit(content="", embed=session.victory_embed(xp))
+        await session.status_message.channel.send(embed=session.victory_embed(xp))
 
 
 async def _end_defeat(session: CombatSession):
@@ -772,11 +772,11 @@ async def _end_defeat(session: CombatSession):
                 if p.is_dead:
                     char.is_dead = True
 
-    _sessions.pop(session.guild_id, None)
+    _sessions.pop(session.channel_id, None)
     await _set_combat_active(session.guild_id, None)
 
     if session.status_message:
-        await session.status_message.edit(content="", embed=session.defeat_embed())
+        await session.status_message.channel.send(embed=session.defeat_embed())
 
 
 # ── Enemy select ──────────────────────────────────────────────────────────────
@@ -806,7 +806,7 @@ class EnemySelect(discord.ui.Select):
             guild_id=interaction.guild_id,
             initiator_id=self.initiator_id,
         )
-        _sessions[interaction.guild_id] = session
+        _sessions[interaction.channel_id] = session
         await _set_combat_active(interaction.guild_id, interaction.channel_id)
 
         char, _ = await resolve_character(interaction.user.id, interaction.guild_id)
@@ -838,9 +838,9 @@ async def combat_start(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
-    if interaction.guild_id in _sessions:
+    if interaction.channel_id in _sessions:
         await interaction.response.send_message(
-            "A combat is already active. Finish it first.", ephemeral=True
+            "A combat is already active in this channel.", ephemeral=True
         )
         return
 
@@ -872,11 +872,38 @@ async def combat_status(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
-    session = _sessions.get(interaction.guild_id)
+    session = _sessions.get(interaction.channel_id)
     if not session:
-        await interaction.response.send_message("No combat active right now.", ephemeral=True)
+        await interaction.response.send_message("No combat active in this channel.", ephemeral=True)
         return
     await interaction.response.send_message(embed=session.status_embed(), ephemeral=True)
+
+
+@combat_group.command(name="end", description="End the active combat in this channel")
+async def combat_end(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    session = _sessions.get(interaction.channel_id)
+    if not session:
+        await interaction.response.send_message("No active combat in this channel.", ephemeral=True)
+        return
+
+    is_participant = interaction.user.id in session.player_user_ids
+    if not is_participant:
+        await interaction.response.send_message("You are not in this fight.", ephemeral=True)
+        return
+
+    session.state = "over"
+    _sessions.pop(session.channel_id, None)
+    await _set_combat_active(session.guild_id, None)
+
+    embed = discord.Embed(
+        title="🏳️ Combat Ended",
+        description=f"Ended by **{interaction.user.display_name}**.",
+        color=0xF59E0B,
+    )
+    await interaction.response.send_message(embed=embed)
 
 
 @combat_group.command(name="forfeit", description="Forfeit combat — removes you from the current fight")
@@ -884,9 +911,9 @@ async def combat_forfeit(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
-    session = _sessions.get(interaction.guild_id)
+    session = _sessions.get(interaction.channel_id)
     if not session or session.state != "active":
-        await interaction.response.send_message("No active combat right now.", ephemeral=True)
+        await interaction.response.send_message("No active combat in this channel.", ephemeral=True)
         return
     if interaction.user.id not in session.player_user_ids:
         await interaction.response.send_message("You're not in this fight.", ephemeral=True)
@@ -904,15 +931,15 @@ async def combat_forfeit(interaction: discord.Interaction):
 
     if not session.players:
         session.state = "over"
-        _sessions.pop(session.guild_id, None)
+        _sessions.pop(session.channel_id, None)
         await _set_combat_active(session.guild_id, None)
         if session.status_message:
             embed = discord.Embed(title="💨 All fighters withdrew.", color=0xF59E0B)
-            await session.status_message.edit(content="", embed=embed)
+            await session.status_message.channel.send(embed=embed)
         return
 
     if session.status_message:
-        await session.status_message.edit(embed=session.status_embed())
+        session.status_message = await session.status_message.channel.send(embed=session.status_embed())
 
 
 # ── Cog ───────────────────────────────────────────────────────────────────────
@@ -930,7 +957,7 @@ class CombatCog(commands.Cog, name="Combat"):
         if message.author.bot or not message.guild:
             return
 
-        session = _sessions.get(message.guild.id)
+        session = _sessions.get(message.channel.id)
         if not session or session.state != "active":
             return
         if message.channel.id != session.channel_id:
