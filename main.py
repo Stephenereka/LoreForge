@@ -15,6 +15,7 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 COGS = [
     "cogs.admin",
     "cogs.character",
+    "cogs.combat",
 ]
 
 @bot.event

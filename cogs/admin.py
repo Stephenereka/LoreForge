@@ -95,9 +95,17 @@ class AdminCog(commands.Cog, name="Admin"):
         )
 
         embed.add_field(
+            name="⚔️ `/combat` — Battles",
+            value=(
+                "`/combat start` — Pick an enemy and begin a fight\n"
+                "`/combat status` — Check the current combat state"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
             name="🗺️ Coming Soon",
             value=(
-                "`/combat` — Start and manage battles\n"
                 "`/lore` — Search your world's lore wiki\n"
                 "`/quest` — View and accept quests\n"
                 "`/shop` — Browse and buy items\n"
