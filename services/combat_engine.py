@@ -239,6 +239,7 @@ STARTER_ATTACKS: dict[str, list[dict]] = {
         {"name": "Magic Missile", "flavor": "launches three darts of magical force",         "stat": "int", "damage_dice": (3, 4), "is_spell": True},
         {"name": "Fire Bolt",     "flavor": "hurls a mote of searing fire",                 "stat": "int", "damage_dice": (1, 10), "is_spell": True},
         {"name": "Shield",        "flavor": "raises a glimmering magical barrier",           "stat": "int", "is_defend": True, "is_spell": True},
+        {"name": "Ray of Frost",  "flavor": "unleashes a beam of freezing cold energy",     "stat": "int", "damage_dice": (1, 8), "is_spell": True},
     ],
     "Barbarian": [
         {"name": "Reckless Swing","flavor": "attacks with wild, furious abandon",            "stat": "str", "damage_bonus": 3},
@@ -249,11 +250,13 @@ STARTER_ATTACKS: dict[str, list[dict]] = {
         {"name": "Smite",         "flavor": "channels divine wrath into their strike",       "stat": "wis", "damage_bonus": 2, "is_spell": True},
         {"name": "Heal",          "flavor": "calls on divine power to mend wounds",          "stat": "wis", "is_heal": True, "is_spell": True},
         {"name": "Turn Undead",   "flavor": "raises their holy symbol with divine force",    "stat": "wis", "is_special": True, "is_spell": True},
+        {"name": "Guiding Bolt",  "flavor": "calls down a flash of divine radiance",         "stat": "wis", "damage_dice": (4, 6), "is_spell": True},
     ],
     "Warlock": [
         {"name": "Eldritch Blast","flavor": "fires a beam of crackling dark energy",         "stat": "cha", "damage_dice": (1, 10), "is_spell": True},
         {"name": "Hex",           "flavor": "places a dark curse on the target",             "stat": "cha", "is_special": True, "is_spell": True},
         {"name": "Drain",         "flavor": "siphons life force from the target",            "stat": "cha", "damage_dice": (1, 8), "is_spell": True, "self_heal": True},
+        {"name": "Hellish Rebuke","flavor": "wraps themselves in hellfire, punishing attackers", "stat": "cha", "is_special": True, "is_spell": True},
     ],
 }
 
@@ -388,6 +391,12 @@ CONDITIONS: dict[str, dict] = {
     "raging":     {"icon": "💢", "damage_bonus": 2, "damage_resistance": True},
     "grappled":   {"icon": "🤜", "attack_disadvantage": True},
     "hidden":     {"icon": "👁️", "defense_advantage": True},
+    "slowed":     {"icon": "🐌", "attack_penalty": True},
+    "blessed":     {"icon": "✨", "bonus_attack_dice": (1, 4)},
+    "sanctuary":   {"icon": "🔵", "ac_bonus": 3, "sanctuary_active": True},
+    "webbed":      {"icon": "🕸️", "attack_disadvantage": True, "defense_disadvantage": True},
+    "guided":      {"icon": "🎯", "next_attack_advantage": True},
+    "restrained":   {"icon": "⛓️", "attack_disadvantage": True, "defense_disadvantage": True},
 }
 
 
@@ -934,6 +943,76 @@ def _drain(attacker: Combatant, target: Combatant) -> dict:
     return r
 
 
+def _ray_of_frost(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Ray of Frost")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.intelligence)
+    dis = has_condition(attacker, "blinded")
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target), False, dis)
+    cold_r = roll_dice(2 if crit else 1, 8)
+    dmg = max(1, sum(cold_r))
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    lines = [
+        f"❄️ **{attacker.name}** unleashes **Ray of Frost** at {target.name}!",
+        f"🎲 d20({raw}) {sm:+} INT  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {'2' if crit else '1'}d8({sum(cold_r)}) = **{dmg} cold damage**")
+        apply_condition(target, "slowed", 1)
+        r["conditions_applied"].append((target, "slowed", 1))
+        lines.append(f"🐌 {target.name} is **Slowed** — speed reduced by 10ft for 1 round!")
+    r["log_lines"] = lines
+    return r
+
+
+def _guiding_bolt(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Guiding Bolt")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.wisdom)
+    dis = has_condition(attacker, "blinded")
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target), False, dis)
+    rad_r = roll_dice(2 if crit else 4, 6)
+    dmg = max(1, sum(rad_r))
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    lines = [
+        f"✨ **{attacker.name}** calls down **Guiding Bolt** on {target.name}!",
+        f"🎲 d20({raw}) {sm:+} WIS  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {'8' if crit else '4'}d6({sum(rad_r)}) = **{dmg} radiant damage**")
+        apply_condition(target, "blinded", 1)
+        r["conditions_applied"].append((target, "blinded", 1))
+        lines.append(f"🫥 {target.name} is **outlined in radiance** — Blinded for 1 round (next attack against them has advantage)!")
+    r["log_lines"] = lines
+    return r
+
+
+def _hellish_rebuke(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Hellish Rebuke")
+    cha_mod = modifier(attacker.charisma)
+    pb = proficiency_bonus(attacker.level)
+    dc = 8 + cha_mod + pb
+    dex_save = roll(20) + modifier(target.dexterity)
+    saved = dex_save >= dc
+    fire_r = roll_dice(2, 10)
+    dmg = max(1, sum(fire_r) // (2 if saved else 1))
+    r.update(hit=True, damage=dmg)
+    lines = [
+        f"🔥 **{attacker.name}** wraps in hellfire — **Hellish Rebuke**!",
+        f"💀 {target.name} DEX save: d20({dex_save - modifier(target.dexterity)}) {modifier(target.dexterity):+} DEX = **{dex_save}** vs DC {dc} — {'✅ Half damage!' if saved else '❌ Full damage!'}",
+        f"🔥 2d10({sum(fire_r)}) = **{dmg} fire damage** to {target.name}",
+    ]
+    apply_condition(target, "burning", 1)
+    r["conditions_applied"].append((target, "burning", 1))
+    lines.append(f"🔥 {target.name} is **Burning** for 1 round!")
+    r["log_lines"] = lines
+    return r
+
+
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
 _HANDLERS: dict = {
@@ -955,6 +1034,9 @@ _HANDLERS: dict = {
     "Eldritch Blast": _eldritch_blast,
     "Hex":            _hex_spell,
     "Drain":          _drain,
+    "Ray of Frost":   _ray_of_frost,
+    "Guiding Bolt":   _guiding_bolt,
+    "Hellish Rebuke": _hellish_rebuke,
 }
 
 
