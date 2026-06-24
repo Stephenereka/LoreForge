@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite
+.vscode/
+chroma_db/
+*.log

@@ -1,0 +1,7 @@
+discord.py>=2.4.0
+sqlalchemy[asyncio]>=2.0
+aiosqlite
+asyncpg
+python-dotenv
+groq
+aiohttp
