@@ -58,20 +58,10 @@ def calc_hp(char_class: str, con_score: int) -> int:
     hit_die = CLASSES[char_class]["hit_die"]
     return hit_die + modifier(con_score)
 
-def calc_ac(dex_score: int, armor: str = "none") -> int:
-    dex_mod = modifier(dex_score)
-    if armor == "none":
-        return 10 + dex_mod
-    elif armor == "leather":
-        return 11 + dex_mod
-    elif armor == "chain":
-        return 13 + min(dex_mod, 2)
-    elif armor == "plate":
-        return 18
-    return 10 + dex_mod
+def calc_ac(dex_score: int) -> int:
+    return 10 + modifier(dex_score)
 
 def assign_stats(char_class: str, race: str) -> dict:
-    """Assign standard array to stats in class-optimal order, then apply racial bonuses."""
     order = CLASS_STAT_ORDER[char_class]
     base = dict(zip(order, STANDARD_ARRAY))
     bonuses = RACES[race]
@@ -130,7 +120,10 @@ class RaceSelect(discord.ui.Select):
     def __init__(self, char_name: str):
         self.char_name = char_name
         options = [
-            discord.SelectOption(label=race, description=f"Bonuses: {', '.join(f'+{v} {k.upper()}' for k, v in bonuses.items())}")
+            discord.SelectOption(
+                label=race,
+                description=f"Bonuses: {', '.join(f'+{v} {k.upper()}' for k, v in bonuses.items())}"
+            )
             for race, bonuses in RACES.items()
         ]
         super().__init__(placeholder="Choose your race...", options=options)
@@ -232,7 +225,6 @@ class ConfirmView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
 
         async with get_db() as db:
-            # Enforce one character per user per server
             result = await db.execute(
                 select(Character).where(
                     Character.user_id == interaction.user.id,
@@ -243,7 +235,7 @@ class ConfirmView(discord.ui.View):
             existing = result.scalar_one_or_none()
             if existing:
                 await interaction.edit_original_response(
-                    content=f"You already have a character: **{existing.name}**. Use `/sheet` to view them.",
+                    content=f"You already have a character: **{existing.name}**. Use `/character sheet` to view them.",
                     embed=None, view=None,
                 )
                 return
@@ -366,101 +358,113 @@ def step4_embed(race: str, char_class: str, background: str) -> discord.Embed:
     embed.set_footer(text="Hit Create Character to confirm — this cannot be undone.")
     return embed
 
+# ── Command Group ─────────────────────────────────────────────────────────────
+
+character_group = app_commands.Group(
+    name="character",
+    description="Create and manage your character",
+)
+
+
+@character_group.command(name="create", description="Create your character in this world")
+@app_commands.describe(name="Your character's name")
+async def character_create(interaction: discord.Interaction, name: str):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    name = name.strip()
+    if len(name) < 2 or len(name) > 32:
+        await interaction.response.send_message("Name must be 2–32 characters.", ephemeral=True)
+        return
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(Character).where(
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
+                Character.is_dead == False,
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+    if existing:
+        await interaction.response.send_message(
+            f"You already have a character: **{existing.name}**. Use `/character sheet` to view them.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.send_message(
+        embed=step1_embed(name),
+        view=RaceView(name),
+        ephemeral=True,
+    )
+
+
+@character_group.command(name="sheet", description="View your character sheet (private)")
+async def character_sheet(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(Character).where(
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
+                Character.is_dead == False,
+            )
+        )
+        char = result.scalar_one_or_none()
+
+    if not char:
+        await interaction.response.send_message(
+            "You don't have a character yet. Use `/character create` to make one.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.send_message(embed=build_sheet_embed(char), ephemeral=True)
+
+
+@character_group.command(name="show", description="Show your character sheet to the server")
+async def character_show(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(Character).where(
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
+                Character.is_dead == False,
+            )
+        )
+        char = result.scalar_one_or_none()
+
+    if not char:
+        await interaction.response.send_message(
+            "You don't have a character yet. Use `/character create` to make one.",
+            ephemeral=True,
+        )
+        return
+
+    embed = build_sheet_embed(char)
+    embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
+    await interaction.response.send_message(embed=embed)
+
+
 # ── Cog ───────────────────────────────────────────────────────────────────────
 
 class CharacterCog(commands.Cog, name="Character"):
     def __init__(self, bot):
         self.bot = bot
+        bot.tree.add_command(character_group)
 
-    @app_commands.command(name="create", description="Create your character in this world")
-    @app_commands.describe(name="Your character's name")
-    async def create(self, interaction: discord.Interaction, name: str):
-        # Block DMs
-        if not interaction.guild_id:
-            await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
-            return
-
-        # Name length guard
-        name = name.strip()
-        if len(name) < 2 or len(name) > 32:
-            await interaction.response.send_message("Name must be 2–32 characters.", ephemeral=True)
-            return
-
-        # Check for existing character
-        async with get_db() as db:
-            result = await db.execute(
-                select(Character).where(
-                    Character.user_id == interaction.user.id,
-                    Character.guild_id == interaction.guild_id,
-                    Character.is_dead == False,
-                )
-            )
-            existing = result.scalar_one_or_none()
-
-        if existing:
-            await interaction.response.send_message(
-                f"You already have a character: **{existing.name}**. Use `/sheet` to view them.",
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.send_message(
-            embed=step1_embed(name),
-            view=RaceView(name),
-            ephemeral=True,
-        )
-
-    @app_commands.command(name="sheet", description="View your character sheet")
-    async def sheet(self, interaction: discord.Interaction):
-        if not interaction.guild_id:
-            await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
-            return
-
-        async with get_db() as db:
-            result = await db.execute(
-                select(Character).where(
-                    Character.user_id == interaction.user.id,
-                    Character.guild_id == interaction.guild_id,
-                    Character.is_dead == False,
-                )
-            )
-            char = result.scalar_one_or_none()
-
-        if not char:
-            await interaction.response.send_message(
-                "You don't have a character yet. Use `/create` to make one.",
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.send_message(embed=build_sheet_embed(char), ephemeral=True)
-
-    @app_commands.command(name="sheet_public", description="Show your character sheet to the server")
-    async def sheet_public(self, interaction: discord.Interaction):
-        if not interaction.guild_id:
-            await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
-            return
-
-        async with get_db() as db:
-            result = await db.execute(
-                select(Character).where(
-                    Character.user_id == interaction.user.id,
-                    Character.guild_id == interaction.guild_id,
-                    Character.is_dead == False,
-                )
-            )
-            char = result.scalar_one_or_none()
-
-        if not char:
-            await interaction.response.send_message(
-                "You don't have a character yet. Use `/create` to make one.",
-                ephemeral=True,
-            )
-            return
-
-        embed = build_sheet_embed(char)
-        embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+    async def cog_unload(self):
+        self.bot.tree.remove_command("character")
 
 
 async def setup(bot):
