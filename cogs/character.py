@@ -4,6 +4,7 @@ from discord.ext import commands
 from sqlalchemy import select
 from database.session import get_db
 from database.models import Character
+from services.combat_engine import STARTER_WEAPONS, STARTER_ATTACKS, WEAPON_DAMAGE
 import math
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -135,6 +136,17 @@ def build_sheet_embed(char: Character) -> discord.Embed:
     )
     embed.add_field(name="Progress", value=f"XP: `{char.xp}`\nProf. Bonus: `+{pb}`", inline=True)
 
+    attacks = (char.class_resources or {}).get("attacks", [])
+    if attacks:
+        weapon_key = next(
+            (it["key"] for it in (char.inventory or []) if it.get("type") == "weapon" and it.get("equipped")),
+            "unarmed",
+        )
+        dice = WEAPON_DAMAGE.get(weapon_key, (1, 4))
+        weapon_line = f"🗡️ **{weapon_key.replace('_', ' ').title()}** ({dice[0]}d{dice[1]})"
+        attack_lines = [weapon_line] + [f"• {a}" for a in attacks]
+        embed.add_field(name="Loadout", value="\n".join(attack_lines), inline=False)
+
     if char.backstory:
         embed.add_field(name="Backstory", value=char.backstory[:500], inline=False)
 
@@ -150,55 +162,136 @@ def build_sheet_embed(char: Character) -> discord.Embed:
 
 def step1_embed(char_name: str) -> discord.Embed:
     embed = discord.Embed(
-        title="⚔️ Character Creation — Step 1 of 4",
+        title="⚔️ Character Creation — Step 1 of 5",
         description=f"Creating **{char_name}**\n\nChoose your **race**.",
         color=0x8B5CF6,
     )
     lines = [f"**{race}** — {', '.join(f'+{v} {k.upper()}' for k, v in bonuses.items())}" for race, bonuses in RACES.items()]
     embed.add_field(name="Available Races", value="\n".join(lines), inline=False)
-    embed.set_footer(text="Step 1 of 4 — Race")
+    embed.set_footer(text="Step 1 of 5 — Race")
     return embed
 
 def step2_embed(race: str) -> discord.Embed:
     embed = discord.Embed(
-        title="⚔️ Character Creation — Step 2 of 4",
+        title="⚔️ Character Creation — Step 2 of 5",
         description=f"Race: **{race}** ✓\n\nChoose your **class**.",
         color=0x8B5CF6,
     )
     lines = [f"**{cls}** — {desc}" for cls, desc in CLASS_DESCRIPTIONS.items()]
     embed.add_field(name="Available Classes", value="\n".join(lines), inline=False)
-    embed.set_footer(text="Step 2 of 4 — Class")
+    embed.set_footer(text="Step 2 of 5 — Class")
     return embed
 
 def step3_embed(race: str, char_class: str) -> discord.Embed:
     stats = assign_stats(char_class, race)
     stat_preview = "  ".join(f"**{k.upper()}** {v}" for k, v in stats.items())
     embed = discord.Embed(
-        title="⚔️ Character Creation — Step 3 of 4",
+        title="⚔️ Character Creation — Step 3 of 5",
         description=f"Race: **{race}** ✓\nClass: **{char_class}** ✓\n\nChoose your **background**.",
         color=0x8B5CF6,
     )
     embed.add_field(name="Your Stats", value=stat_preview, inline=False)
     embed.add_field(name="Starting HP / AC", value=f"❤️ {calc_hp(char_class, stats['con'])}  🛡️ {calc_ac(stats['dex'])}", inline=False)
-    embed.set_footer(text="Step 3 of 4 — Background")
+    embed.set_footer(text="Step 3 of 5 — Background")
     return embed
 
 def step4_embed(char_name: str, race: str, char_class: str, background: str) -> discord.Embed:
     stats = assign_stats(char_class, race)
     stat_preview = "  ".join(f"**{k.upper()}** {v}" for k, v in stats.items())
+    hp = calc_hp(char_class, stats["con"])
+    ac = calc_ac(stats["dex"])
+
+    weapon_key = STARTER_WEAPONS.get(char_class, "unarmed")
+    attacks = STARTER_ATTACKS.get(char_class, [])
+    dice = WEAPON_DAMAGE.get(weapon_key, (1, 4))
+    weapon_label = f"{weapon_key.replace('_', ' ').title()} ({dice[0]}d{dice[1]})"
+    attack_list = "  •  ".join(a["name"] for a in attacks)
+
     embed = discord.Embed(
-        title="⚔️ Character Creation — Step 4 of 4",
+        title="⚔️ Character Creation — Step 5 of 5",
         description=(
-            f"Race: **{race}** ✓  Class: **{char_class}** ✓  Background: **{background}** ✓\n\n"
-            "Almost done! Add your character's **backstory**, **avatar**, and **proxy** below.\n"
-            "These let you roleplay *as* your character in any channel — type with your proxy brackets and the bot posts as them.\n\n"
-            "You can skip this and set it later with `/character proxy set`."
+            f"Almost done, **{char_name}**! Here's everything you chose.\n"
+            "Add a backstory, avatar, and proxy below — or skip and set them later."
         ),
         color=0x8B5CF6,
     )
-    embed.add_field(name="Stats", value=stat_preview, inline=False)
-    embed.set_footer(text="Step 4 of 4 — Details & Proxy")
+    embed.add_field(
+        name="Your Character",
+        value=f"🧬 **{race}**  ·  ⚔️ **{char_class}**  ·  📜 **{background}**",
+        inline=False,
+    )
+    embed.add_field(
+        name="Stats",
+        value=stat_preview,
+        inline=False,
+    )
+    embed.add_field(name="HP / AC", value=f"❤️ {hp}  🛡️ {ac}", inline=True)
+    embed.add_field(name="Starting Weapon", value=f"🗡️ {weapon_label}", inline=True)
+    embed.add_field(name="Attacks", value=attack_list, inline=False)
+    embed.set_footer(text="Step 5 of 5 — Details & Proxy")
     return embed
+
+# ── Starting Kit step (between Background and Details) ───────────────────────
+
+def step_kit_embed(char_name: str, race: str, char_class: str, background: str) -> discord.Embed:
+    weapon_key = STARTER_WEAPONS.get(char_class, "unarmed")
+    attacks = STARTER_ATTACKS.get(char_class, [])
+
+    embed = discord.Embed(
+        title="⚔️ Character Creation — Step 4 of 5",
+        description=(
+            f"Race: **{race}** ✓  Class: **{char_class}** ✓  Background: **{background}** ✓\n\n"
+            "Here's your starting loadout."
+        ),
+        color=0x8B5CF6,
+    )
+
+    dice = WEAPON_DAMAGE.get(weapon_key, (1, 4))
+    embed.add_field(
+        name="Starting Weapon",
+        value=f"**{weapon_key.replace('_', ' ').title()}** ({dice[0]}d{dice[1]})",
+        inline=False,
+    )
+
+    lines = []
+    for atk in attacks:
+        tags = []
+        if atk.get("is_spell"):
+            tags.append("spell")
+        if atk.get("is_defend"):
+            tags.append("defensive")
+        if atk.get("is_heal"):
+            tags.append("heal")
+        tag_str = f" *[{', '.join(tags)}]*" if tags else ""
+        lines.append(f"**{atk['name']}**{tag_str}\n*{atk['flavor']}*")
+    embed.add_field(name="Starting Attacks", value="\n\n".join(lines), inline=False)
+
+    embed.set_footer(text="Step 4 of 5 — Starting Loadout  •  Unlock more through quests and the shop.")
+    return embed
+
+
+class StarterKitView(discord.ui.View):
+    def __init__(self, char_name: str, race: str, char_class: str, background: str):
+        super().__init__(timeout=300)
+        self.char_name = char_name
+        self.race = race
+        self.char_class = char_class
+        self.background = background
+
+    @discord.ui.button(label="Looks Good →", style=discord.ButtonStyle.primary, emoji="⚔️")
+    async def proceed(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=step4_embed(self.char_name, self.race, self.char_class, self.background),
+            view=Step4View(self.char_name, self.race, self.char_class, self.background),
+        )
+
+    @discord.ui.button(label="Start Over", style=discord.ButtonStyle.danger, emoji="↩️")
+    async def restart(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=step1_embed(self.char_name),
+            view=RaceView(self.char_name),
+        )
+
 
 # ── Step 4: Details modal ─────────────────────────────────────────────────────
 
@@ -333,6 +426,16 @@ async def _create_character(
             return
 
         stats = assign_stats(char_class, race)
+
+        weapon_key = STARTER_WEAPONS.get(char_class, "unarmed")
+        starting_inventory = (
+            [{"key": weapon_key, "type": "weapon", "equipped": True}]
+            if weapon_key != "unarmed" else []
+        )
+
+        resources = _starting_resources(char_class)
+        resources["attacks"] = [atk["name"] for atk in STARTER_ATTACKS.get(char_class, [])]
+
         char = Character(
             user_id=interaction.user.id,
             guild_id=interaction.guild_id,
@@ -352,10 +455,10 @@ async def _create_character(
             hp_current=calc_hp(char_class, stats["con"]),
             armor_class=calc_ac(stats["dex"]),
             gold=100,
-            inventory=[],
+            inventory=starting_inventory,
             conditions=[],
             skill_proficiencies=[],
-            class_resources=_starting_resources(char_class),
+            class_resources=resources,
             backstory=backstory,
             avatar_url=avatar_url,
             proxy_open=proxy_open,
@@ -439,8 +542,8 @@ class BackgroundSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         background = self.values[0]
         await interaction.response.edit_message(
-            embed=step4_embed(self.char_name, self.race, self.char_class, background),
-            view=Step4View(self.char_name, self.race, self.char_class, background),
+            embed=step_kit_embed(self.char_name, self.race, self.char_class, background),
+            view=StarterKitView(self.char_name, self.race, self.char_class, background),
         )
 
 

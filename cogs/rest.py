@@ -5,6 +5,7 @@ from sqlalchemy import select
 from database.session import get_db
 from database.models import Character
 from services.combat_engine import modifier
+from cogs.combat import _sessions
 import random
 import math
 
@@ -38,6 +39,9 @@ rest_group = app_commands.Group(name="rest", description="Rest to recover HP and
 async def rest_short(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    if interaction.guild_id in _sessions and _sessions[interaction.guild_id].state == "active":
+        await interaction.response.send_message("You can't rest during combat!", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -90,6 +94,9 @@ async def rest_long(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
+    if interaction.guild_id in _sessions and _sessions[interaction.guild_id].state == "active":
+        await interaction.response.send_message("You can't rest during combat!", ephemeral=True)
+        return
 
     async with get_db() as db:
         result = await db.execute(
@@ -104,13 +111,18 @@ async def rest_long(interaction: discord.Interaction):
             await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
             return
 
+        # Preserve starter attacks across long rest
+        saved_attacks = (char.class_resources or {}).get("attacks", [])
         before = char.hp_current
         char.hp_current = char.hp_max
         char.hp_temp = 0
         char.is_unconscious = False
         char.death_saves_success = 0
         char.death_saves_failure = 0
-        char.class_resources = _full_resources(char.char_class, char.level)
+        new_resources = _full_resources(char.char_class, char.level)
+        if saved_attacks:
+            new_resources["attacks"] = saved_attacks
+        char.class_resources = new_resources
 
     recovered = char.hp_max - before
     embed = discord.Embed(

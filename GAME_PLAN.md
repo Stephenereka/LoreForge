@@ -93,6 +93,8 @@ No other bot has combined:
 - After every response, a fast validation pass checks for lore contradictions
 - Three-tier memory: immediate context + retrieved memory + archived history
 - NPCs store structured memory in the database — not in the AI context window
+- **Combat action classification** uses `llama-3.1-8b-instant` (Groq) — lightweight, fast, cheap. Reads player RP message and returns structured JSON: `{action, target, weapon}`. Only fires when player is in active combat
+- **AI narration** (Phase 4) uses `llama-3.3-70b` (Groq) — full storytelling, lore-aware responses. Two separate jobs, two separate models
 
 ---
 
@@ -137,15 +139,25 @@ STR, DEX, CON, INT, WIS, CHA — modifier = floor((score - 10) / 2)
 ## Build Order (5 Phases)
 
 ### Phase 1 — Core Loop (Weeks 1–3)
-- [ ] Project setup (folder structure, .env, database connection)
-- [ ] Character creation wizard (6 classes, 5 races, standard array)
-- [ ] Character sheet display embed
-- [ ] 1v1 combat with buttons (attack, defend, item, flee)
-- [ ] Basic inventory (weapons, armor, potions)
-- [ ] XP gain and level up
+- [x] Project setup (folder structure, .env, database connection)
+- [x] Character creation wizard (6 classes, 7 races, standard array) — 4-step flow: Race → Class → Background → Details
+- [x] Backstory / lore field — paragraph text entered during creation, shown on character sheet
+- [x] Avatar URL — set during creation, shown as thumbnail on sheet and used as proxy face
+- [x] Proxy system (Tupperbox-style) — type `[text]` or `prefix>text` in any channel, bot reposts as your character via webhook with their name and avatar. `/character proxy` to update, `/character proxy_remove` to clear.
+- [x] Character sheet display embed — stats, HP, AC, XP, gold, saving throws, backstory, proxy brackets
+- [x] Multiplayer combat with buttons — lobby system, up to 4 players, initiative order, enemy attacks random player, death saves, flee removes one player
+- [x] Basic inventory (weapons, armor, potions) — `/shop` and `/inventory` groups
+- [x] XP gain and level up — awarded on combat victory, level-up HP recalculated
 
 ### Phase 2 — Depth (Weeks 4–6)
-- [ ] Multiplayer combat (full party vs enemies)
+- [ ] **Combat system full redesign** (see Combat System Design section below)
+  - Chat-reading combat — AI reads RP text, classifies action via Groq 8b
+  - Bot confirms interpretation before rolling ("I see an attack on [target] — confirm?")
+  - Combat happens in the main RP channel, not a thread
+  - Live combat status embed (HP bars, turn order, last action, conditions) — replaces buttons
+  - Escape mechanics — flee roll, zone-distance outcome (rest vs re-engage vs caught)
+  - Enemy targeting — no zones yet, players can target any character or NPC in the server
+- [ ] Starter attacks + weapons per class (same count for all classes, chosen at character creation, shown on sheet)
 - [ ] Spellcasting (3–4 spells per caster class)
 - [ ] Conditions system (poisoned, stunned, blinded, etc.)
 - [ ] Short rest and long rest mechanics
@@ -153,10 +165,23 @@ STR, DEX, CON, INT, WIS, CHA — modifier = floor((score - 10) / 2)
 
 ### Phase 3 — World (Weeks 7–10)
 - [ ] Location system (rooms, travel, exploration)
+- [ ] **Zone/proximity system** — defines how close players must be to trigger combat. Once zones exist, enemy targeting locks to same zone only (Phase 2 uses server-wide targeting as a placeholder)
 - [ ] In-Discord lore wiki (`/lore add`, `/lore search`)
 - [ ] NPC database with persistent memory
 - [ ] Quest system (accept, track, complete)
 - [ ] Faction reputation tiers
+- [ ] Paginate `/help` — overview page + one page per command group, button row to navigate
+- [ ] **`/tutorial` command** — guides new players through the server step by step:
+  - Step 1: What LoreForge is and how the world works
+  - Step 2: How to create your character (`/character create`)
+  - Step 3: Where to read the server lore before playing
+  - Step 4: Real-time combat example — demonstrates the chat-reading system with a dummy fight so players know how to type actions, confirm, and read dice results
+  - Delivered as a paginated ephemeral embed with Next/Back buttons, skippable at any time
+- [ ] **Map generation** (tied to location system — generate and send a map image when a player enters or explores a location)
+  - Dungeon/room layouts — procedural BSP algorithm + Pillow render → PNG sent to Discord
+  - World/region maps — Perlin noise terrain + Pillow render → biomes, markers, region names
+  - City maps — Pollinations.AI (free, no key needed) with fantasy map prompt
+  - All three output as `discord.File` PNG via `generate_dungeon()`, `generate_world()`, `generate_city()`
 
 ### Phase 4 — Intelligence (Weeks 11–14)
 - [ ] Groq AI narration (optional, GM-toggleable)
@@ -165,6 +190,13 @@ STR, DEX, CON, INT, WIS, CHA — modifier = floor((score - 10) / 2)
 - [ ] All 12 classes
 - [ ] Boss encounters with special abilities
 - [ ] World JSON loader for server owners
+- [ ] **GM approval system for character updates**
+  - Cosmetic updates (avatar, name, backstory, proxy) → apply instantly, no GM needed
+  - Mechanical updates (stats, HP, level, gold, weapons, attacks, class, race) → require GM approval
+  - Bot sends a pending approval embed to the GM channel with Approve / Deny buttons
+  - GM approves → stat updates live, player notified
+  - GM denies → player notified, optional reason from GM
+  - GM channel must be configured via `/setup gm_channel #channel` during server setup
 
 ### Phase 5 — Scale (Month 3+)
 - [ ] OC leaderboard (kills, quests, achievements)
@@ -172,6 +204,53 @@ STR, DEX, CON, INT, WIS, CHA — modifier = floor((score - 10) / 2)
 - [ ] Cross-server shared worlds
 - [ ] Web dashboard
 - [ ] Monetization (premium tiers)
+
+---
+
+## Combat System Design
+
+### Philosophy
+RP first, mechanics second. Players type freely in the channel — the bot listens and resolves. Buttons kill immersion. The only UI is a status embed that updates passively.
+
+### How Combat Starts
+- For now (no zones): any player can target any character or NPC in the server via `/attack @target`
+- Once zones exist (Phase 3): combat can only start between players/NPCs in the same zone
+- GM can also spawn an encounter manually in any channel
+
+### Chat-Reading Flow
+1. Player types RP action freely in the channel (e.g. *"Kael drives his sword into the orc's chest"*)
+2. Bot detects the message (player is flagged as in active combat)
+3. Groq `llama-3.1-8b-instant` classifies the action → returns `{action, target, weapon}`
+4. Bot sends a confirmation message: *"Attacking [Orc] with [Longsword] — confirm?"* (player reacts ✅ or ❌)
+5. Player confirms → bot rolls dice, resolves damage, updates combat embed
+6. If action is unclear → bot asks once: *"Are you attacking or doing something else?"*
+
+### Combat Status Embed
+- Updates live in the channel after every action
+- Shows: turn order, HP bars for all participants, last action result, active conditions
+- No action buttons — players always type their next action
+
+### Escape Mechanics
+- Player types flee intent (e.g. *"he turns and sprints away"*) → bot detects FLEE
+- Roll d20 + DEX modifier vs enemy d20 + DEX modifier
+  - **Win + roll ≥ 15** → fully escaped, far enough to rest safely
+  - **Win + roll < 15** → escaped but enemy is close, no rest, re-engages in next zone entered
+  - **Lose** → caught, combat continues, player loses their turn
+
+### Starter Attacks & Weapons Per Class
+- All classes get the same number of basic attacks at character creation
+- Players choose their attacks during the character creation wizard
+- Starting weapon is assigned by class, shown on character sheet
+- Weapons can be upgraded/replaced via the shop (currency affects combat loadout)
+
+| Class | Starter Weapon | Basic Attacks |
+|---|---|---|
+| Fighter | Longsword (1d8) | Power Strike, Shield Bash, Parry |
+| Rogue | Dagger (1d4+DEX) | Sneak Stab, Smoke Feint, Pickpocket |
+| Wizard | Staff (1d6) | Magic Missile, Fire Bolt, Shield |
+| Barbarian | Greataxe (1d12) | Reckless Swing, Rage Charge, Intimidate |
+| Cleric | Mace (1d6) | Smite, Heal, Turn Undead |
+| Warlock | Eldritch Blast (1d10) | Hex, Drain, Dark Pact |
 
 ---
 
@@ -244,4 +323,29 @@ LoreForge will be a public bot listed on Top.gg. This affects the following:
 
 ---
 
-*Last updated: 2026-06-23*
+*Last updated: 2026-06-24*
+
+---
+
+## Change Log
+
+| Date | Change |
+|---|---|
+| 2026-06-24 | Added map generation to Phase 3 (dungeon, world, city maps — tied to location system) |
+| 2026-06-24 | Added GM approval system for character updates to Phase 4 (cosmetic = instant, mechanical = GM channel approval embed) |
+| 2026-06-24 | Full combat system redesign — removed button-driven combat, replaced with chat-reading RP flow using Groq 8b for action classification |
+| 2026-06-24 | Added player confirmation step before bot rolls on classified action |
+| 2026-06-24 | Added escape mechanics (flee roll, zone-distance outcomes) |
+| 2026-06-24 | Added starter attacks + weapons per class (same count for all classes, chosen at character creation) |
+| 2026-06-24 | Added zone/proximity system to Phase 3 — placeholder until zones built: players can target any character or NPC in the server |
+| 2026-06-24 | Added Combat System Design section as standalone reference |
+| 2026-06-24 | Added Groq model split to AI Design Rules — 8b for combat classification, 70b for narration |
+| 2026-06-24 | **BUILT** — services/ai_service.py created (Groq 8b combat action classifier) |
+| 2026-06-24 | **BUILT** — services/combat_engine.py: added STARTER_WEAPONS and STARTER_ATTACKS (3 attacks per class) |
+| 2026-06-24 | **BUILT** — cogs/character.py: added Starting Loadout step in character creation (shows weapon + 3 attacks before Details step); starter weapon added to inventory as equipped on creation; attacks stored in class_resources["attacks"]; Loadout field added to character sheet embed |
+| 2026-06-24 | **BUILT** — cogs/combat.py full rewrite: removed CombatView buttons, added on_message listener + ConfirmView + chat-reading combat, new escape mechanics (player_roll vs enemy_roll, rest on 15+), DeathSaveView updated to message-based, added /combat forfeit command, all end conditions (victory/defeat/flee) now edit session.status_message directly |
+| 2026-06-24 | **BUILT** — services/combat_engine.py: full CONDITIONS system (12 conditions — poisoned, burning, bleeding, stunned, blinded, frightened, hexed, prone, parrying, shielded, reckless, raging); added condition helpers (has_condition, apply_condition, remove_condition, tick_conditions, effective_ac); added detect_attack_name; all 18 named attack handlers (3 per class × 6 classes) with unique mechanics, log_lines, conditions_applied/self_conditions; resolve_named_attack dispatcher |
+| 2026-06-24 | **BUILT** — cogs/combat.py: lobby multiplayer bug fixed (lobby now sent as public channel message, join/start work off lobby_message instead of ephemeral); status_embed now shows condition icons + effective_ac; _update_status_and_prompt now ticks conditions at turn start, posts DoT to channel, skips turn if stunned; _resolve_player_action now detects named attacks and routes to resolve_named_attack with log_lines posted as channel messages; _resolve_enemy_turn now ticks enemy conditions, skips if stunned, cowers if frightened, posts attack roll to channel; on_message now detects named attack names and shows them in confirmation label |
+| 2026-06-24 | **BUILT** — cogs/rest.py: both /rest short and /rest long now block during active combat; /rest long preserves class_resources["attacks"] list across rest (starter attacks not wiped) |
+| 2026-06-24 | **BUILT** — cogs/admin.py: /help updated — character creation now shows 5-step wizard, combat section updated with chat-reading explanation + /combat forfeit, new Conditions field added, rest commands note cannot rest during combat |
+| 2026-06-24 | Added /tutorial command to Phase 3 (guided new-player flow: LoreForge intro → character creation → lore reading → real-time combat demo, paginated ephemeral embed with Next/Back) |

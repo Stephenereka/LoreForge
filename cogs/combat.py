@@ -7,8 +7,11 @@ from database.models import Character, GuildConfig
 from services.combat_engine import (
     Combatant, make_enemy, enemy_attack, enemy_xp,
     player_attack, player_defend, roll_initiative,
-    check_level_up, hp_gain_on_level, ENEMIES,
+    check_level_up, hp_gain_on_level, roll, modifier, ENEMIES,
+    resolve_named_attack, detect_attack_name, tick_conditions,
+    has_condition, apply_condition, remove_condition, effective_ac, CONDITIONS,
 )
+from services.ai_service import classify_combat_action
 import random
 
 # ── Active sessions: guild_id → CombatSession ────────────────────────────────
@@ -16,7 +19,6 @@ _sessions: dict[int, "CombatSession"] = {}
 
 
 async def _set_combat_active(guild_id: int, channel_id: int | None):
-    """Persist combat state to DB so restarts can notify players."""
     async with get_db() as db:
         result = await db.execute(select(GuildConfig).where(GuildConfig.guild_id == guild_id))
         config = result.scalar_one_or_none()
@@ -31,7 +33,9 @@ async def _set_combat_active(guild_id: int, channel_id: int | None):
                     combat_channel_id=channel_id,
                 ))
 
+
 MAX_PLAYERS = 4
+
 
 # ── Session ───────────────────────────────────────────────────────────────────
 
@@ -44,15 +48,18 @@ class CombatSession:
         self.initiator_id = initiator_id
 
         self.players: list[Combatant] = []
-        self.player_user_ids: list[int] = []          # ordered, matches self.players
-        self.turn_order: list[Combatant] = []         # set when combat starts
+        self.player_user_ids: list[int] = []
+        self.turn_order: list[Combatant] = []
         self.current_idx: int = 0
         self.round: int = 1
-        self.state: str = "lobby"                     # lobby | active | over
+        self.state: str = "lobby"
         self.log: list[str] = []
-        self.message: discord.Message | None = None
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+        # Chat-reading combat state
+        self.status_message: discord.Message | None = None
+        self.confirm_message: discord.Message | None = None
+        self.pending_action: dict | None = None
+        self.lobby_message: discord.Message | None = None
 
     @property
     def current_combatant(self) -> Combatant:
@@ -72,15 +79,13 @@ class CombatSession:
             self.log.pop(0)
 
     def advance_turn(self):
-        """Move to the next combatant in order, skipping dead ones."""
         start = self.current_idx
         while True:
             self.current_idx = (self.current_idx + 1) % len(self.turn_order)
             if self.current_idx == 0:
                 self.round += 1
             c = self.turn_order[self.current_idx]
-            # Skip dead players (enemy never removed, just check hp)
-            if c.is_player and (c.is_dead or c.is_unconscious):
+            if c.is_player and c.is_dead:
                 continue
             break
 
@@ -110,46 +115,54 @@ class CombatSession:
         current = self.current_combatant
         turn_label = f"**{current.name}'s turn**"
 
+        # Color reflects current combatant's HP health
+        if current.hp_max > 0:
+            pct = current.hp_current / current.hp_max
+        else:
+            pct = 0
+        if pct > 0.5:
+            color = 0x22C55E   # green — healthy
+        elif pct > 0.25:
+            color = 0xF97316   # orange — wounded
+        else:
+            color = 0xEF4444   # red — critical / enemy turn
+
         embed = discord.Embed(
             title=f"⚔️ Round {self.round}  —  {turn_label}",
-            color=0xEF4444 if not current.is_player else 0x8B5CF6,
+            color=color,
         )
 
-        # Enemy bar
         e = self.enemy
         e_pct = max(0, e.hp_current / e.hp_max)
         e_bar = "█" * round(e_pct * 10) + "░" * (10 - round(e_pct * 10))
         e_status = "💀" if e.is_dead else "✅"
+        e_cond = " ".join(CONDITIONS.get(c["name"], {}).get("icon", "") for c in (e.conditions or []))
         embed.add_field(
-            name=f"{e_status} {e.name}",
-            value=f"❤️ `{e.hp_current}/{e.hp_max}` {e_bar}  🛡️ AC `{e.armor_class}`",
+            name=f"{e_status} {e.name} {e_cond}".strip(),
+            value=f"❤️ `{e.hp_current}/{e.hp_max}` {e_bar}  🛡️ AC `{effective_ac(e)}`",
             inline=False,
         )
 
-        # Player bars
         for p in self.players:
             p_pct = max(0, p.hp_current / p.hp_max)
             p_bar = "█" * round(p_pct * 10) + "░" * (10 - round(p_pct * 10))
             if p.is_dead:
                 status = "💀 Dead"
             elif p.is_unconscious:
-                status = f"😵 Down  ✅{p.death_saves_success} ❌{p.death_saves_failure}"
+                status = f"😵 Down  ✅{p.death_saves_success}/3 ❌{p.death_saves_failure}/3"
             else:
                 status = "✅"
             arrow = " ◄" if current == p else ""
+            p_cond = " ".join(CONDITIONS.get(c["name"], {}).get("icon", "") for c in (p.conditions or []))
             embed.add_field(
-                name=f"{status}  {p.name} (Lv{p.level} {p.char_class}){arrow}",
-                value=f"❤️ `{p.hp_current}/{p.hp_max}` {p_bar}  🛡️ AC `{p.armor_class}`",
+                name=f"{status}  {p.name} (Lv{p.level} {p.char_class}){arrow} {p_cond}".strip(),
+                value=f"❤️ `{p.hp_current}/{p.hp_max}` {p_bar}  🛡️ AC `{effective_ac(p)}`",
                 inline=True,
             )
 
         if self.log:
             embed.add_field(name="📜 Log", value="\n".join(self.log), inline=False)
 
-        if current.is_player:
-            embed.set_footer(text=f"{current.name} — choose your action.")
-        else:
-            embed.set_footer(text=f"{e.name} is taking its turn...")
         return embed
 
     def victory_embed(self, xp: int) -> discord.Embed:
@@ -176,7 +189,7 @@ class CombatSession:
         return embed
 
 
-# ── Lobby View ────────────────────────────────────────────────────────────────
+# ── Lobby View (buttons OK here — pre-combat) ─────────────────────────────────
 
 class LobbyView(discord.ui.View):
     def __init__(self, session: "CombatSession"):
@@ -244,8 +257,9 @@ class LobbyView(discord.ui.View):
         )
         session.players.append(combatant)
         session.player_user_ids.append(interaction.user.id)
-
-        await interaction.response.edit_message(embed=session.lobby_embed(), view=self)
+        await interaction.response.defer()
+        if session.lobby_message:
+            await session.lobby_message.edit(embed=session.lobby_embed(), view=self)
 
     @discord.ui.button(label="Start Battle", style=discord.ButtonStyle.danger, emoji="🗡️")
     async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -264,294 +278,397 @@ class LobbyView(discord.ui.View):
         first = session.turn_order[0]
         session.add_log(f"🎲 Initiative rolled! **{first.name}** goes first.")
 
-        view = CombatView(session)
-        await interaction.response.edit_message(embed=session.status_embed(), view=view)
-        session.message = await interaction.original_response()
+        current = session.current_combatant
+        prompt = (
+            f"**{current.name}** — it's your turn. Type your action in RP."
+            if current.is_player
+            else f"**{session.enemy.name}** is moving..."
+        )
 
-        # If enemy goes first, auto-resolve immediately
+        # Lobby message becomes the persistent status message
+        session.status_message = interaction.message
+        await interaction.response.edit_message(content=prompt, embed=session.status_embed(), view=None)
+
         if not first.is_player:
-            await _resolve_enemy_turn(session, interaction)
+            await _resolve_enemy_turn(session)
 
     async def on_timeout(self):
         session = self.session
         if session.state == "lobby":
             session.state = "over"
             _sessions.pop(session.guild_id, None)
-            if session.message:
-                try:
-                    await session.message.edit(content="⏱️ Lobby timed out.", embed=None, view=None)
-                except Exception:
-                    pass
 
 
-# ── Combat View ───────────────────────────────────────────────────────────────
+# ── Confirm View — shown after AI classifies a player's action ────────────────
 
-class CombatView(discord.ui.View):
-    def __init__(self, session: "CombatSession"):
-        super().__init__(timeout=300)
+class ConfirmView(discord.ui.View):
+    def __init__(self, session: "CombatSession", player_uid: int):
+        super().__init__(timeout=30)
         self.session = session
+        self.player_uid = player_uid
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        session = self.session
-        current = session.current_combatant
-        if not current.is_player:
-            await interaction.response.send_message("It's the enemy's turn.", ephemeral=True)
-            return False
-        uid = session.user_id_for(current)
-        if interaction.user.id != uid:
-            await interaction.response.send_message(
-                f"It's **{current.name}'s** turn, not yours.", ephemeral=True
-            )
+        if interaction.user.id != self.player_uid:
+            await interaction.response.send_message("This isn't your turn.", ephemeral=True)
             return False
         return True
 
-    # ── Shared post-action logic ──────────────────────────────────────────────
-
-    async def _after_player_action(self, interaction: discord.Interaction):
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.success, emoji="✅")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         session = self.session
+        action_data = session.pending_action
+        session.pending_action = None
 
-        # Check victory
-        if not session.enemy.is_alive:
-            await _end_victory(session, interaction)
-            return
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
+        session.confirm_message = None
 
-        # Advance to next combatant
-        session.advance_turn()
-        next_c = session.current_combatant
+        await _resolve_player_action(session, action_data)
 
-        if not next_c.is_player:
-            # Enemy turn — edit message to show "enemy attacking..." then resolve
-            await interaction.response.edit_message(embed=session.status_embed(), view=CombatView(session))
-            session.message = await interaction.original_response()
-            await _resolve_enemy_turn(session, interaction)
-        else:
-            # Next player's turn
-            if next_c.is_unconscious:
-                # Unconscious player must roll death save
-                view = DeathSaveView(session)
-                await interaction.response.edit_message(embed=session.status_embed(), view=view)
-            else:
-                await interaction.response.edit_message(embed=session.status_embed(), view=CombatView(session))
-            session.message = await interaction.original_response()
-
-    # ── Buttons ───────────────────────────────────────────────────────────────
-
-    @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger, emoji="⚔️", row=0)
-    async def attack(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌")
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
-        player = session.current_combatant
-        result = player_attack(player, weapon=player.weapon)
-        enemy = session.enemy
-
-        if result["is_miss"]:
-            session.add_log(f"🎲 {player.name} — natural 1, missed!")
-        elif result["attack_roll"] >= enemy.armor_class:
-            enemy.take_damage(result["damage"])
-            crit = " *(Crit!)*" if result["is_crit"] else ""
-            sneak = f" +{result['sneak_dice']}d6 sneak" if result["sneak_dice"] else ""
-            session.add_log(f"⚔️ {player.name} hits for **{result['damage']} dmg**{crit}{sneak}")
-        else:
-            session.add_log(f"🛡️ {player.name} misses ({result['attack_roll']} vs AC {enemy.armor_class})")
-
-        if not enemy.is_alive:
-            await _end_victory(session, interaction)
-            return
-
-        await self._after_player_action(interaction)
-
-    @discord.ui.button(label="Defend", style=discord.ButtonStyle.primary, emoji="🛡️", row=0)
-    async def defend(self, interaction: discord.Interaction, button: discord.ui.Button):
-        session = self.session
-        player = session.current_combatant
-        result = player_defend(player)
-        if result["success"]:
-            session.add_log(f"🛡️ {player.name} braces — +{result['temp_hp']} temp HP!")
-        else:
-            session.add_log(f"🛡️ {player.name} braces but gains nothing.")
-        await self._after_player_action(interaction)
-
-    @discord.ui.button(label="Flee", style=discord.ButtonStyle.secondary, emoji="💨", row=0)
-    async def flee(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from services.combat_engine import roll, modifier
-        session = self.session
-        player = session.current_combatant
-        dex_mod = modifier(player.dexterity)
-        flee_roll = roll(20) + dex_mod
-        dc = 12
-
-        if flee_roll >= dc:
-            uid = session.user_id_for(player)
-            # Remove player from session
-            idx = session.players.index(player)
-            session.players.pop(idx)
-            session.player_user_ids.pop(idx)
-            session.turn_order = [c for c in session.turn_order if c is not player]
-            # Clamp current_idx
-            session.current_idx = session.current_idx % max(len(session.turn_order), 1)
-            session.add_log(f"💨 {player.name} fled the battle!")
-
-            if not session.players:
-                # Everyone fled — end session
-                session.state = "over"
-                _sessions.pop(session.guild_id, None)
-                embed = discord.Embed(title="💨 All fighters fled.", color=0xF59E0B)
-                await interaction.response.edit_message(embed=embed, view=None)
-                return
-
-            # Check if we now need to go to next turn
-            next_c = session.turn_order[session.current_idx % len(session.turn_order)]
-            if not next_c.is_player:
-                await interaction.response.edit_message(embed=session.status_embed(), view=CombatView(session))
-                session.message = await interaction.original_response()
-                await _resolve_enemy_turn(session, interaction)
-            else:
-                await interaction.response.edit_message(embed=session.status_embed(), view=CombatView(session))
-                session.message = await interaction.original_response()
-        else:
-            session.add_log(f"💨 {player.name} tried to flee! (rolled {flee_roll} vs DC {dc})")
-            await self._after_player_action(interaction)
+        session.pending_action = None
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
+        session.confirm_message = None
+        await interaction.response.send_message(
+            "Action cancelled — type your next move.", ephemeral=True
+        )
 
     async def on_timeout(self):
         session = self.session
-        if not session.state == "over":
-            session.state = "over"
-            _sessions.pop(session.guild_id, None)
-            if session.message:
-                try:
-                    await session.message.edit(content="⏱️ Combat timed out.", embed=None, view=None)
-                except Exception:
-                    pass
+        session.pending_action = None
+        session.confirm_message = None
 
 
 # ── Death Save View ───────────────────────────────────────────────────────────
 
 class DeathSaveView(discord.ui.View):
-    def __init__(self, session: "CombatSession"):
+    def __init__(self, session: "CombatSession", player_uid: int):
         super().__init__(timeout=120)
         self.session = session
+        self.player_uid = player_uid
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        session = self.session
-        current = session.current_combatant
-        uid = session.user_id_for(current)
-        if interaction.user.id != uid:
-            await interaction.response.send_message(
-                f"It's **{current.name}'s** death save.", ephemeral=True
-            )
+        if interaction.user.id != self.player_uid:
+            await interaction.response.send_message("This isn't your death save.", ephemeral=True)
             return False
         return True
 
     @discord.ui.button(label="Roll Death Save", style=discord.ButtonStyle.danger, emoji="🎲")
     async def death_save(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         session = self.session
         player = session.current_combatant
         result = player.death_save()
 
         if result["outcome"] == "critical_success":
             session.add_log(f"🌟 {player.name} — natural 20! Back on 1 HP!")
-            session.advance_turn()
-            await interaction.response.edit_message(embed=session.status_embed(), view=CombatView(session))
-
         elif result["outcome"] == "stabilized":
             session.add_log(f"✅ {player.name} stabilizes (3 successes).")
-            session.advance_turn()
-            if session.all_players_down:
-                await _end_defeat(session, interaction)
-                return
-            next_c = session.current_combatant
-            view = DeathSaveView(session) if next_c.is_player and next_c.is_unconscious else CombatView(session)
-            await interaction.response.edit_message(embed=session.status_embed(), view=view)
-
         elif result["outcome"] == "dead":
             session.add_log(f"💀 {player.name} is dead (3 failures).")
-            if session.all_players_down:
-                await _end_defeat(session, interaction)
-                return
-            session.advance_turn()
-            next_c = session.current_combatant
-            if not next_c.is_player:
-                await interaction.response.edit_message(embed=session.status_embed(), view=CombatView(session))
-                session.message = await interaction.original_response()
-                await _resolve_enemy_turn(session, interaction)
-            else:
-                view = DeathSaveView(session) if next_c.is_unconscious else CombatView(session)
-                await interaction.response.edit_message(embed=session.status_embed(), view=view)
-
         else:
             s = result.get("successes", 0)
             f = result.get("failures", 0)
             label = "✅" if result["outcome"] == "success" else "❌"
             session.add_log(f"🎲 {player.name} death save {label} (rolled {result['roll']})  ✅{s}/3 ❌{f}/3")
-            await interaction.response.edit_message(embed=session.status_embed(), view=self)
 
-        session.message = await interaction.original_response()
+        self.stop()
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
+
+        if session.all_players_down:
+            await _end_defeat(session)
+            return
+
+        session.advance_turn()
+        next_c = session.current_combatant
+
+        if session.status_message:
+            await session.status_message.edit(embed=session.status_embed())
+
+        if not next_c.is_player:
+            await _resolve_enemy_turn(session)
+        else:
+            await _update_status_and_prompt(session, next_c)
+
+    async def on_timeout(self):
+        session = self.session
+        player = session.current_combatant
+        if player.is_unconscious:
+            player.death_saves_failure += 1
+            session.add_log(f"⏱️ {player.name}'s death save timed out — failure!")
+            if player.death_saves_failure >= 3:
+                player.is_dead = True
+                player.is_unconscious = False
+                session.add_log(f"💀 {player.name} dies.")
 
 
-# ── Enemy turn resolution (shared helper) ─────────────────────────────────────
+# ── Shared helpers ────────────────────────────────────────────────────────────
 
-async def _resolve_enemy_turn(session: "CombatSession", interaction: discord.Interaction):
-    """Auto-resolve enemy attack, then advance to next player turn."""
+async def _update_status_and_prompt(session: CombatSession, next_c: Combatant):
+    if session.status_message is None:
+        return
+
+    # Tick conditions at the start of this combatant's turn
+    dot_lines = tick_conditions(next_c)
+    for line in dot_lines:
+        await session.status_message.channel.send(line)
+
+    # DoT may have knocked them out
+    if next_c.is_player and next_c.is_dead:
+        session.add_log(f"💀 {next_c.name} dies from their wounds!")
+        if session.all_players_down:
+            await _end_defeat(session)
+            return
+    elif next_c.is_player and next_c.is_unconscious:
+        session.add_log(f"😵 {next_c.name} falls unconscious!")
+
+    # Skip turn if stunned
+    if has_condition(next_c, "stunned"):
+        session.add_log(f"⚡ **{next_c.name}** is stunned and loses their turn!")
+        await session.status_message.edit(embed=session.status_embed())
+        session.advance_turn()
+        next_next = session.current_combatant
+        if not next_next.is_player:
+            await _resolve_enemy_turn(session)
+        else:
+            await _update_status_and_prompt(session, next_next)
+        return
+
+    if next_c.is_unconscious:
+        uid = session.user_id_for(next_c)
+        await session.status_message.edit(
+            content=f"😵 **{next_c.name}** is unconscious.",
+            embed=session.status_embed(),
+        )
+        await session.status_message.channel.send(
+            f"😵 **{next_c.name}** — roll your death saving throw!",
+            view=DeathSaveView(session, uid),
+        )
+    else:
+        await session.status_message.edit(
+            content=f"**{next_c.name}** — it's your turn. Type your action in RP.",
+            embed=session.status_embed(),
+        )
+
+
+async def _resolve_player_action(session: CombatSession, action_data: dict):
+    player = session.current_combatant
+    action = action_data.get("action", "UNCLEAR")
+
+    if action in ("ATTACK", "SPELL"):
+        enemy = session.enemy
+        channel = session.status_message.channel if session.status_message else None
+        attack_name = action_data.get("detected_attack")
+
+        if attack_name:
+            res = resolve_named_attack(player, attack_name, enemy)
+            for line in res.get("log_lines", []):
+                if channel:
+                    await channel.send(line)
+            if res["is_heal"]:
+                player.heal(res["heal_amount"])
+                session.add_log(f"💚 {player.name} heals **{res['heal_amount']} HP** from **{attack_name}**!")
+            elif res["miss"]:
+                session.add_log(f"🎲 {player.name} — natural 1 on **{attack_name}**!")
+            elif res["hit"]:
+                if res["damage"] > 0:
+                    enemy.take_damage(res["damage"])
+                    crit = " *(Crit!)*" if res["crit"] else ""
+                    session.add_log(f"⚔️ **{attack_name}** — {player.name} hits for **{res['damage']} dmg**{crit}")
+                for cond in res.get("conditions_applied", []):
+                    apply_condition(enemy, cond["name"], cond["duration"])
+                    icon = CONDITIONS.get(cond["name"], {}).get("icon", "⚡")
+                    session.add_log(f"{icon} {enemy.name} is now {cond['name']}!")
+            else:
+                atk_roll = res.get("attack_roll", "?")
+                session.add_log(f"🛡️ **{attack_name}** misses ({atk_roll} vs AC {effective_ac(enemy)})")
+            for cond in res.get("self_conditions", []):
+                apply_condition(player, cond["name"], cond["duration"])
+                icon = CONDITIONS.get(cond["name"], {}).get("icon", "⚡")
+                session.add_log(f"{icon} {player.name} is now {cond['name']}!")
+        else:
+            result = player_attack(player, weapon=player.weapon)
+            if channel:
+                await channel.send(f"🎲 {player.name} rolls **{result['attack_roll']}** to hit.")
+            if result["is_miss"]:
+                session.add_log(f"🎲 {player.name} — natural 1, missed!")
+            elif result["attack_roll"] >= effective_ac(enemy):
+                enemy.take_damage(result["damage"])
+                crit = " *(Crit!)*" if result["is_crit"] else ""
+                sneak = f" +{result['sneak_dice']}d6 sneak" if result["sneak_dice"] else ""
+                session.add_log(f"⚔️ {player.name} hits for **{result['damage']} dmg**{crit}{sneak}")
+            else:
+                session.add_log(f"🛡️ {player.name} misses ({result['attack_roll']} vs AC {effective_ac(enemy)})")
+
+        if not enemy.is_alive:
+            await _end_victory(session)
+            return
+
+    elif action == "DEFEND":
+        result = player_defend(player)
+        if result["success"]:
+            session.add_log(f"🛡️ {player.name} braces — +{result['temp_hp']} temp HP!")
+        else:
+            session.add_log(f"🛡️ {player.name} braces but gains nothing.")
+
+    elif action == "FLEE":
+        dex_mod = modifier(player.dexterity)
+        enemy_dex_mod = modifier(session.enemy.dexterity)
+        player_roll = roll(20) + dex_mod
+        enemy_roll = roll(20) + enemy_dex_mod
+
+        if player_roll > enemy_roll:
+            idx = session.players.index(player)
+            session.players.pop(idx)
+            session.player_user_ids.pop(idx)
+            session.turn_order = [c for c in session.turn_order if c is not player]
+            session.current_idx = session.current_idx % max(len(session.turn_order), 1)
+
+            if player_roll >= 15:
+                session.add_log(f"💨 {player.name} escapes and is far enough to rest safely!")
+            else:
+                session.add_log(
+                    f"💨 {player.name} escapes — but {session.enemy.name} is close. No rest yet."
+                )
+
+            if not session.players:
+                session.state = "over"
+                _sessions.pop(session.guild_id, None)
+                await _set_combat_active(session.guild_id, None)
+                embed = discord.Embed(title="💨 All fighters fled.", color=0xF59E0B)
+                if session.status_message:
+                    await session.status_message.edit(content="", embed=embed)
+                return
+
+            # After removing player, current_idx already points to next combatant
+            next_c = session.turn_order[session.current_idx % len(session.turn_order)]
+            if session.status_message:
+                await session.status_message.edit(embed=session.status_embed())
+            if not next_c.is_player:
+                await _resolve_enemy_turn(session)
+            else:
+                await _update_status_and_prompt(session, next_c)
+            return
+
+        else:
+            session.add_log(
+                f"💨 {player.name} tried to flee but was caught! (rolled {player_roll} vs {enemy_roll}) — loses their turn."
+            )
+
+    elif action == "ITEM":
+        healed = player.heal(roll(4) + 2)
+        session.add_log(f"🧪 {player.name} uses a potion — healed **{healed} HP**!")
+
+    # Normal turn advance
+    session.advance_turn()
+    next_c = session.current_combatant
+
+    if not next_c.is_player:
+        if session.status_message:
+            await session.status_message.edit(embed=session.status_embed())
+        await _resolve_enemy_turn(session)
+    else:
+        await _update_status_and_prompt(session, next_c)
+
+
+async def _resolve_enemy_turn(session: CombatSession):
     enemy = session.enemy
+    channel = session.status_message.channel if session.status_message else None
+
+    # Tick enemy conditions (DoT, expiry)
+    dot_lines = tick_conditions(enemy)
+    if channel:
+        for line in dot_lines:
+            await channel.send(line)
+
+    if enemy.is_dead:
+        await _end_victory(session)
+        return
+
+    # Stunned: skip enemy turn
+    if has_condition(enemy, "stunned"):
+        session.add_log(f"⚡ **{enemy.name}** is stunned and loses their turn!")
+        session.advance_turn()
+        next_c = session.current_combatant
+        if not next_c.is_player:
+            await _resolve_enemy_turn(session)
+        else:
+            await _update_status_and_prompt(session, next_c)
+        return
+
+    # Frightened: 50% chance to cower and lose turn
+    if has_condition(enemy, "frightened") and random.random() < 0.5:
+        session.add_log(f"😨 **{enemy.name}** cowers in fear and cannot act!")
+        if session.status_message:
+            await session.status_message.edit(embed=session.status_embed())
+        session.advance_turn()
+        next_c = session.current_combatant
+        if not next_c.is_player:
+            await _resolve_enemy_turn(session)
+        else:
+            await _update_status_and_prompt(session, next_c)
+        return
+
     targets = session.living_players
 
     if not targets:
-        # All players down — but some may be doing death saves
         unconscious = [p for p in session.players if p.is_unconscious]
         if unconscious:
-            # Attack each unconscious player (auto fail)
             for p in unconscious:
                 p.death_saves_failure += 1
                 session.add_log(f"💀 {enemy.name} attacks downed {p.name} — death save failure!")
                 if p.death_saves_failure >= 3:
                     p.is_dead = True
+                    p.is_unconscious = False
                     session.add_log(f"💀 {p.name} dies.")
         if session.all_players_down:
-            await _end_defeat(session, interaction)
+            await _end_defeat(session)
             return
     else:
         target = random.choice(targets)
         result = enemy_attack(session.enemy_key)
+        if channel:
+            await channel.send(f"🎲 **{enemy.name}** rolls **{result['attack_roll']}** to hit {target.name}.")
         if result["is_miss"]:
             session.add_log(f"🎲 {enemy.name} — natural 1, missed!")
-        elif result["attack_roll"] >= target.armor_class:
+        elif result["attack_roll"] >= effective_ac(target):
             status = target.take_damage(result["damage"])
             crit = " *(Crit!)*" if result["is_crit"] else ""
-            session.add_log(
-                f"⚔️ {enemy.name} hits {target.name} for **{result['damage']} dmg**{crit}"
-            )
+            session.add_log(f"⚔️ {enemy.name} hits {target.name} for **{result['damage']} dmg**{crit}")
             if status == "unconscious":
                 session.add_log(f"😵 {target.name} drops to 0 HP!")
         else:
             session.add_log(
-                f"🛡️ {enemy.name} attacks {target.name} ({result['attack_roll']} vs AC {target.armor_class}) — miss!"
+                f"🛡️ {enemy.name} attacks {target.name} ({result['attack_roll']} vs AC {effective_ac(target)}) — miss!"
             )
 
     if session.all_players_down:
-        await _end_defeat(session, interaction)
+        await _end_defeat(session)
         return
 
     session.advance_turn()
     next_c = session.current_combatant
 
-    if next_c.is_unconscious:
-        view = DeathSaveView(session)
+    if not next_c.is_player:
+        await _resolve_enemy_turn(session)
     else:
-        view = CombatView(session)
-
-    try:
-        msg = session.message
-        if msg:
-            await msg.edit(embed=session.status_embed(), view=view)
-    except Exception:
-        pass
+        await _update_status_and_prompt(session, next_c)
 
 
-# ── End conditions ────────────────────────────────────────────────────────────
-
-async def _end_victory(session: "CombatSession", interaction: discord.Interaction):
+async def _end_victory(session: CombatSession):
     session.state = "over"
     xp = enemy_xp(session.enemy_key)
-    survivors = [p for p in session.players if not p.is_dead]
 
     async with get_db() as db:
         for i, p in enumerate(session.players):
@@ -581,10 +698,12 @@ async def _end_victory(session: "CombatSession", interaction: discord.Interactio
 
     _sessions.pop(session.guild_id, None)
     await _set_combat_active(session.guild_id, None)
-    await interaction.response.edit_message(embed=session.victory_embed(xp), view=None)
+
+    if session.status_message:
+        await session.status_message.edit(content="", embed=session.victory_embed(xp))
 
 
-async def _end_defeat(session: "CombatSession", interaction: discord.Interaction):
+async def _end_defeat(session: CombatSession):
     session.state = "over"
 
     async with get_db() as db:
@@ -604,14 +723,9 @@ async def _end_defeat(session: "CombatSession", interaction: discord.Interaction
 
     _sessions.pop(session.guild_id, None)
     await _set_combat_active(session.guild_id, None)
-    try:
-        if interaction.response.is_done():
-            if session.message:
-                await session.message.edit(embed=session.defeat_embed(), view=None)
-        else:
-            await interaction.response.edit_message(embed=session.defeat_embed(), view=None)
-    except Exception:
-        pass
+
+    if session.status_message:
+        await session.status_message.edit(content="", embed=session.defeat_embed())
 
 
 # ── Enemy select ──────────────────────────────────────────────────────────────
@@ -635,8 +749,6 @@ class EnemySelect(discord.ui.Select):
             return
 
         enemy_key = self.values[0]
-
-        # Build session
         session = CombatSession(
             enemy_key=enemy_key,
             channel_id=interaction.channel_id,
@@ -646,7 +758,6 @@ class EnemySelect(discord.ui.Select):
         _sessions[interaction.guild_id] = session
         await _set_combat_active(interaction.guild_id, interaction.channel_id)
 
-        # Auto-add the initiator
         async with get_db() as db:
             result = await db.execute(
                 select(Character).where(
@@ -691,8 +802,10 @@ class EnemySelect(discord.ui.Select):
             session.player_user_ids.append(interaction.user.id)
 
         lobby_view = LobbyView(session)
-        await interaction.response.edit_message(embed=session.lobby_embed(), view=lobby_view)
-        session.message = await interaction.original_response()
+        session.lobby_message = await interaction.channel.send(embed=session.lobby_embed(), view=lobby_view)
+        await interaction.response.edit_message(
+            content="✅ Lobby created! Others can join in the channel.", embed=None, view=None
+        )
 
 
 class EnemySelectView(discord.ui.View):
@@ -711,7 +824,6 @@ async def combat_start(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
-
     if interaction.guild_id in _sessions:
         await interaction.response.send_message(
             "A combat is already active. Finish it first.", ephemeral=True
@@ -742,11 +854,7 @@ async def combat_start(interaction: discord.Interaction):
         description=f"**{char.name}** — Level {char.level} {char.char_class}",
         color=0x8B5CF6,
     )
-    await interaction.response.send_message(
-        embed=embed,
-        view=EnemySelectView(interaction.user.id),
-        ephemeral=True,
-    )
+    await interaction.response.send_message(embed=embed, view=EnemySelectView(interaction.user.id), ephemeral=True)
 
 
 @combat_group.command(name="status", description="Check the current combat status")
@@ -761,6 +869,42 @@ async def combat_status(interaction: discord.Interaction):
     await interaction.response.send_message(embed=session.status_embed(), ephemeral=True)
 
 
+@combat_group.command(name="forfeit", description="Forfeit combat — removes you from the current fight")
+async def combat_forfeit(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    session = _sessions.get(interaction.guild_id)
+    if not session or session.state != "active":
+        await interaction.response.send_message("No active combat right now.", ephemeral=True)
+        return
+    if interaction.user.id not in session.player_user_ids:
+        await interaction.response.send_message("You're not in this fight.", ephemeral=True)
+        return
+
+    idx = session.player_user_ids.index(interaction.user.id)
+    player = session.players[idx]
+    session.players.pop(idx)
+    session.player_user_ids.pop(idx)
+    session.turn_order = [c for c in session.turn_order if c is not player]
+    session.current_idx = session.current_idx % max(len(session.turn_order), 1)
+    session.add_log(f"🏳️ {player.name} forfeited the fight.")
+
+    await interaction.response.send_message(f"**{player.name}** has left the fight.", ephemeral=True)
+
+    if not session.players:
+        session.state = "over"
+        _sessions.pop(session.guild_id, None)
+        await _set_combat_active(session.guild_id, None)
+        if session.status_message:
+            embed = discord.Embed(title="💨 All fighters withdrew.", color=0xF59E0B)
+            await session.status_message.edit(content="", embed=embed)
+        return
+
+    if session.status_message:
+        await session.status_message.edit(embed=session.status_embed())
+
+
 # ── Cog ───────────────────────────────────────────────────────────────────────
 
 class CombatCog(commands.Cog, name="Combat"):
@@ -772,12 +916,70 @@ class CombatCog(commands.Cog, name="Combat"):
         self.bot.tree.remove_command("combat")
 
     @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or not message.guild:
+            return
+
+        session = _sessions.get(message.guild.id)
+        if not session or session.state != "active":
+            return
+        if message.channel.id != session.channel_id:
+            return
+        if message.content.startswith("/"):
+            return
+
+        current = session.current_combatant
+        if not current.is_player:
+            return
+
+        uid = session.user_id_for(current)
+        if message.author.id != uid:
+            return
+
+        # Don't stack confirmations
+        if session.pending_action is not None:
+            return
+
+        # Detect named attack first (before Groq, to surface it in the confirm label)
+        known_attacks = current.class_resources.get("attacks", [])
+        attack_name = detect_attack_name(message.content, known_attacks) if known_attacks else None
+
+        result = await classify_combat_action(message.content, current.name, session.enemy.name)
+
+        if attack_name:
+            result["action"] = "ATTACK"
+            result["detected_attack"] = attack_name
+        elif result["action"] == "UNCLEAR":
+            return
+
+        session.pending_action = result
+        action = result["action"]
+        target = result.get("target") or session.enemy.name
+        weapon = result.get("weapon")
+
+        if attack_name:
+            desc = f"⚔️ **{attack_name}** at **{target}**"
+        else:
+            labels = {
+                "ATTACK": f"⚔️ Attack **{target}**" + (f" with {weapon}" if weapon else ""),
+                "DEFEND": "🛡️ Take a defensive stance",
+                "FLEE":   "💨 Attempt to flee",
+                "ITEM":   "🧪 Use an item",
+                "SPELL":  f"✨ Cast a spell at **{target}**",
+            }
+            desc = labels.get(action, action)
+
+        session.confirm_message = await message.reply(
+            f"*{desc}* — is that right?",
+            view=ConfirmView(session, uid),
+            mention_author=False,
+        )
+
+    @commands.Cog.listener()
     async def on_ready(self):
-        """On startup, notify any channels where combat was active before the restart."""
-        from sqlalchemy import select as sa_select
         async with get_db() as db:
             result = await db.execute(
-                sa_select(GuildConfig).where(GuildConfig.combat_active == True)
+                select(GuildConfig).where(GuildConfig.combat_active == True)
             )
             interrupted = result.scalars().all()
             for config in interrupted:

@@ -8,6 +8,12 @@ from typing import Optional
 def roll(sides: int) -> int:
     return random.randint(1, sides)
 
+def roll_adv(sides: int) -> int:
+    return max(roll(sides), roll(sides))
+
+def roll_dis(sides: int) -> int:
+    return min(roll(sides), roll(sides))
+
 def roll_dice(count: int, sides: int) -> list[int]:
     return [roll(sides) for _ in range(count)]
 
@@ -207,6 +213,50 @@ def enemy_attack(enemy_key: str) -> dict:
         "damage_bonus": t["damage_bonus"],
     }
 
+# ── Starter weapons & attacks per class ──────────────────────────────────────
+
+STARTER_WEAPONS: dict[str, str] = {
+    "Fighter":   "longsword",
+    "Rogue":     "dagger",
+    "Wizard":    "quarterstaff",
+    "Barbarian": "greataxe",
+    "Cleric":    "mace",
+    "Warlock":   "unarmed",
+}
+
+STARTER_ATTACKS: dict[str, list[dict]] = {
+    "Fighter": [
+        {"name": "Power Strike",  "flavor": "drives their weapon forward with full force",   "stat": "str", "damage_bonus": 2},
+        {"name": "Shield Bash",   "flavor": "slams their shield into the enemy",             "stat": "str", "damage_bonus": 0},
+        {"name": "Parry",         "flavor": "deflects the incoming blow with precision",     "stat": "str", "is_defend": True},
+    ],
+    "Rogue": [
+        {"name": "Sneak Stab",    "flavor": "darts in from the shadows for a precise strike","stat": "dex", "sneak": True},
+        {"name": "Smoke Feint",   "flavor": "feints left and strikes right",                 "stat": "dex", "damage_bonus": 1},
+        {"name": "Pickpocket",    "flavor": "attempts to snatch something from the enemy",   "stat": "dex", "is_special": True},
+    ],
+    "Wizard": [
+        {"name": "Magic Missile", "flavor": "launches three darts of magical force",         "stat": "int", "damage_dice": (3, 4), "is_spell": True},
+        {"name": "Fire Bolt",     "flavor": "hurls a mote of searing fire",                 "stat": "int", "damage_dice": (1, 10), "is_spell": True},
+        {"name": "Shield",        "flavor": "raises a glimmering magical barrier",           "stat": "int", "is_defend": True, "is_spell": True},
+    ],
+    "Barbarian": [
+        {"name": "Reckless Swing","flavor": "attacks with wild, furious abandon",            "stat": "str", "damage_bonus": 3},
+        {"name": "Rage Charge",   "flavor": "charges with terrifying berserk speed",         "stat": "str", "damage_bonus": 2},
+        {"name": "Intimidate",    "flavor": "unleashes a battle cry to unsettle the foe",   "stat": "str", "is_special": True},
+    ],
+    "Cleric": [
+        {"name": "Smite",         "flavor": "channels divine wrath into their strike",       "stat": "wis", "damage_bonus": 2, "is_spell": True},
+        {"name": "Heal",          "flavor": "calls on divine power to mend wounds",          "stat": "wis", "is_heal": True, "is_spell": True},
+        {"name": "Turn Undead",   "flavor": "raises their holy symbol with divine force",    "stat": "wis", "is_special": True, "is_spell": True},
+    ],
+    "Warlock": [
+        {"name": "Eldritch Blast","flavor": "fires a beam of crackling dark energy",         "stat": "cha", "damage_dice": (1, 10), "is_spell": True},
+        {"name": "Hex",           "flavor": "places a dark curse on the target",             "stat": "cha", "is_special": True, "is_spell": True},
+        {"name": "Drain",         "flavor": "siphons life force from the target",            "stat": "cha", "damage_dice": (1, 8), "is_spell": True, "self_heal": True},
+    ],
+}
+
 # ── Player attack resolution ──────────────────────────────────────────────────
 
 WEAPON_DAMAGE: dict[str, tuple[int, int]] = {
@@ -319,3 +369,536 @@ def hp_gain_on_level(char_class: str, con_score: int, new_level: int) -> int:
                "Cleric": 8, "Wizard": 6, "Warlock": 8}.get(char_class, 8)
     avg_roll = math.ceil(hit_die / 2) + 1
     return avg_roll + modifier(con_score)
+
+
+# ── Conditions ────────────────────────────────────────────────────────────────
+
+CONDITIONS: dict[str, dict] = {
+    "poisoned":   {"icon": "🤢", "dot_damage": (1, 4), "dot_type": "poison",   "attack_penalty": True},
+    "burning":    {"icon": "🔥", "dot_damage": (1, 6), "dot_type": "fire"},
+    "bleeding":   {"icon": "🩸", "dot_damage": (1, 4), "dot_type": "slashing"},
+    "stunned":    {"icon": "⭐", "skip_turn": True,    "attackers_advantage": True},
+    "blinded":    {"icon": "🫥", "attack_disadvantage": True, "defense_disadvantage": True},
+    "frightened": {"icon": "😨", "attack_disadvantage": True},
+    "hexed":      {"icon": "🔮", "bonus_damage_on_hit": (1, 6), "bonus_type": "necrotic"},
+    "prone":      {"icon": "⬇️", "attack_disadvantage": True, "melee_advantage_against": True},
+    "parrying":   {"icon": "🛡️", "ac_bonus": 2},
+    "shielded":   {"icon": "✨", "ac_bonus": 5},
+    "reckless":   {"icon": "🔴", "ac_penalty": 2},
+    "raging":     {"icon": "💢", "damage_bonus": 2, "damage_resistance": True},
+}
+
+
+def has_condition(combatant: Combatant, name: str) -> bool:
+    return any(c["name"] == name for c in (combatant.conditions or []))
+
+
+def apply_condition(combatant: Combatant, name: str, duration: int):
+    if not has_condition(combatant, name):
+        combatant.conditions.append({"name": name, "duration": duration})
+
+
+def remove_condition(combatant: Combatant, name: str):
+    combatant.conditions = [c for c in (combatant.conditions or []) if c["name"] != name]
+
+
+def tick_conditions(combatant: Combatant) -> list[str]:
+    """Apply DoT, reduce durations, remove expired. Returns log lines."""
+    lines = []
+    expired = []
+    for cond in list(combatant.conditions or []):
+        info = CONDITIONS.get(cond["name"], {})
+        if "dot_damage" in info:
+            count, sides = info["dot_damage"]
+            dmg = sum(roll(sides) for _ in range(count))
+            combatant.take_damage(dmg)
+            lines.append(f"{info['icon']} **{combatant.name}** takes **{dmg}** {info['dot_type']} damage from {cond['name']}!")
+        cond["duration"] -= 1
+        if cond["duration"] <= 0:
+            expired.append(cond["name"])
+    for name in expired:
+        remove_condition(combatant, name)
+        lines.append(f"✨ **{combatant.name}** is no longer {name}.")
+    return lines
+
+
+def effective_ac(combatant: Combatant) -> int:
+    ac = combatant.armor_class
+    for cond in (combatant.conditions or []):
+        info = CONDITIONS.get(cond["name"], {})
+        ac += info.get("ac_bonus", 0)
+        ac -= info.get("ac_penalty", 0)
+    return ac
+
+
+def detect_attack_name(text: str, known_attacks: list[str]) -> str | None:
+    text_lower = text.lower()
+    for attack in known_attacks:
+        if attack.lower() in text_lower:
+            return attack
+    return None
+
+
+# ── Named attack handlers ─────────────────────────────────────────────────────
+
+def _base_result(name: str) -> dict:
+    return {
+        "attack_name": name, "hit": False, "damage": 0, "crit": False, "miss": False,
+        "attack_roll": None, "log_lines": [], "conditions_applied": [],
+        "self_conditions": [], "is_heal": False, "heal_amount": 0, "ac_bonus": 0,
+    }
+
+
+def _resolve_hit(raw: int, stat_mod: int, pb: int, target_ac: int, adv: bool = False, dis: bool = False):
+    if adv and not dis:
+        raw = max(raw, roll(20))
+    elif dis and not adv:
+        raw = min(raw, roll(20))
+    is_crit = raw == 20
+    is_miss = raw == 1
+    total = raw + stat_mod + pb
+    hit = not is_miss and (is_crit or total >= target_ac)
+    return raw, total, hit, is_crit, is_miss
+
+
+# ─── Fighter ──────────────────────────────────────────────────────────────────
+
+def _power_strike(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Power Strike")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.strength)
+    dis = has_condition(attacker, "blinded") or has_condition(attacker, "frightened")
+    adv = has_condition(target, "stunned") or has_condition(target, "prone")
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target), adv, dis)
+    dc, ds = WEAPON_DAMAGE.get(attacker.weapon, (1, 8))
+    if crit: dc *= 2
+    rolls = roll_dice(dc, ds)
+    dmg = max(1, sum(rolls) + sm + 2)
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1 — FUMBLE!**" if miss else "**MISS!**"))
+    r["log_lines"] = [
+        f"⚔️ **{attacker.name}** uses **Power Strike**!",
+        f"🎲 d20({raw}) {sm:+} STR  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+        *([ f"💥 {dc}d{ds}({sum(rolls)}) + STR({sm:+}) + Power Strike(+2) = **{dmg} damage**"] if hit else []),
+    ]
+    return r
+
+
+def _shield_bash(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Shield Bash")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.strength)
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target))
+    bash = roll(4)
+    dmg = max(1, bash + sm)
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**")
+    lines = [
+        f"🛡️ **{attacker.name}** uses **Shield Bash**!",
+        f"🎲 d20({raw}) {sm:+} STR  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 1d4({bash}) + STR({sm:+}) = **{dmg} damage**")
+        con_save = roll(20) + modifier(target.constitution)
+        if con_save < 13:
+            apply_condition(target, "stunned", 1)
+            r["conditions_applied"].append((target, "stunned", 1))
+            lines.append(f"⭐ {target.name} fails CON save ({con_save} vs DC 13) — **Stunned** for 1 round!")
+        else:
+            lines.append(f"{target.name} passes CON save ({con_save}) — not stunned.")
+    r["log_lines"] = lines
+    return r
+
+
+def _parry(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Parry")
+    apply_condition(attacker, "parrying", 1)
+    r["self_conditions"].append(("parrying", 1))
+    r["ac_bonus"] = 2
+    r["log_lines"] = [
+        f"🛡️ **{attacker.name}** uses **Parry** — bracing to deflect the next blow!",
+        f"⬆️ AC {attacker.armor_class} → **{attacker.armor_class + 2}** until next turn.",
+    ]
+    return r
+
+
+# ─── Rogue ────────────────────────────────────────────────────────────────────
+
+def _sneak_stab(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Sneak Stab")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.dexterity)
+    dis = has_condition(attacker, "blinded")
+    adv = has_condition(target, "stunned") or has_condition(target, "blinded")
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target), adv, dis)
+    dc, ds = WEAPON_DAMAGE.get(attacker.weapon, (1, 4))
+    if crit: dc *= 2
+    rolls = roll_dice(dc, ds)
+    sneak_n = math.ceil(attacker.level / 2)
+    sneak_r = roll_dice(sneak_n * (2 if crit else 1), 6)
+    dmg = max(1, sum(rolls) + sm + sum(sneak_r))
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    lines = [
+        f"🗡️ **{attacker.name}** uses **Sneak Stab** — darting in from the shadows!",
+        f"🎲 d20({raw}) {sm:+} DEX  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {dc}d{ds}({sum(rolls)}) + DEX({sm:+}) + {sneak_n}d6 Sneak({sum(sneak_r)}) = **{dmg} damage**")
+        apply_condition(target, "bleeding", 2)
+        r["conditions_applied"].append((target, "bleeding", 2))
+        lines.append(f"🩸 {target.name} is **Bleeding** for 2 rounds!")
+    r["log_lines"] = lines
+    return r
+
+
+def _smoke_feint(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Smoke Feint")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.dexterity)
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target))
+    dc, ds = WEAPON_DAMAGE.get(attacker.weapon, (1, 4))
+    rolls = roll_dice(dc, ds)
+    dmg = max(1, sum(rolls) + sm + 1)
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**")
+    lines = [
+        f"💨 **{attacker.name}** uses **Smoke Feint** — feinting left, striking right!",
+        f"🎲 d20({raw}) {sm:+} DEX  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {dc}d{ds}({sum(rolls)}) + DEX({sm:+}) + Feint(+1) = **{dmg} damage**")
+        apply_condition(target, "blinded", 1)
+        r["conditions_applied"].append((target, "blinded", 1))
+        lines.append(f"🫥 {target.name} is **Blinded** for 1 round!")
+    r["log_lines"] = lines
+    return r
+
+
+def _pickpocket(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Pickpocket")
+    dex_mod = modifier(attacker.dexterity)
+    wis_mod = modifier(target.wisdom)
+    atk_r = roll(20) + dex_mod + proficiency_bonus(attacker.level)
+    def_r = roll(20) + wis_mod
+    success = atk_r > def_r
+    gold = roll(10) + 5 if success else 0
+    r["hit"] = success
+    r["log_lines"] = [
+        f"🎩 **{attacker.name}** attempts to **Pickpocket** {target.name}!",
+        f"🎲 Sleight of Hand {atk_r} vs {target.name} Perception {def_r} — {'✅ Success!' if success else '❌ Caught!'}",
+        *([ f"💰 Swiped **{gold} gold** from {target.name}!"] if success else [f"{target.name} noticed the attempt."]),
+    ]
+    return r
+
+
+# ─── Wizard ───────────────────────────────────────────────────────────────────
+
+def _magic_missile(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Magic Missile")
+    darts = [roll(4) + 1 for _ in range(3)]
+    total_dmg = sum(darts)
+    r.update(hit=True, damage=total_dmg)
+    r["log_lines"] = [
+        f"✨ **{attacker.name}** casts **Magic Missile** — three darts of pure force!",
+        f"🎯 Auto-hit! 3 darts: {darts[0]}+{darts[1]}+{darts[2]} = **{total_dmg} force damage** (no save possible)",
+    ]
+    return r
+
+
+def _fire_bolt(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Fire Bolt")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.intelligence)
+    dis = has_condition(attacker, "blinded")
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target), False, dis)
+    fire_r = roll_dice(2 if crit else 1, 10)
+    dmg = max(1, sum(fire_r))
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    lines = [
+        f"🔥 **{attacker.name}** hurls **Fire Bolt** at {target.name}!",
+        f"🎲 d20({raw}) {sm:+} INT  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {'2' if crit else '1'}d10({sum(fire_r)}) = **{dmg} fire damage**")
+        apply_condition(target, "burning", 1)
+        r["conditions_applied"].append((target, "burning", 1))
+        lines.append(f"🔥 {target.name} is **Burning** for 1 round!")
+    r["log_lines"] = lines
+    return r
+
+
+def _wizard_shield(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Shield")
+    apply_condition(attacker, "shielded", 1)
+    r["self_conditions"].append(("shielded", 1))
+    r["ac_bonus"] = 5
+    r["log_lines"] = [
+        f"✨ **{attacker.name}** casts **Shield** — a glimmering magical barrier!",
+        f"⬆️ AC {attacker.armor_class} → **{attacker.armor_class + 5}** until next turn.",
+    ]
+    return r
+
+
+# ─── Barbarian ────────────────────────────────────────────────────────────────
+
+def _reckless_swing(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Reckless Swing")
+    raw1, raw2 = roll(20), roll(20)
+    raw = max(raw1, raw2)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.strength)
+    _, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target))
+    dc, ds = WEAPON_DAMAGE.get(attacker.weapon, (1, 12))
+    if crit: dc *= 2
+    rolls = roll_dice(dc, ds)
+    dmg = max(1, sum(rolls) + sm + 3)
+    apply_condition(attacker, "reckless", 1)
+    r["self_conditions"].append(("reckless", 1))
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    lines = [
+        f"🪓 **{attacker.name}** attacks with **Reckless Swing** — wild, furious abandon!",
+        f"🎲 Advantage d20({raw1},{raw2})→{raw}  {sm:+} STR  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {dc}d{ds}({sum(rolls)}) + STR({sm:+}) + Reckless(+3) = **{dmg} damage**")
+    lines.append(f"🔴 Reckless: **-2 AC** until {attacker.name}'s next turn!")
+    r["log_lines"] = lines
+    return r
+
+
+def _rage_charge(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Rage Charge")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.strength)
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target))
+    dc, ds = WEAPON_DAMAGE.get(attacker.weapon, (1, 12))
+    if crit: dc *= 2
+    rolls = roll_dice(dc, ds)
+    dmg = max(1, sum(rolls) + sm + 2)
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    lines = [
+        f"💢 **{attacker.name}** uses **Rage Charge** — charging with terrifying berserk speed!",
+        f"🎲 d20({raw}) {sm:+} STR  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {dc}d{ds}({sum(rolls)}) + STR({sm:+}) + Charge(+2) = **{dmg} damage**")
+        str_save = roll(20) + modifier(target.strength)
+        if str_save < 14:
+            apply_condition(target, "prone", 1)
+            r["conditions_applied"].append((target, "prone", 1))
+            lines.append(f"⬇️ {target.name} fails STR save ({str_save} vs DC 14) — **Knocked Prone** for 1 round!")
+        else:
+            lines.append(f"{target.name} passes STR save ({str_save}) — stays on their feet.")
+    r["log_lines"] = lines
+    return r
+
+
+def _intimidate(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Intimidate")
+    cha_mod = modifier(attacker.charisma)
+    atk_r = roll(20) + cha_mod + proficiency_bonus(attacker.level)
+    def_r = roll(20) + modifier(target.wisdom)
+    success = atk_r > def_r
+    r["hit"] = success
+    lines = [
+        f"😤 **{attacker.name}** unleashes an **Intimidating** battle cry!",
+        f"🎲 Intimidation {atk_r} vs {target.name} Insight {def_r} — {'success!' if success else 'resisted.'}",
+    ]
+    if success:
+        apply_condition(target, "frightened", 2)
+        r["conditions_applied"].append((target, "frightened", 2))
+        lines.append(f"😨 {target.name} is **Frightened** for 2 rounds — disadvantage on attacks!")
+    else:
+        lines.append(f"{target.name} stands firm, unshaken.")
+    r["log_lines"] = lines
+    return r
+
+
+# ─── Cleric ───────────────────────────────────────────────────────────────────
+
+def _smite(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Smite")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.wisdom)
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target))
+    dc, ds = WEAPON_DAMAGE.get(attacker.weapon, (1, 6))
+    if crit: dc *= 2
+    rolls = roll_dice(dc, ds)
+    is_undead = "skeleton" in getattr(target, "id", "")
+    rad_sides = 4 if is_undead else 2
+    rad_r = roll_dice(2 if crit else 1, rad_sides)
+    dmg = max(1, sum(rolls) + sm + sum(rad_r) + 2)
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    lines = [
+        f"⚡ **{attacker.name}** channels divine wrath — **Smite**!",
+        f"🎲 d20({raw}) {sm:+} WIS  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {dc}d{ds}({sum(rolls)}) + WIS({sm:+}) + {'2' if crit else '1'}d{rad_sides} radiant({sum(rad_r)}) + Smite(+2) = **{dmg} damage**")
+        if is_undead:
+            lines.append("✝️ *Bonus radiant damage vs undead!*")
+    r["log_lines"] = lines
+    return r
+
+
+def _heal_spell(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Heal")
+    wis_mod = modifier(attacker.wisdom)
+    heal_r = roll_dice(2, 6)
+    amount = max(1, sum(heal_r) + wis_mod)
+    actual = attacker.heal(amount)
+    r.update(is_heal=True, heal_amount=actual)
+    r["log_lines"] = [
+        f"✝️ **{attacker.name}** calls upon divine power — **Heal**!",
+        f"💚 2d6({sum(heal_r)}) + WIS({wis_mod:+}) = **{amount} HP** → healed **{actual} HP** ❤️ `{attacker.hp_current}/{attacker.hp_max}`",
+    ]
+    return r
+
+
+def _turn_undead(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Turn Undead")
+    wis_mod = modifier(attacker.wisdom)
+    is_undead = "skeleton" in getattr(target, "id", "")
+    lines = [f"✝️ **{attacker.name}** raises their holy symbol — **Turn Undead**!"]
+    if not is_undead:
+        lines.append(f"❌ {target.name} is not undead — no effect.")
+    else:
+        dc = 8 + wis_mod + proficiency_bonus(attacker.level)
+        wis_save = roll(20) + modifier(target.wisdom)
+        lines.append(f"🎲 {target.name} WIS save: {wis_save} vs DC {dc}")
+        if wis_save < dc:
+            apply_condition(target, "frightened", 2)
+            r["conditions_applied"].append((target, "frightened", 2))
+            r["hit"] = True
+            lines.append(f"😨 **{target.name} is Turned!** Frightened for 2 rounds — cannot attack!")
+        else:
+            lines.append(f"{target.name} resists the turning.")
+    r["log_lines"] = lines
+    return r
+
+
+# ─── Warlock ──────────────────────────────────────────────────────────────────
+
+def _eldritch_blast(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Eldritch Blast")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.charisma)
+    dis = has_condition(attacker, "blinded")
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target), False, dis)
+    force_r = roll_dice(2 if crit else 1, 10)
+    cha_dmg = modifier(attacker.charisma)
+    dmg = max(1, sum(force_r) + cha_dmg)
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    lines = [
+        f"🔮 **{attacker.name}** fires **Eldritch Blast** — a beam of crackling dark energy!",
+        f"🎲 d20({raw}) {sm:+} CHA  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {'2' if crit else '1'}d10({sum(force_r)}) + CHA({cha_dmg:+}) = **{dmg} force damage**")
+        str_save = roll(20) + modifier(target.strength)
+        lines.append(f"💨 Repelling Blast: {target.name} STR save {str_save} vs DC 12 — " + ("blasted backward!" if str_save < 12 else "holds their ground."))
+    r["log_lines"] = lines
+    return r
+
+
+def _hex_spell(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Hex")
+    apply_condition(target, "hexed", 3)
+    r["conditions_applied"].append((target, "hexed", 3))
+    r["log_lines"] = [
+        f"🔮 **{attacker.name}** places a **Hex** on {target.name}!",
+        f"💀 {target.name} is **Hexed** for 3 rounds — each hit deals +1d6 necrotic damage!",
+    ]
+    return r
+
+
+def _drain(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Drain")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(attacker.charisma)
+    dis = has_condition(attacker, "blinded")
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target), False, dis)
+    drain_r = roll_dice(2 if crit else 1, 8)
+    dmg = max(1, sum(drain_r))
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    lines = [
+        f"💀 **{attacker.name}** reaches out — **Drain**! Siphoning life from {target.name}!",
+        f"🎲 d20({raw}) {sm:+} CHA  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {'2' if crit else '1'}d8({sum(drain_r)}) = **{dmg} necrotic damage**")
+        heal_amount = dmg // 2
+        actual = attacker.heal(heal_amount)
+        lines.append(f"💚 {attacker.name} absorbs life force — healed **{actual} HP** ❤️ `{attacker.hp_current}/{attacker.hp_max}`")
+    r["log_lines"] = lines
+    return r
+
+
+# ── Dispatcher ────────────────────────────────────────────────────────────────
+
+_HANDLERS: dict = {
+    "Power Strike":   _power_strike,
+    "Shield Bash":    _shield_bash,
+    "Parry":          _parry,
+    "Sneak Stab":     _sneak_stab,
+    "Smoke Feint":    _smoke_feint,
+    "Pickpocket":     _pickpocket,
+    "Magic Missile":  _magic_missile,
+    "Fire Bolt":      _fire_bolt,
+    "Shield":         _wizard_shield,
+    "Reckless Swing": _reckless_swing,
+    "Rage Charge":    _rage_charge,
+    "Intimidate":     _intimidate,
+    "Smite":          _smite,
+    "Heal":           _heal_spell,
+    "Turn Undead":    _turn_undead,
+    "Eldritch Blast": _eldritch_blast,
+    "Hex":            _hex_spell,
+    "Drain":          _drain,
+}
+
+
+def resolve_named_attack(attacker: Combatant, attack_name: str, target: Combatant) -> dict:
+    handler = _HANDLERS.get(attack_name)
+    if handler:
+        result = handler(attacker, target)
+        # Hex bonus damage on any hit (except Drain which handles it)
+        if result["hit"] and result["damage"] > 0 and has_condition(target, "hexed") and attack_name not in ("Drain", "Hex"):
+            hex_roll = roll(6)
+            result["damage"] += hex_roll
+            result["log_lines"].append(f"🔮 Hex triggers! +{hex_roll} necrotic damage!")
+        return result
+    # Fallback: basic weapon attack
+    basic = player_attack(attacker, weapon=attacker.weapon)
+    stat_key = CLASS_ATTACK_STAT.get(attacker.char_class, "str")
+    sm = modifier(_stat(attacker, stat_key))
+    hit = not basic["is_miss"] and basic["attack_roll"] >= effective_ac(target)
+    lines = [
+        f"⚔️ **{attacker.name}** attacks!",
+        f"🎲 d20({basic['raw_roll']}) {sm:+} = **{basic['attack_roll']}** vs AC {effective_ac(target)} — {'**HIT!**' if hit else '**MISS!**'}",
+        *([ f"💥 **{basic['damage']} damage**"] if hit else []),
+    ]
+    return {
+        "attack_name": attack_name or "Attack", "hit": hit,
+        "damage": basic["damage"] if hit else 0,
+        "crit": basic["is_crit"], "miss": basic["is_miss"],
+        "attack_roll": basic["attack_roll"], "log_lines": lines,
+        "conditions_applied": [], "self_conditions": [],
+        "is_heal": False, "heal_amount": 0, "ac_bonus": 0,
+    }
