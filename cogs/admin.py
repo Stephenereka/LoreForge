@@ -15,6 +15,48 @@ class AdminCog(commands.Cog, name="Admin"):
             ephemeral=True
         )
 
+    @app_commands.command(name="help", description="Show all LoreForge commands")
+    async def help(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="⚔️ LoreForge — Command List",
+            description="LoreForge turns your Discord server into a living RPG world.\nAll commands are slash commands — type `/` to see them.",
+            color=0x8B5CF6,
+        )
+
+        embed.add_field(
+            name="🧙 Character",
+            value=(
+                "`/create <name>` — Create your character. Walks you through race, class, and background step by step.\n"
+                "`/sheet` — View your character sheet privately.\n"
+                "`/sheet_public` — Post your character sheet for the whole server to see."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="⚙️ Server Setup",
+            value=(
+                "`/setup <world_name> <gm_role>` — Set up LoreForge in this server. Requires **Manage Server** permission.\n"
+                "`/ping` — Check if the bot is online and see its latency."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🗺️ Coming Soon",
+            value=(
+                "`/attack` — Start a combat encounter\n"
+                "`/lore` — Search your world's lore wiki\n"
+                "`/quest` — View and accept quests\n"
+                "`/shop` — Browse and buy items\n"
+                "`/travel` — Move between locations"
+            ),
+            inline=False,
+        )
+
+        embed.set_footer(text="LoreForge — Every server is a world.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(name="setup", description="Set up LoreForge in this server (requires Manage Server)")
     @app_commands.describe(world_name="Name of your world", gm_role="The role that acts as Game Master")
     @app_commands.default_permissions(manage_guild=True)
