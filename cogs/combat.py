@@ -226,7 +226,7 @@ class CombatView(discord.ui.View):
     @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger, emoji="⚔️", row=0)
     async def attack(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
-        result = player_attack(session.player)
+        result = player_attack(session.player, weapon=session.player.weapon)
         enemy = session.enemy
 
         if result["is_miss"]:
@@ -377,6 +377,13 @@ class EnemySelect(discord.ui.Select):
         enemy_key = self.values[0]
         pc = self.player_char
 
+        # Detect equipped weapon from inventory
+        inventory = pc.inventory or []
+        equipped_weapon = next(
+            (it["key"] for it in inventory if it.get("type") == "weapon" and it.get("equipped")),
+            "unarmed",
+        )
+
         player = Combatant(
             id=str(pc.user_id),
             name=pc.name,
@@ -399,6 +406,7 @@ class EnemySelect(discord.ui.Select):
             death_saves_failure=pc.death_saves_failure,
             conditions=list(pc.conditions or []),
             class_resources=dict(pc.class_resources or {}),
+            weapon=equipped_weapon,
         )
         enemy = make_enemy(enemy_key)
 

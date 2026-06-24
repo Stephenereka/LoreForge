@@ -16,6 +16,8 @@ COGS = [
     "cogs.admin",
     "cogs.character",
     "cogs.combat",
+    "cogs.shop",
+    "cogs.inventory",
 ]
 
 @bot.event

@@ -104,11 +104,30 @@ class AdminCog(commands.Cog, name="Admin"):
         )
 
         embed.add_field(
+            name="🏪 `/shop` — Buy & sell",
+            value=(
+                "`/shop browse` — See all weapons, armor, and potions for sale\n"
+                "`/shop buy <item>` — Purchase an item\n"
+                "`/shop sell <item>` — Sell an item for half price"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🎒 `/inventory` — Your items",
+            value=(
+                "`/inventory view` — See your items and gold\n"
+                "`/inventory equip <item>` — Equip a weapon or armor\n"
+                "`/inventory use <item>` — Drink a potion"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
             name="🗺️ Coming Soon",
             value=(
                 "`/lore` — Search your world's lore wiki\n"
                 "`/quest` — View and accept quests\n"
-                "`/shop` — Browse and buy items\n"
                 "`/travel` — Move between locations\n"
                 "`/gm` — Game Master tools"
             ),
