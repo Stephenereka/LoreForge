@@ -89,6 +89,14 @@ def assign_stats(char_class: str, race: str) -> dict:
 def proficiency_bonus(level: int) -> int:
     return math.ceil(level / 4) + 1
 
+def _is_valid_image_url(url: str) -> bool:
+    if not url:
+        return True
+    clean = url.lower().split("?")[0]
+    return clean.startswith("https://") and any(
+        clean.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp")
+    )
+
 def _starting_resources(char_class: str) -> dict:
     return {
         "Fighter":   {"action_surge": 1},
@@ -424,7 +432,7 @@ class DetailsModal(discord.ui.Modal, title="Character Details"):
     avatar_url = discord.ui.TextInput(
         label="Avatar URL (image link)",
         style=discord.TextStyle.short,
-        placeholder="https://i.imgur.com/yourimage.png",
+        placeholder="https://example.com/image.png  (.jpg/.png/.gif/.webp)",
         required=False,
         max_length=500,
     )
@@ -451,6 +459,14 @@ class DetailsModal(discord.ui.Modal, title="Character Details"):
         self.background = background
 
     async def on_submit(self, interaction: discord.Interaction):
+        raw_url = self.avatar_url.value.strip() or None
+        if raw_url and not _is_valid_image_url(raw_url):
+            await interaction.response.send_message(
+                "Avatar URL must be a direct image link ending in `.jpg`, `.jpeg`, `.png`, `.gif`, or `.webp`.",
+                ephemeral=True,
+            )
+            return
+
         new_open = self.proxy_open.value.strip() or None
         if new_open:
             async with get_db() as db:
@@ -727,7 +743,7 @@ class ProxySetModal(discord.ui.Modal, title="Set Proxy"):
     avatar_url = discord.ui.TextInput(
         label="Avatar URL (optional, updates existing)",
         style=discord.TextStyle.short,
-        placeholder="https://i.imgur.com/yourimage.png",
+        placeholder="https://example.com/image.png  (.jpg/.png/.gif/.webp)",
         required=False,
         max_length=500,
     )
@@ -737,6 +753,14 @@ class ProxySetModal(discord.ui.Modal, title="Set Proxy"):
         self.char_id = char_id
 
     async def on_submit(self, interaction: discord.Interaction):
+        raw_url = self.avatar_url.value.strip()
+        if raw_url and not _is_valid_image_url(raw_url):
+            await interaction.response.send_message(
+                "Avatar URL must be a direct image link ending in `.jpg`, `.jpeg`, `.png`, `.gif`, or `.webp`.",
+                ephemeral=True,
+            )
+            return
+
         new_open = self.proxy_open.value.strip()
         async with get_db() as db:
             conflict = await db.execute(
@@ -932,6 +956,52 @@ async def character_delete(interaction: discord.Interaction):
         await interaction.response.send_message(
             embed=pick_embed("delete"), view=CharacterPickView(chars, "delete"), ephemeral=True
         )
+
+
+@character_group.command(name="list", description="List all your characters in this server")
+@app_commands.describe(public="Show the list publicly in the channel (default: private)")
+async def character_list(interaction: discord.Interaction, public: bool = False):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(Character).where(
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
+            ).order_by(Character.is_active.desc(), Character.id)
+        )
+        chars = list(result.scalars().all())
+
+    if not chars:
+        await interaction.response.send_message(
+            "You have no characters in this server. Use `/character create` to make one.",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title=f"📋 {interaction.user.display_name}'s Characters",
+        color=0x8B5CF6,
+    )
+    for char in chars:
+        if char.is_dead:
+            status = "💀 Dead"
+        elif char.is_unconscious:
+            status = "😵 Unconscious"
+        elif char.is_active:
+            status = "★ Active"
+        else:
+            status = "✅ Alive"
+        embed.add_field(
+            name=f"{char.name}  —  {status}",
+            value=f"Lv{char.level} {char.race} {char.char_class}  ·  ❤️ {char.hp_current}/{char.hp_max}  ·  💰 {char.gold} gp  ·  XP: {char.xp}",
+            inline=False,
+        )
+    embed.set_footer(text=f"{len(chars)}/{MAX_CHARACTERS} character slots used  •  LoreForge")
+
+    await interaction.response.send_message(embed=embed, ephemeral=not public)
 
 
 @character_group.command(name="proxy_remove", description="Remove a character's proxy")

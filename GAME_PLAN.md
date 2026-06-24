@@ -151,12 +151,47 @@ STR, DEX, CON, INT, WIS, CHA — modifier = floor((score - 10) / 2)
 
 ### Phase 2 — Depth (Weeks 4–6)
 - [ ] **Combat system full redesign** (see Combat System Design section below)
-  - Chat-reading combat — AI reads RP text, classifies action via Groq 8b
-  - Bot confirms interpretation before rolling ("I see an attack on [target] — confirm?")
-  - Combat happens in the main RP channel, not a thread
-  - Live combat status embed (HP bars, turn order, last action, conditions) — replaces buttons
-  - Escape mechanics — flee roll, zone-distance outcome (rest vs re-engage vs caught)
-  - Enemy targeting — no zones yet, players can target any character or NPC in the server
+  - Two character types: DnD (AI combat) and Custom (manual combat only)
+  - Two fight types: AI fight and Manual fight — chosen when starting combat
+  - Per-channel combat sessions — multiple simultaneous fights, no hard limit
+  - Combat sessions have a title — players join by picking from a list
+  - Player vs Player only for now — no NPCs
+  - Target dropdown shows ALL characters registered in the server
+  - Status embed re-posts as new message after every action (always at bottom of chat)
+  - AI combat: bot reads proxy messages only (PluralKit/Tupperbox webhooks) — regular messages ignored as OOC
+  - Manual combat: bot logs declarations, resolves nothing — GM inputs results at end, AI summarizes
+  - `/combat start` — pick title + fight type, pick who you want to fight from all server characters
+  - `/combat join` — dropdown of all active combats in server by title
+  - `/combat end` — players end combats they're in; GMs end any combat in server
+  - `/combat list` — see all active combats in server
+  - `/combat overview` — see everyone's current stats in the fight
+  - `/combat pause` / `/combat resume` — manual fights only
+  - `/combat hp [amount]` — update own HP (manual fights only; GM can update anyone's)
+  - `/combat edit` — edit own combat state: conditions, temp HP (manual only; GM edits anyone's)
+  - `/combat action [text]` — declare action for your turn
+  - `/combat target` — pick target from full server character list
+  - `/combat log` — see running log of all actions in the current fight
+  - `/combat summary` — generate AI summary of fight (preview or final)
+  - `/combat save` — save/pin summary to chosen channel
+  - AI combat is fully locked to players — only GM can override anything
+- [ ] **GM system** (see GM System section below)
+  - `/gm add @User` — server owner assigns a GM
+  - `/gm remove @User` — server owner removes a GM
+  - `/gm list` — list all GMs in server
+  - `/gm sheet view @User` — GM views any player's character sheet
+  - `/gm sheet edit @User` — GM edits any field on any player's sheet
+  - `/gm pending` — see all pending stat change requests
+  - `/gm approve @User` — approve a pending stat change
+  - `/gm deny @User` — deny a pending stat change
+- [ ] **Character system updates**
+  - Custom character type — free text class/race/background, `is_custom` flag in DB, manual combat only
+  - `/character delete` — players delete own characters; GMs delete anyone's
+  - `/character list` — list characters with public/private (ephemeral) option
+  - Image URLs: accept any direct URL ending in .jpg/.jpeg/.png/.gif/.webp — remove imgur-only restriction
+  - Stat changes require GM approval — held as pending, GM approve/deny via `/gm pending`
+  - HP changes: players update their own freely, no approval needed
+  - Every character sheet edit (by anyone) posted to configured audit log channel (before → after)
+- [ ] `/combat config log-channel #channel` — set audit log channel
 - [ ] Starter attacks + weapons per class (same count for all classes, chosen at character creation, shown on sheet)
 - [ ] Spellcasting (3–4 spells per caster class)
 - [ ] Conditions system (poisoned, stunned, blinded, etc.)
@@ -204,6 +239,45 @@ STR, DEX, CON, INT, WIS, CHA — modifier = floor((score - 10) / 2)
 - [ ] Cross-server shared worlds
 - [ ] Web dashboard
 - [ ] Monetization (premium tiers)
+
+---
+
+## GM System Design
+
+### Who Is a GM
+
+- Server owner is always a GM automatically — no setup needed
+- Server owner can assign additional GMs via `/gm add @User`
+- GMs stored in DB per server (`guild_id` + `user_id`)
+- No Discord role required — purely DB-based
+
+### GM Powers (no limits, override everything)
+
+- Edit any character sheet field directly
+- Approve or deny any pending stat change request
+- View any character sheet at any time
+- Delete any player's character
+- End any combat in the server
+- Override any combat result (manual and AI fights)
+- Input fight results for AI summary
+- Update HP or combat state of any player during manual fights
+- Assign/remove other GMs (server owner only)
+
+### Character Edit Approval Rules
+
+| Edit Type | Who Can Do It | Needs GM Approval? |
+|---|---|---|
+| HP update | Player (own) / GM (anyone) | No |
+| Avatar, name, backstory, proxy | Player (own) | No |
+| Stats (STR/DEX/etc.), level, class, gold, weapons | Player (own) | Yes — held as pending |
+| Any field | GM | No — applies immediately |
+
+### Audit Log
+
+- Every edit to any character sheet posts to configured log channel
+- Format: before → after, who made the change, timestamp
+- Covers both player self-edits and GM edits
+- Configure with `/combat config log-channel #channel`
 
 ---
 
@@ -349,3 +423,6 @@ LoreForge will be a public bot listed on Top.gg. This affects the following:
 | 2026-06-24 | **BUILT** — cogs/rest.py: both /rest short and /rest long now block during active combat; /rest long preserves class_resources["attacks"] list across rest (starter attacks not wiped) |
 | 2026-06-24 | **BUILT** — cogs/admin.py: /help updated — character creation now shows 5-step wizard, combat section updated with chat-reading explanation + /combat forfeit, new Conditions field added, rest commands note cannot rest during combat |
 | 2026-06-24 | Added /tutorial command to Phase 3 (guided new-player flow: LoreForge intro → character creation → lore reading → real-time combat demo, paginated ephemeral embed with Next/Back) |
+| 2026-06-24 | **REDESIGN** — Full Phase 2 combat + GM system overhaul: two character types (DnD/Custom), two fight modes (AI/Manual), per-channel sessions with titles, PvP only, proxy-only AI reading, GM system with DB-backed roles, full manual combat command set, character audit log, stat change approval flow, image URL fix, /character delete + list |
+| 2026-06-24 | **BUILT** — Image URL fix: accept any direct .jpg/.jpeg/.png/.gif/.webp URL in character creation and proxy modal; removed imgur-only placeholder text; added _is_valid_image_url validator with error message on invalid input |
+| 2026-06-24 | **BUILT** — /character list: lists all user's characters (including dead ones) with status, level, race, class, HP, gold, XP; public/private (ephemeral) toggle via optional `public` param |
