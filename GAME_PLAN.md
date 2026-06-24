@@ -217,6 +217,36 @@ STR, DEX, CON, INT, WIS, CHA — modifier = floor((score - 10) / 2)
   - World/region maps — Perlin noise terrain + Pillow render → biomes, markers, region names
   - City maps — Pollinations.AI (free, no key needed) with fantasy map prompt
   - All three output as `discord.File` PNG via `generate_dungeon()`, `generate_world()`, `generate_city()`
+- [ ] **XP & Leveling System** (max level 20, D&D 5e thresholds)
+  - **XP thresholds:** 0 / 300 / 900 / 2,700 / 6,500 / 14,000 / 23,000 / 34,000 / 48,000 / 64,000 / 85,000 / 100,000 / 120,000 / 140,000 / 165,000 / 195,000 / 225,000 / 265,000 / 305,000 / 355,000
+  - **XP from PvP combat:** winner earns `defeated_player_level × 50 XP`; if multiple winners XP is split equally; killing or sparing both award full XP
+  - **GM XP awards:** `/gm xp @user <amount>` — GM manually grants XP for roleplay, quests, story moments
+  - **On level up:**
+    - HP increases — roll class hit die + CON modifier (min 1), saved to DB
+    - Proficiency bonus increases at levels 5, 9, 13, 17
+    - Bot posts a public level-up embed in the channel: name, new level, HP before → after, new feature unlocked
+  - **Ability Score Improvements (ASI)** at levels 4, 8, 12, 16, 19:
+    - Bot sends ephemeral prompt with two options: +2 to one stat OR +1 to two different stats
+    - Player picks via dropdown; stat updates live immediately
+  - **Class feature unlocks per level:**
+
+    | Class | Level | Feature |
+    |---|---|---|
+    | Fighter | 5 | Extra Attack (2 attacks per turn) |
+    | Fighter | 11 | Three attacks per turn |
+    | Rogue | 5 | Uncanny Dodge (halve one attack's damage 1/turn) |
+    | Rogue | 11 | Reliable Talent (min 10 on skill rolls) |
+    | Cleric | 5 | Destroy Undead |
+    | Wizard | 5 | Extra spell slot |
+    | Barbarian | 5 | Extra Attack + Fast Movement |
+    | Barbarian | 11 | Relentless Rage (survive 0 HP once per rage) |
+    | Warlock | 5 | Third spell slot + 3rd level spells |
+
+  - **Implementation plan:**
+    - `services/leveling.py` — XP table, `check_level_up()`, `hp_on_level()`, `class_features_at()`, `proficiency_bonus()`
+    - Update `_end_combat` in `cogs/combat.py` — award XP to winner(s) after combat ends, call level-up check, post embed
+    - Update `cogs/character.py` — show XP bar and next-level threshold on `/character sheet`
+    - Add `/gm xp` to `cogs/gm.py`
 
 ### Phase 4 — Intelligence (Weeks 11–14)
 - [ ] Groq AI narration (optional, GM-toggleable)
