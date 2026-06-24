@@ -1,51 +1,43 @@
-import asyncio
 import discord
 from discord.ext import commands
-from config import DISCORD_TOKEN, TEST_GUILD_ID, IS_DEV
+import os
+import asyncio
+from dotenv import load_dotenv
 from database.session import init_db
+
+load_dotenv()
+
+intents = discord.Intents.all()
+
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 COGS = [
     "cogs.admin",
 ]
 
-class LoreForge(commands.Bot):
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True
-        super().__init__(command_prefix="!", intents=intents)
-
-    async def setup_hook(self):
-        await init_db()
-
-        for cog in COGS:
-            await self.load_extension(cog)
-            print(f"Loaded: {cog}")
-
-        if IS_DEV and TEST_GUILD_ID:
-            guild = discord.Object(id=int(TEST_GUILD_ID))
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-            print(f"Slash commands synced to test guild {TEST_GUILD_ID}")
-        else:
-            await self.tree.sync()
-            print("Slash commands synced globally")
-
-    async def on_ready(self):
-        print(f"LoreForge is online as {self.user} ({self.user.id})")
-        print(f"Connected to {len(self.guilds)} server(s)")
-        await self.change_presence(
-            activity=discord.Activity(
-                type=discord.ActivityType.playing,
-                name="LoreForge | /ping"
-            )
-        )
-
+@bot.event
+async def on_ready():
+    await init_db()
+    print(f"{bot.user} is online!")
+    try:
+        guild = discord.Object(id=1519154137017614427)
+        bot.tree.copy_global_to(guild=guild)
+        synced = await bot.tree.sync(guild=guild)
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+        print(f"Synced {len(synced)} slash commands")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
+    await bot.change_presence(
+        status=discord.Status.online,
+        activity=discord.Game(name="LoreForge | /ping")
+    )
 
 async def main():
-    bot = LoreForge()
     async with bot:
-        await bot.start(DISCORD_TOKEN)
+        for cog in COGS:
+            await bot.load_extension(cog)
+            print(f"Loaded: {cog}")
+        await bot.start(os.getenv("DISCORD_TOKEN"))
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
