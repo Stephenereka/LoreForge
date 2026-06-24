@@ -89,13 +89,19 @@ def assign_stats(char_class: str, race: str) -> dict:
 def proficiency_bonus(level: int) -> int:
     return math.ceil(level / 4) + 1
 
-def _is_valid_image_url(url: str) -> bool:
+async def _is_valid_image_url(url: str) -> bool:
     if not url:
         return True
-    clean = url.lower().split("?")[0]
-    return clean.startswith("https://") and any(
-        clean.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp")
-    )
+    if not url.lower().startswith("https://"):
+        return False
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.head(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                ct = resp.headers.get("Content-Type", "")
+                return ct.startswith("image/")
+    except Exception:
+        return False
 
 def _starting_resources(char_class: str) -> dict:
     return {
@@ -460,9 +466,9 @@ class DetailsModal(discord.ui.Modal, title="Character Details"):
 
     async def on_submit(self, interaction: discord.Interaction):
         raw_url = self.avatar_url.value.strip() or None
-        if raw_url and not _is_valid_image_url(raw_url):
+        if raw_url and not await _is_valid_image_url(raw_url):
             await interaction.response.send_message(
-                "Avatar URL must be a direct image link ending in `.jpg`, `.jpeg`, `.png`, `.gif`, or `.webp`.",
+                "That URL doesn't point to an image. Make sure it's a direct link to a `.jpg`, `.png`, `.gif`, `.webp`, or any image hosted online.",
                 ephemeral=True,
             )
             return
@@ -754,9 +760,9 @@ class ProxySetModal(discord.ui.Modal, title="Set Proxy"):
 
     async def on_submit(self, interaction: discord.Interaction):
         raw_url = self.avatar_url.value.strip()
-        if raw_url and not _is_valid_image_url(raw_url):
+        if raw_url and not await _is_valid_image_url(raw_url):
             await interaction.response.send_message(
-                "Avatar URL must be a direct image link ending in `.jpg`, `.jpeg`, `.png`, `.gif`, or `.webp`.",
+                "That URL doesn't point to an image. Make sure it's a direct link to a `.jpg`, `.png`, `.gif`, `.webp`, or any image hosted online.",
                 ephemeral=True,
             )
             return
