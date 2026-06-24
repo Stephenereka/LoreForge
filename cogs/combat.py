@@ -12,6 +12,7 @@ from services.combat_engine import (
     has_condition, apply_condition, remove_condition, effective_ac, CONDITIONS,
 )
 from services.ai_service import classify_combat_action
+from cogs.character import resolve_character, get_characters, CharacterPickView, pick_embed
 import random
 
 # ── Active sessions: guild_id → CombatSession ────────────────────────────────
@@ -35,6 +36,38 @@ async def _set_combat_active(guild_id: int, channel_id: int | None):
 
 
 MAX_PLAYERS = 4
+
+
+def _build_combatant(char: Character, user_id: int) -> "Combatant":
+    inventory = char.inventory or []
+    equipped_weapon = next(
+        (it["key"] for it in inventory if it.get("type") == "weapon" and it.get("equipped")),
+        "unarmed",
+    )
+    return Combatant(
+        id=str(user_id),
+        name=char.name,
+        is_player=True,
+        level=char.level,
+        char_class=char.char_class,
+        hp_max=char.hp_max,
+        hp_current=char.hp_current,
+        hp_temp=char.hp_temp,
+        strength=char.strength,
+        dexterity=char.dexterity,
+        constitution=char.constitution,
+        intelligence=char.intelligence,
+        wisdom=char.wisdom,
+        charisma=char.charisma,
+        armor_class=char.armor_class,
+        is_dead=char.is_dead,
+        is_unconscious=char.is_unconscious,
+        death_saves_success=char.death_saves_success,
+        death_saves_failure=char.death_saves_failure,
+        conditions=list(char.conditions or []),
+        class_resources=dict(char.class_resources or {}),
+        weapon=equipped_weapon,
+    )
 
 
 # ── Session ───────────────────────────────────────────────────────────────────
@@ -189,6 +222,51 @@ class CombatSession:
         return embed
 
 
+# ── Combat join char picker ───────────────────────────────────────────────────
+
+class CombatJoinCharSelect(discord.ui.Select):
+    def __init__(self, chars: list, session: "CombatSession", lobby_view: "LobbyView"):
+        self._chars = chars
+        self._session = session
+        self._lobby_view = lobby_view
+        options = [
+            discord.SelectOption(
+                label=c.name,
+                value=str(c.id),
+                description=f"Lv{c.level} {c.race} {c.char_class}",
+            )
+            for c in chars
+        ]
+        super().__init__(placeholder="Choose your fighter...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        char = next((c for c in self._chars if c.id == int(self.values[0])), None)
+        session = self._session
+        if not char:
+            await interaction.response.send_message("Character not found.", ephemeral=True)
+            return
+        if char.is_unconscious:
+            await interaction.response.edit_message(content="That character is unconscious.", embed=None, view=None)
+            return
+        if interaction.user.id in session.player_user_ids:
+            await interaction.response.edit_message(content="You're already in this fight.", embed=None, view=None)
+            return
+        combatant = _build_combatant(char, interaction.user.id)
+        session.players.append(combatant)
+        session.player_user_ids.append(interaction.user.id)
+        await interaction.response.edit_message(
+            content=f"✅ **{char.name}** joined the fight!", embed=None, view=None
+        )
+        if session.lobby_message:
+            await session.lobby_message.edit(embed=session.lobby_embed(), view=self._lobby_view)
+
+
+class CombatJoinCharView(discord.ui.View):
+    def __init__(self, chars: list, session: "CombatSession", lobby_view: "LobbyView"):
+        super().__init__(timeout=30)
+        self.add_item(CombatJoinCharSelect(chars, session, lobby_view))
+
+
 # ── Lobby View (buttons OK here — pre-combat) ─────────────────────────────────
 
 class LobbyView(discord.ui.View):
@@ -206,55 +284,28 @@ class LobbyView(discord.ui.View):
             await interaction.response.send_message("The party is full.", ephemeral=True)
             return
 
-        async with get_db() as db:
-            result = await db.execute(
-                select(Character).where(
-                    Character.user_id == interaction.user.id,
-                    Character.guild_id == interaction.guild_id,
-                    Character.is_dead == False,
-                )
-            )
-            char = result.scalar_one_or_none()
+        char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
 
-        if not char:
+        if not chars:
             await interaction.response.send_message(
                 "You don't have a living character. Use `/character create` first.", ephemeral=True
             )
             return
+
+        if not char:
+            # Multiple chars, none active — show ephemeral picker
+            await interaction.response.send_message(
+                embed=pick_embed("fight as"),
+                view=CombatJoinCharView(chars, session, self),
+                ephemeral=True,
+            )
+            return
+
         if char.is_unconscious:
             await interaction.response.send_message("Your character is unconscious.", ephemeral=True)
             return
 
-        inventory = char.inventory or []
-        equipped_weapon = next(
-            (it["key"] for it in inventory if it.get("type") == "weapon" and it.get("equipped")),
-            "unarmed",
-        )
-
-        combatant = Combatant(
-            id=str(interaction.user.id),
-            name=char.name,
-            is_player=True,
-            level=char.level,
-            char_class=char.char_class,
-            hp_max=char.hp_max,
-            hp_current=char.hp_current,
-            hp_temp=char.hp_temp,
-            strength=char.strength,
-            dexterity=char.dexterity,
-            constitution=char.constitution,
-            intelligence=char.intelligence,
-            wisdom=char.wisdom,
-            charisma=char.charisma,
-            armor_class=char.armor_class,
-            is_dead=char.is_dead,
-            is_unconscious=char.is_unconscious,
-            death_saves_success=char.death_saves_success,
-            death_saves_failure=char.death_saves_failure,
-            conditions=list(char.conditions or []),
-            class_resources=dict(char.class_resources or {}),
-            weapon=equipped_weapon,
-        )
+        combatant = _build_combatant(char, interaction.user.id)
         session.players.append(combatant)
         session.player_user_ids.append(interaction.user.id)
         await interaction.response.defer()
@@ -758,46 +809,9 @@ class EnemySelect(discord.ui.Select):
         _sessions[interaction.guild_id] = session
         await _set_combat_active(interaction.guild_id, interaction.channel_id)
 
-        async with get_db() as db:
-            result = await db.execute(
-                select(Character).where(
-                    Character.user_id == interaction.user.id,
-                    Character.guild_id == interaction.guild_id,
-                    Character.is_dead == False,
-                )
-            )
-            char = result.scalar_one_or_none()
-
-        if char:
-            inventory = char.inventory or []
-            equipped_weapon = next(
-                (it["key"] for it in inventory if it.get("type") == "weapon" and it.get("equipped")),
-                "unarmed",
-            )
-            combatant = Combatant(
-                id=str(interaction.user.id),
-                name=char.name,
-                is_player=True,
-                level=char.level,
-                char_class=char.char_class,
-                hp_max=char.hp_max,
-                hp_current=char.hp_current,
-                hp_temp=char.hp_temp,
-                strength=char.strength,
-                dexterity=char.dexterity,
-                constitution=char.constitution,
-                intelligence=char.intelligence,
-                wisdom=char.wisdom,
-                charisma=char.charisma,
-                armor_class=char.armor_class,
-                is_dead=char.is_dead,
-                is_unconscious=char.is_unconscious,
-                death_saves_success=char.death_saves_success,
-                death_saves_failure=char.death_saves_failure,
-                conditions=list(char.conditions or []),
-                class_resources=dict(char.class_resources or {}),
-                weapon=equipped_weapon,
-            )
+        char, _ = await resolve_character(interaction.user.id, interaction.guild_id)
+        if char and not char.is_unconscious:
+            combatant = _build_combatant(char, interaction.user.id)
             session.players.append(combatant)
             session.player_user_ids.append(interaction.user.id)
 
@@ -830,19 +844,15 @@ async def combat_start(interaction: discord.Interaction):
         )
         return
 
-    async with get_db() as db:
-        result = await db.execute(
-            select(Character).where(
-                Character.user_id == interaction.user.id,
-                Character.guild_id == interaction.guild_id,
-                Character.is_dead == False,
-            )
-        )
-        char = result.scalar_one_or_none()
-
-    if not char:
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not chars:
         await interaction.response.send_message(
             "You don't have a living character. Use `/character create` first.", ephemeral=True
+        )
+        return
+    if not char:
+        await interaction.response.send_message(
+            "You have multiple characters with no active one set. Use `/character use` first.", ephemeral=True
         )
         return
     if char.is_unconscious:

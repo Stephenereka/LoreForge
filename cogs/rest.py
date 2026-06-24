@@ -6,6 +6,7 @@ from database.session import get_db
 from database.models import Character
 from services.combat_engine import modifier
 from cogs.combat import _sessions
+from cogs.character import resolve_character
 import random
 import math
 
@@ -44,18 +45,21 @@ async def rest_short(interaction: discord.Interaction):
         await interaction.response.send_message("You can't rest during combat!", ephemeral=True)
         return
 
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not chars:
+        await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
+        return
+    if not char:
+        await interaction.response.send_message(
+            "You have multiple characters. Use `/character use` to set an active one first.", ephemeral=True
+        )
+        return
+
     async with get_db() as db:
         result = await db.execute(
-            select(Character).where(
-                Character.user_id == interaction.user.id,
-                Character.guild_id == interaction.guild_id,
-                Character.is_dead == False,
-            )
+            select(Character).where(Character.id == char.id)
         )
         char = result.scalar_one_or_none()
-        if not char:
-            await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
-            return
         if char.hp_current == char.hp_max:
             await interaction.response.send_message("You're already at full HP — no need to rest.", ephemeral=True)
             return
@@ -98,18 +102,19 @@ async def rest_long(interaction: discord.Interaction):
         await interaction.response.send_message("You can't rest during combat!", ephemeral=True)
         return
 
-    async with get_db() as db:
-        result = await db.execute(
-            select(Character).where(
-                Character.user_id == interaction.user.id,
-                Character.guild_id == interaction.guild_id,
-                Character.is_dead == False,
-            )
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not chars:
+        await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
+        return
+    if not char:
+        await interaction.response.send_message(
+            "You have multiple characters. Use `/character use` to set an active one first.", ephemeral=True
         )
+        return
+
+    async with get_db() as db:
+        result = await db.execute(select(Character).where(Character.id == char.id))
         char = result.scalar_one_or_none()
-        if not char:
-            await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
-            return
 
         # Preserve starter attacks across long rest
         saved_attacks = (char.class_resources or {}).get("attacks", [])

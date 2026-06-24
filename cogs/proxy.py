@@ -65,12 +65,20 @@ class ProxyCog(commands.Cog, name="Proxy"):
                     Character.proxy_open.isnot(None),
                 )
             )
-            char = result.scalar_one_or_none()
+            candidates = list(result.scalars().all())
 
-        if not char or not char.proxy_open:
+        # Find which character's proxy brackets match this message
+        char = None
+        inner = None
+        for c in candidates:
+            matched = _match_proxy(content, c.proxy_open, c.proxy_close)
+            if matched is not None:
+                char = c
+                inner = matched
+                break
+
+        if not char or inner is None:
             return
-
-        inner = _match_proxy(content, char.proxy_open, char.proxy_close)
         if not inner:
             return
 

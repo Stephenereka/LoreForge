@@ -38,6 +38,7 @@ class Character(Base):
     # Status
     is_dead: Mapped[bool] = mapped_column(Boolean, default=False)
     is_unconscious: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     death_saves_success: Mapped[int] = mapped_column(Integer, default=0)
     death_saves_failure: Mapped[int] = mapped_column(Integer, default=0)
 

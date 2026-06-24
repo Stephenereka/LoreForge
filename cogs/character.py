@@ -9,6 +9,8 @@ import math
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
+MAX_CHARACTERS = 3
+
 RACES = {
     "Human":     {"str": 1, "dex": 1, "con": 1, "int": 1, "wis": 1, "cha": 1},
     "Elf":       {"dex": 2, "wis": 1},
@@ -97,6 +99,37 @@ def _starting_resources(char_class: str) -> dict:
         "Rogue":     {"sneak_attack_dice": 1},
     }.get(char_class, {})
 
+
+# ── DB helpers (exported for use in combat.py / rest.py) ─────────────────────
+
+async def get_characters(user_id: int, guild_id: int) -> list[Character]:
+    """Return all living characters for this user in this guild."""
+    async with get_db() as db:
+        result = await db.execute(
+            select(Character).where(
+                Character.user_id == user_id,
+                Character.guild_id == guild_id,
+                Character.is_dead == False,
+            )
+        )
+        return list(result.scalars().all())
+
+
+async def resolve_character(user_id: int, guild_id: int) -> tuple:
+    """
+    Returns (selected_char, all_chars).
+    selected_char is the active char (or the only char if solo).
+    If multiple chars and none is active, selected_char is None — caller shows picker.
+    """
+    chars = await get_characters(user_id, guild_id)
+    if not chars:
+        return None, []
+    if len(chars) == 1:
+        return chars[0], chars
+    active = next((c for c in chars if c.is_active), None)
+    return active, chars
+
+
 # ── Sheet embed ───────────────────────────────────────────────────────────────
 
 def build_sheet_embed(char: Character) -> discord.Embed:
@@ -107,8 +140,9 @@ def build_sheet_embed(char: Character) -> discord.Embed:
     pb = proficiency_bonus(char.level)
     saves = CLASSES[char.char_class]["saves"]
 
+    active_tag = "  ★" if char.is_active else ""
     embed = discord.Embed(
-        title=char.name,
+        title=f"{char.name}{active_tag}",
         description=f"*{char.race} {char.char_class} — Level {char.level}*",
         color=0x8B5CF6,
     )
@@ -220,11 +254,7 @@ def step4_embed(char_name: str, race: str, char_class: str, background: str) -> 
         value=f"🧬 **{race}**  ·  ⚔️ **{char_class}**  ·  📜 **{background}**",
         inline=False,
     )
-    embed.add_field(
-        name="Stats",
-        value=stat_preview,
-        inline=False,
-    )
+    embed.add_field(name="Stats", value=stat_preview, inline=False)
     embed.add_field(name="HP / AC", value=f"❤️ {hp}  🛡️ {ac}", inline=True)
     embed.add_field(name="Starting Weapon", value=f"🗡️ {weapon_label}", inline=True)
     embed.add_field(name="Attacks", value=attack_list, inline=False)
@@ -293,6 +323,94 @@ class StarterKitView(discord.ui.View):
         )
 
 
+# ── Character picker (for multi-char users) ───────────────────────────────────
+
+def pick_embed(action_label: str) -> discord.Embed:
+    return discord.Embed(
+        title="📋 Choose a Character",
+        description=f"You have multiple characters. Which one do you want to **{action_label}**?\n\n*Tip: use `/character use` to set a default so you never have to choose.*",
+        color=0x8B5CF6,
+    )
+
+
+class CharacterPickSelect(discord.ui.Select):
+    def __init__(self, chars: list, action: str):
+        self._chars = chars
+        self._action = action
+        options = [
+            discord.SelectOption(
+                label=c.name,
+                value=str(c.id),
+                description=f"Lv{c.level} {c.race} {c.char_class}" + ("  ★ active" if c.is_active else ""),
+            )
+            for c in chars
+        ]
+        super().__init__(placeholder="Choose a character...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        char_id = int(self.values[0])
+        char = next((c for c in self._chars if c.id == char_id), None)
+        if not char:
+            await interaction.response.send_message("Character not found.", ephemeral=True)
+            return
+
+        action = self._action
+
+        if action == "sheet":
+            await interaction.response.edit_message(embed=build_sheet_embed(char), view=None)
+
+        elif action == "show":
+            embed = build_sheet_embed(char)
+            embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
+            await interaction.response.edit_message(content="✅ Posted to channel!", embed=None, view=None)
+            await interaction.channel.send(embed=embed)
+
+        elif action == "delete":
+            embed = discord.Embed(
+                title="⚠️ Delete Character?",
+                description=f"**{char.name}** — Level {char.level} {char.race} {char.char_class}\n\nThis is **permanent**. All XP, gold, and inventory will be lost.",
+                color=0xEF4444,
+            )
+            await interaction.response.edit_message(embed=embed, view=DeleteConfirmView(char.name, char.id))
+
+        elif action == "proxy":
+            await interaction.response.send_modal(ProxySetModal(char.id))
+
+        elif action == "proxy_remove":
+            async with get_db() as db:
+                result = await db.execute(select(Character).where(Character.id == char_id))
+                c = result.scalar_one_or_none()
+                if c:
+                    c.proxy_open = None
+                    c.proxy_close = None
+            await interaction.response.edit_message(
+                content=f"Proxy removed from **{char.name}**.", embed=None, view=None
+            )
+
+        elif action == "use":
+            async with get_db() as db:
+                result = await db.execute(
+                    select(Character).where(
+                        Character.user_id == interaction.user.id,
+                        Character.guild_id == interaction.guild_id,
+                        Character.is_dead == False,
+                    )
+                )
+                for c in result.scalars().all():
+                    c.is_active = (c.id == char_id)
+            await interaction.response.edit_message(
+                content=f"✅ **{char.name}** is now your active character. All commands will use them automatically.",
+                embed=None,
+                view=None,
+            )
+
+
+class CharacterPickView(discord.ui.View):
+    def __init__(self, chars: list, action: str):
+        super().__init__(timeout=60)
+        self.add_item(CharacterPickSelect(chars, action))
+
+
 # ── Step 4: Details modal ─────────────────────────────────────────────────────
 
 class DetailsModal(discord.ui.Modal, title="Character Details"):
@@ -334,7 +452,6 @@ class DetailsModal(discord.ui.Modal, title="Character Details"):
 
     async def on_submit(self, interaction: discord.Interaction):
         new_open = self.proxy_open.value.strip() or None
-        # Conflict check during creation
         if new_open:
             async with get_db() as db:
                 conflict = await db.execute(
@@ -417,8 +534,9 @@ async def _create_character(
                 Character.is_dead == False,
             )
         )
-        if result.scalar_one_or_none():
-            msg = "You already have a character. Use `/character sheet` to view them."
+        existing = list(result.scalars().all())
+        if len(existing) >= MAX_CHARACTERS:
+            msg = f"You already have {MAX_CHARACTERS} characters. Delete one with `/character delete` first."
             if interaction.response.is_done():
                 await interaction.followup.send(msg, ephemeral=True)
             else:
@@ -435,6 +553,9 @@ async def _create_character(
 
         resources = _starting_resources(char_class)
         resources["attacks"] = [atk["name"] for atk in STARTER_ATTACKS.get(char_class, [])]
+
+        # First character is auto-set as active
+        is_first = len(existing) == 0
 
         char = Character(
             user_id=interaction.user.id,
@@ -465,11 +586,16 @@ async def _create_character(
             proxy_close=proxy_close,
             is_dead=False,
             is_unconscious=False,
+            is_active=is_first,
         )
         db.add(char)
 
     embed = build_sheet_embed(char)
     embed.title = f"⚔️ {char.name} has entered the world!"
+    if is_first:
+        embed.description = (embed.description or "") + "\n\n★ Set as your active character automatically."
+    else:
+        embed.description = (embed.description or "") + "\n\nUse `/character use` to make this your active character."
     if proxy_open:
         brackets = f"`{proxy_open}text{proxy_close or ''}`"
         embed.set_footer(text=f"Proxy active — type {brackets} to speak as {char.name}")
@@ -552,41 +678,36 @@ class BackgroundView(discord.ui.View):
         super().__init__(timeout=300)
         self.add_item(BackgroundSelect(char_name, race, char_class))
 
-# ── /character proxy commands ─────────────────────────────────────────────────
-
-# ── /character delete ─────────────────────────────────────────────────────────
+# ── Delete confirm ────────────────────────────────────────────────────────────
 
 class DeleteConfirmView(discord.ui.View):
-    def __init__(self, char_name: str):
+    def __init__(self, char_name: str, char_id: int):
         super().__init__(timeout=60)
         self.char_name = char_name
+        self.char_id = char_id
 
     @discord.ui.button(label="Yes, delete forever", style=discord.ButtonStyle.danger, emoji="💀")
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with get_db() as db:
-            result = await db.execute(
-                select(Character).where(
-                    Character.user_id == interaction.user.id,
-                    Character.guild_id == interaction.guild_id,
-                    Character.is_dead == False,
-                )
-            )
+            result = await db.execute(select(Character).where(Character.id == self.char_id))
             char = result.scalar_one_or_none()
             if not char:
                 await interaction.response.edit_message(content="No character found.", view=None, embed=None)
                 return
+            was_active = char.is_active
             await db.delete(char)
-        await interaction.response.edit_message(
-            content=f"**{self.char_name}** has been permanently deleted. Use `/character create` to start fresh.",
-            view=None, embed=None,
-        )
+
+        msg = f"**{self.char_name}** has been permanently deleted."
+        if was_active:
+            msg += " Use `/character use` to set another active character."
+        await interaction.response.edit_message(content=msg, view=None, embed=None)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content="Deletion cancelled.", view=None, embed=None)
 
 
-# ── /character proxy set modal ────────────────────────────────────────────────
+# ── Proxy set modal ───────────────────────────────────────────────────────────
 
 class ProxySetModal(discord.ui.Modal, title="Set Proxy"):
     proxy_open = discord.ui.TextInput(
@@ -611,15 +732,18 @@ class ProxySetModal(discord.ui.Modal, title="Set Proxy"):
         max_length=500,
     )
 
+    def __init__(self, char_id: int):
+        super().__init__()
+        self.char_id = char_id
+
     async def on_submit(self, interaction: discord.Interaction):
         new_open = self.proxy_open.value.strip()
         async with get_db() as db:
-            # Conflict check — no two characters in the same server share the same open bracket
             conflict = await db.execute(
                 select(Character).where(
                     Character.guild_id == interaction.guild_id,
                     Character.proxy_open == new_open,
-                    Character.user_id != interaction.user.id,
+                    Character.id != self.char_id,
                     Character.is_dead == False,
                 )
             )
@@ -630,16 +754,10 @@ class ProxySetModal(discord.ui.Modal, title="Set Proxy"):
                 )
                 return
 
-            result = await db.execute(
-                select(Character).where(
-                    Character.user_id == interaction.user.id,
-                    Character.guild_id == interaction.guild_id,
-                    Character.is_dead == False,
-                )
-            )
+            result = await db.execute(select(Character).where(Character.id == self.char_id))
             char = result.scalar_one_or_none()
             if not char:
-                await interaction.response.send_message("You don't have a character.", ephemeral=True)
+                await interaction.response.send_message("Character not found.", ephemeral=True)
                 return
             char.proxy_open = new_open
             char.proxy_close = self.proxy_close.value.strip() or None
@@ -657,7 +775,7 @@ class ProxySetModal(discord.ui.Modal, title="Set Proxy"):
 character_group = app_commands.Group(name="character", description="Create and manage your character")
 
 
-@character_group.command(name="create", description="Create your character in this world")
+@character_group.command(name="create", description="Create a new character (max 3 per server)")
 @app_commands.describe(name="Your character's name")
 async def character_create(interaction: discord.Interaction, name: str):
     if not interaction.guild_id:
@@ -669,21 +787,72 @@ async def character_create(interaction: discord.Interaction, name: str):
         await interaction.response.send_message("Name must be 2–32 characters.", ephemeral=True)
         return
 
+    chars = await get_characters(interaction.user.id, interaction.guild_id)
+    if len(chars) >= MAX_CHARACTERS:
+        await interaction.response.send_message(
+            f"You already have {MAX_CHARACTERS} characters. Delete one with `/character delete` first.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.send_message(embed=step1_embed(name), view=RaceView(name), ephemeral=True)
+
+
+@character_group.command(name="use", description="Set your active character — all commands use them automatically")
+async def character_use(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    chars = await get_characters(interaction.user.id, interaction.guild_id)
+    if not chars:
+        await interaction.response.send_message("No characters found. Use `/character create`.", ephemeral=True)
+        return
+
+    if len(chars) == 1:
+        async with get_db() as db:
+            result = await db.execute(select(Character).where(Character.id == chars[0].id))
+            c = result.scalar_one_or_none()
+            if c:
+                c.is_active = True
+        await interaction.response.send_message(
+            f"✅ **{chars[0].name}** is your active character.", ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message(
+        embed=pick_embed("set as active"),
+        view=CharacterPickView(chars, "use"),
+        ephemeral=True,
+    )
+
+
+@character_group.command(name="unuse", description="Clear your active character — you'll be asked to choose each time")
+async def character_unuse(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
     async with get_db() as db:
         result = await db.execute(
             select(Character).where(
                 Character.user_id == interaction.user.id,
                 Character.guild_id == interaction.guild_id,
+                Character.is_active == True,
                 Character.is_dead == False,
             )
         )
-        if result.scalar_one_or_none():
-            await interaction.response.send_message(
-                "You already have a character. Use `/character sheet` to view them.", ephemeral=True
-            )
+        char = result.scalar_one_or_none()
+        if not char:
+            await interaction.response.send_message("You don't have an active character set.", ephemeral=True)
             return
+        name = char.name
+        char.is_active = False
 
-    await interaction.response.send_message(embed=step1_embed(name), view=RaceView(name), ephemeral=True)
+    await interaction.response.send_message(
+        f"**{name}** is no longer your active character. You'll be asked to choose each time.",
+        ephemeral=True,
+    )
 
 
 @character_group.command(name="sheet", description="View your character sheet (private)")
@@ -692,21 +861,16 @@ async def character_sheet(interaction: discord.Interaction):
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
 
-    async with get_db() as db:
-        result = await db.execute(
-            select(Character).where(
-                Character.user_id == interaction.user.id,
-                Character.guild_id == interaction.guild_id,
-                Character.is_dead == False,
-            )
-        )
-        char = result.scalar_one_or_none()
-
-    if not char:
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not chars:
         await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
         return
-
-    await interaction.response.send_message(embed=build_sheet_embed(char), ephemeral=True)
+    if char:
+        await interaction.response.send_message(embed=build_sheet_embed(char), ephemeral=True)
+    else:
+        await interaction.response.send_message(
+            embed=pick_embed("view sheet for"), view=CharacterPickView(chars, "sheet"), ephemeral=True
+        )
 
 
 @character_group.command(name="show", description="Show your character sheet to the server")
@@ -715,83 +879,83 @@ async def character_show(interaction: discord.Interaction):
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
 
-    async with get_db() as db:
-        result = await db.execute(
-            select(Character).where(
-                Character.user_id == interaction.user.id,
-                Character.guild_id == interaction.guild_id,
-                Character.is_dead == False,
-            )
-        )
-        char = result.scalar_one_or_none()
-
-    if not char:
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not chars:
         await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
         return
+    if char:
+        embed = build_sheet_embed(char)
+        embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
+        await interaction.response.send_message(embed=embed)
+    else:
+        await interaction.response.send_message(
+            embed=pick_embed("show"), view=CharacterPickView(chars, "show"), ephemeral=True
+        )
 
-    embed = build_sheet_embed(char)
-    embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
-    await interaction.response.send_message(embed=embed)
 
-
-@character_group.command(name="proxy", description="Set or update your character's proxy brackets")
+@character_group.command(name="proxy", description="Set or update a character's proxy brackets")
 async def character_proxy(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
-    await interaction.response.send_modal(ProxySetModal())
+
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not chars:
+        await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
+        return
+    if char:
+        await interaction.response.send_modal(ProxySetModal(char.id))
+    else:
+        await interaction.response.send_message(
+            embed=pick_embed("set proxy for"), view=CharacterPickView(chars, "proxy"), ephemeral=True
+        )
 
 
-@character_group.command(name="delete", description="Permanently delete your character")
+@character_group.command(name="delete", description="Permanently delete a character")
 async def character_delete(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
 
-    async with get_db() as db:
-        result = await db.execute(
-            select(Character).where(
-                Character.user_id == interaction.user.id,
-                Character.guild_id == interaction.guild_id,
-                Character.is_dead == False,
-            )
-        )
-        char = result.scalar_one_or_none()
-
-    if not char:
-        await interaction.response.send_message("You don't have a character to delete.", ephemeral=True)
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not chars:
+        await interaction.response.send_message("You don't have any characters to delete.", ephemeral=True)
         return
+    if char:
+        embed = discord.Embed(
+            title="⚠️ Delete Character?",
+            description=f"**{char.name}** — Level {char.level} {char.race} {char.char_class}\n\nThis is **permanent**. All XP, gold, and inventory will be lost.",
+            color=0xEF4444,
+        )
+        await interaction.response.send_message(embed=embed, view=DeleteConfirmView(char.name, char.id), ephemeral=True)
+    else:
+        await interaction.response.send_message(
+            embed=pick_embed("delete"), view=CharacterPickView(chars, "delete"), ephemeral=True
+        )
 
-    embed = discord.Embed(
-        title="⚠️ Delete Character?",
-        description=f"**{char.name}** — Level {char.level} {char.race} {char.char_class}\n\nThis is **permanent**. All XP, gold, and inventory will be lost.",
-        color=0xEF4444,
-    )
-    await interaction.response.send_message(embed=embed, view=DeleteConfirmView(char.name), ephemeral=True)
 
-
-@character_group.command(name="proxy_remove", description="Remove your character's proxy")
+@character_group.command(name="proxy_remove", description="Remove a character's proxy")
 async def character_proxy_remove(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
 
-    async with get_db() as db:
-        result = await db.execute(
-            select(Character).where(
-                Character.user_id == interaction.user.id,
-                Character.guild_id == interaction.guild_id,
-                Character.is_dead == False,
-            )
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not chars:
+        await interaction.response.send_message("No character found.", ephemeral=True)
+        return
+    if char:
+        async with get_db() as db:
+            result = await db.execute(select(Character).where(Character.id == char.id))
+            c = result.scalar_one_or_none()
+            if c:
+                c.proxy_open = None
+                c.proxy_close = None
+        await interaction.response.send_message(f"Proxy removed from **{char.name}**.", ephemeral=True)
+    else:
+        await interaction.response.send_message(
+            embed=pick_embed("remove proxy from"), view=CharacterPickView(chars, "proxy_remove"), ephemeral=True
         )
-        char = result.scalar_one_or_none()
-        if not char:
-            await interaction.response.send_message("No character found.", ephemeral=True)
-            return
-        char.proxy_open = None
-        char.proxy_close = None
-
-    await interaction.response.send_message(f"Proxy removed from **{char.name}**.", ephemeral=True)
 
 
 # ── Cog ───────────────────────────────────────────────────────────────────────
