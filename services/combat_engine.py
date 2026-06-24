@@ -386,6 +386,8 @@ CONDITIONS: dict[str, dict] = {
     "shielded":   {"icon": "✨", "ac_bonus": 5},
     "reckless":   {"icon": "🔴", "ac_penalty": 2},
     "raging":     {"icon": "💢", "damage_bonus": 2, "damage_resistance": True},
+    "grappled":   {"icon": "🤜", "attack_disadvantage": True},
+    "hidden":     {"icon": "👁️", "defense_advantage": True},
 }
 
 
@@ -437,6 +439,88 @@ def detect_attack_name(text: str, known_attacks: list[str]) -> str | None:
         if attack.lower() in text_lower:
             return attack
     return None
+
+
+# ── Special action resolvers ─────────────────────────────────────────────────
+
+def resolve_grapple(attacker: Combatant, target: Combatant) -> dict:
+    """STR (Athletics) contested vs target STR or DEX. Applies grappled on success."""
+    pb = proficiency_bonus(attacker.level)
+    atk_roll = roll(20) + modifier(attacker.strength) + pb
+    tgt_roll = roll(20) + max(modifier(target.strength), modifier(target.dexterity))
+    success = atk_roll > tgt_roll
+    if success:
+        apply_condition(target, "grappled", 2)
+        lines = [
+            f"🤜 **{attacker.name}** lunges and grapples **{target.name}**! (Athletics {atk_roll} vs {tgt_roll})",
+            f"🔒 **{target.name}** is grappled — disadvantage on attacks for 2 rounds!",
+        ]
+    else:
+        lines = [
+            f"🤜 **{attacker.name}** tries to grapple **{target.name}**! (Athletics {atk_roll} vs {tgt_roll})",
+            f"💨 **{target.name}** breaks free!",
+        ]
+    return {"action": "GRAPPLE", "success": success, "log_lines": lines}
+
+
+def resolve_shove(attacker: Combatant, target: Combatant) -> dict:
+    """STR (Athletics) contested vs target STR or DEX. Knocks prone on success."""
+    pb = proficiency_bonus(attacker.level)
+    atk_roll = roll(20) + modifier(attacker.strength) + pb
+    tgt_roll = roll(20) + max(modifier(target.strength), modifier(target.dexterity))
+    success = atk_roll > tgt_roll
+    if success:
+        apply_condition(target, "prone", 1)
+        lines = [
+            f"💪 **{attacker.name}** shoves **{target.name}**! (Athletics {atk_roll} vs {tgt_roll})",
+            f"⬇️ **{target.name}** is knocked prone — attacks against them have advantage!",
+        ]
+    else:
+        lines = [
+            f"💪 **{attacker.name}** tries to shove **{target.name}**! (Athletics {atk_roll} vs {tgt_roll})",
+            f"🧍 **{target.name}** holds their ground!",
+        ]
+    return {"action": "SHOVE", "success": success, "log_lines": lines}
+
+
+def resolve_hide(hider: Combatant) -> dict:
+    """DEX (Stealth) check vs DC 14. Applies hidden for 1 round on success."""
+    pb = proficiency_bonus(hider.level)
+    stealth_roll = roll(20) + modifier(hider.dexterity) + pb
+    dc = 14
+    success = stealth_roll >= dc
+    if success:
+        apply_condition(hider, "hidden", 1)
+        lines = [
+            f"👁️ **{hider.name}** vanishes into the shadows! (Stealth {stealth_roll} vs DC {dc})",
+            f"🌑 **{hider.name}** is hidden — next attack has advantage!",
+        ]
+    else:
+        lines = [
+            f"👁️ **{hider.name}** tries to hide... (Stealth {stealth_roll} vs DC {dc})",
+            f"💡 **{hider.name}** is spotted!",
+        ]
+    return {"action": "HIDE", "success": success, "log_lines": lines}
+
+
+def resolve_taunt(taunter: Combatant, target: Combatant) -> dict:
+    """CHA (Intimidation) + prof vs target WIS save. Applies frightened on success."""
+    pb = proficiency_bonus(taunter.level)
+    taunt_roll = roll(20) + modifier(taunter.charisma) + pb
+    wis_save = roll(20) + modifier(target.wisdom)
+    success = taunt_roll > wis_save
+    if success:
+        apply_condition(target, "frightened", 2)
+        lines = [
+            f"😤 **{taunter.name}** taunts **{target.name}**! (Intimidation {taunt_roll} vs WIS save {wis_save})",
+            f"😨 **{target.name}** is frightened — disadvantage on attacks for 2 rounds!",
+        ]
+    else:
+        lines = [
+            f"😤 **{taunter.name}** tries to taunt **{target.name}**... (Intimidation {taunt_roll} vs WIS save {wis_save})",
+            f"😤 **{target.name}** shrugs it off.",
+        ]
+    return {"action": "TAUNT", "success": success, "log_lines": lines}
 
 
 # ── Named attack handlers ─────────────────────────────────────────────────────

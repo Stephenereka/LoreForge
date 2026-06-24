@@ -3,5 +3,5 @@ sqlalchemy[asyncio]>=2.0
 aiosqlite
 asyncpg
 python-dotenv
-groq
+openai
 aiohttp
