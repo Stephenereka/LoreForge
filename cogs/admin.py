@@ -107,13 +107,19 @@ def _help_pages() -> list[discord.Embed]:
     )
     e.add_field(name="Utility", value="`/ping` — Check if the bot is online\n`/help` — Show this menu", inline=False)
     e.add_field(
+        name="GM Commands",
+        value=(
+            "`/gm revive <character_name>` — Bring a dead character back to life at 1 HP *(GM only)*"
+        ),
+        inline=False,
+    )
+    e.add_field(
         name="Coming Soon",
         value=(
             "`/lore` — Search your world's lore wiki\n"
             "`/quest` — View and accept quests\n"
             "`/travel` — Move between locations\n"
-            "`/tutorial` — Guided walkthrough for new players\n"
-            "`/gm` — Game Master tools"
+            "`/tutorial` — Guided walkthrough for new players"
         ),
         inline=False,
     )

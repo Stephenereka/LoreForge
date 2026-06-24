@@ -1,3 +1,4 @@
+import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -498,6 +499,69 @@ class DeathSaveView(discord.ui.View):
                 self.session.add_log(f"💀 {player.name} dies.")
 
 
+# ── Kill or Spare View ────────────────────────────────────────────────────────
+
+class KillOrSpareView(discord.ui.View):
+    def __init__(self, session: "CombatSession", attacker_uid: int, target: "Combatant"):
+        super().__init__(timeout=60)
+        self.session = session
+        self.attacker_uid = attacker_uid
+        self.target = target
+        self._resolved = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.attacker_uid:
+            await interaction.response.send_message("This choice isn't yours to make.", ephemeral=True)
+            return False
+        return True
+
+    async def _finish(self, interaction: discord.Interaction | None, kill: bool):
+        if self._resolved:
+            return
+        self._resolved = True
+        self.stop()
+        session = self.session
+        target = self.target
+
+        if interaction:
+            try:
+                await interaction.message.delete()
+            except Exception:
+                pass
+            await interaction.response.defer()
+
+        if kill:
+            target.is_dead = True
+            target.is_unconscious = False
+            session.add_log(f"☠️ **{target.name}** was finished off!")
+        else:
+            session.add_log(f"😴 **{target.name}** was spared — knocked out.")
+
+        living = session.living_players
+        if len(living) <= 1:
+            await _end_combat(session, living[0] if living else None)
+            return
+
+        session.advance_turn()
+        next_c = session.current_combatant
+        if session.status_message:
+            session.status_message = await session.status_message.channel.send(embed=session.status_embed())
+        await _update_status_and_prompt(session, next_c)
+
+    @discord.ui.button(label="Finish", style=discord.ButtonStyle.danger, emoji="☠️")
+    async def kill_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._finish(interaction, kill=True)
+
+    @discord.ui.button(label="Spare", style=discord.ButtonStyle.secondary, emoji="😴")
+    async def spare_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._finish(interaction, kill=False)
+
+    async def on_timeout(self):
+        if not self._resolved:
+            self.session.add_log(f"😴 **{self.target.name}** was spared (no response — 60s timeout).")
+            await self._finish(None, kill=False)
+
+
 # ── Shared helpers ────────────────────────────────────────────────────────────
 
 async def _update_status_and_prompt(session: CombatSession, next_c: Combatant):
@@ -550,6 +614,7 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
 
     if action in ("ATTACK", "SPELL", "SKILL") and target:
         attack_name = action_data.get("detected_attack")
+        just_downed = False
         if attack_name:
             res = resolve_named_attack(player, attack_name, target)
             for line in res.get("log_lines", []):
@@ -562,9 +627,12 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
                 session.add_log(f"🎲 {player.name} — natural 1 on **{attack_name}**!")
             elif res["hit"]:
                 if res["damage"] > 0:
+                    was_conscious = not target.is_unconscious and not target.is_dead
                     target.take_damage(res["damage"])
                     crit = " *(Crit!)*" if res["crit"] else ""
                     session.add_log(f"⚔️ **{attack_name}** — {player.name} hits {target.name} for **{res['damage']} dmg**{crit}")
+                    if was_conscious and target.is_unconscious:
+                        just_downed = True
                 for cond in res.get("conditions_applied", []):
                     apply_condition(target, cond["name"], cond["duration"])
                     icon = CONDITIONS.get(cond["name"], {}).get("icon", "⚡")
@@ -582,12 +650,24 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
             if result["is_miss"]:
                 session.add_log(f"🎲 {player.name} — natural 1, missed!")
             elif result["attack_roll"] >= effective_ac(target):
+                was_conscious = not target.is_unconscious and not target.is_dead
                 target.take_damage(result["damage"])
                 crit = " *(Crit!)*" if result["is_crit"] else ""
                 sneak = f" +{result['sneak_dice']}d6 sneak" if result["sneak_dice"] else ""
                 session.add_log(f"⚔️ {player.name} hits {target.name} for **{result['damage']} dmg**{crit}{sneak}")
+                if was_conscious and target.is_unconscious:
+                    just_downed = True
             else:
                 session.add_log(f"🛡️ {player.name} misses {target.name} ({result['attack_roll']} vs AC {effective_ac(target)})")
+
+        if just_downed:
+            uid = session.user_id_for(player)
+            if channel and uid:
+                await channel.send(
+                    f"<@{uid}> — **{target.name}** is down at your feet! What do you do?",
+                    view=KillOrSpareView(session, uid, target),
+                )
+            return
 
         living = session.living_players
         if len(living) <= 1:

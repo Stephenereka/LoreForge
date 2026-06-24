@@ -16,6 +16,7 @@ COGS = [
     "cogs.admin",
     "cogs.character",
     "cogs.combat",
+    "cogs.gm",
     "cogs.shop",
     "cogs.inventory",
     "cogs.proxy",
