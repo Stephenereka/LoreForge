@@ -11,9 +11,16 @@ server_group = app_commands.Group(
 )
 
 
-@server_group.command(name="setup", description="Set up LoreForge in this server (requires Manage Server)")
+@server_group.command(name="setup", description="Set up LoreForge in this server (Manage Server or GM role)")
 @app_commands.describe(world_name="Name of your world", gm_role="The role that acts as Game Master")
 async def server_setup(interaction: discord.Interaction, world_name: str, gm_role: discord.Role):
+    from services.utils import is_gm
+    has_manage = interaction.user.guild_permissions.manage_guild
+    if not has_manage and not await is_gm(interaction):
+        await interaction.response.send_message(
+            "You need **Manage Server** permission or the GM role to run this.", ephemeral=True
+        )
+        return
     from database.session import get_db
     from database.models import GuildConfig
     from sqlalchemy import select
@@ -73,8 +80,18 @@ class AdminCog(commands.Cog, name="Admin"):
                 "`/character create <name>` — 4-step wizard: race → class → background → backstory & proxy\n"
                 "`/character sheet` — View your character sheet (only you see it)\n"
                 "`/character show` — Post your character sheet to the channel\n"
+                "`/character delete` — Permanently delete your character\n"
                 "`/character proxy` — Set or update your proxy brackets & avatar\n"
                 "`/character proxy_remove` — Remove your proxy"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="💤 `/rest` — Recover",
+            value=(
+                "`/rest short` — Roll hit dice to recover some HP (Warlocks also regain spell slots)\n"
+                "`/rest long` — Full HP restore + all class resources refreshed"
             ),
             inline=False,
         )

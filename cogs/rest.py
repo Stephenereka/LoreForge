@@ -1,0 +1,154 @@
+import discord
+from discord import app_commands
+from discord.ext import commands
+from sqlalchemy import select
+from database.session import get_db
+from database.models import Character
+from services.combat_engine import modifier
+import random
+import math
+
+HIT_DICE = {
+    "Fighter": 10, "Barbarian": 12, "Rogue": 8,
+    "Cleric": 8, "Wizard": 6, "Warlock": 8,
+}
+
+def _full_resources(char_class: str, level: int) -> dict:
+    rages = 2 + max(0, (level - 1) // 4)
+    return {
+        "Fighter":   {"action_surge": 1},
+        "Barbarian": {"rages": rages, "rage_active": False},
+        "Warlock":   {"spell_slots": math.ceil(level / 4)},
+        "Cleric":    {"channel_divinity": 1},
+        "Wizard":    {"spell_slots": 2 + (level // 4), "arcane_recovery": 1},
+        "Rogue":     {"sneak_attack_dice": math.ceil(level / 2)},
+    }.get(char_class, {})
+
+def _short_rest_resources(char_class: str, level: int, current: dict) -> dict:
+    updated = dict(current)
+    # Only Warlocks recover spell slots on short rest
+    if char_class == "Warlock":
+        updated["spell_slots"] = math.ceil(level / 4)
+    return updated
+
+rest_group = app_commands.Group(name="rest", description="Rest to recover HP and class resources")
+
+
+@rest_group.command(name="short", description="Take a short rest — roll hit dice to recover some HP")
+async def rest_short(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(Character).where(
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
+                Character.is_dead == False,
+            )
+        )
+        char = result.scalar_one_or_none()
+        if not char:
+            await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
+            return
+        if char.hp_current == char.hp_max:
+            await interaction.response.send_message("You're already at full HP — no need to rest.", ephemeral=True)
+            return
+
+        hit_die = HIT_DICE.get(char.char_class, 8)
+        con_mod = modifier(char.constitution)
+        roll = random.randint(1, hit_die)
+        heal = max(1, roll + con_mod)
+        before = char.hp_current
+        char.hp_current = min(char.hp_max, char.hp_current + heal)
+        char.is_unconscious = False
+        actual = char.hp_current - before
+
+        # Short rest resource recovery
+        char.class_resources = _short_rest_resources(char.char_class, char.level, char.class_resources or {})
+
+    embed = discord.Embed(
+        title="💤 Short Rest",
+        description=f"**{char.name}** rests briefly and tends to their wounds.",
+        color=0x6366F1,
+    )
+    embed.add_field(
+        name="HP Recovered",
+        value=f"Rolled **{roll}** (1d{hit_die}) {'+' if con_mod >= 0 else ''}{con_mod} CON = **+{actual} HP**\n❤️ `{char.hp_current}/{char.hp_max}`",
+        inline=False,
+    )
+    if char.char_class == "Warlock":
+        slots = char.class_resources.get("spell_slots", 0)
+        embed.add_field(name="⚡ Warlock", value=f"Spell slots restored: `{slots}`", inline=False)
+    embed.set_footer(text="Use /rest long for full recovery.")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@rest_group.command(name="long", description="Take a long rest — full HP and all class resources restored")
+async def rest_long(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(Character).where(
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
+                Character.is_dead == False,
+            )
+        )
+        char = result.scalar_one_or_none()
+        if not char:
+            await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
+            return
+
+        before = char.hp_current
+        char.hp_current = char.hp_max
+        char.hp_temp = 0
+        char.is_unconscious = False
+        char.death_saves_success = 0
+        char.death_saves_failure = 0
+        char.class_resources = _full_resources(char.char_class, char.level)
+
+    recovered = char.hp_max - before
+    embed = discord.Embed(
+        title="🌙 Long Rest",
+        description=f"**{char.name}** takes a full rest. All wounds healed, all resources restored.",
+        color=0x4F46E5,
+    )
+    embed.add_field(
+        name="HP",
+        value=f"❤️ `{char.hp_max}/{char.hp_max}` (+{recovered} HP)",
+        inline=True,
+    )
+    resources = char.class_resources
+    if resources:
+        res_lines = []
+        if "action_surge" in resources:
+            res_lines.append(f"Action Surge: `{resources['action_surge']}`")
+        if "rages" in resources:
+            res_lines.append(f"Rages: `{resources['rages']}`")
+        if "spell_slots" in resources:
+            res_lines.append(f"Spell Slots: `{resources['spell_slots']}`")
+        if "channel_divinity" in resources:
+            res_lines.append(f"Channel Divinity: `{resources['channel_divinity']}`")
+        if res_lines:
+            embed.add_field(name="Class Resources", value="\n".join(res_lines), inline=True)
+
+    embed.set_footer(text="LoreForge — Well rested and ready.")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class RestCog(commands.Cog, name="Rest"):
+    def __init__(self, bot):
+        self.bot = bot
+        bot.tree.add_command(rest_group)
+
+    async def cog_unload(self):
+        self.bot.tree.remove_command("rest")
+
+
+async def setup(bot):
+    await bot.add_cog(RestCog(bot))

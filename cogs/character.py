@@ -240,6 +240,24 @@ class DetailsModal(discord.ui.Modal, title="Character Details"):
         self.background = background
 
     async def on_submit(self, interaction: discord.Interaction):
+        new_open = self.proxy_open.value.strip() or None
+        # Conflict check during creation
+        if new_open:
+            async with get_db() as db:
+                conflict = await db.execute(
+                    select(Character).where(
+                        Character.guild_id == interaction.guild_id,
+                        Character.proxy_open == new_open,
+                        Character.is_dead == False,
+                    )
+                )
+                if conflict.scalar_one_or_none():
+                    await interaction.response.send_message(
+                        f"Another character already uses `{new_open}` as their proxy. Your character will be created without a proxy — set one later with `/character proxy`.",
+                        ephemeral=True,
+                    )
+                    new_open = None
+
         await _create_character(
             interaction,
             char_name=self.char_name,
@@ -248,7 +266,7 @@ class DetailsModal(discord.ui.Modal, title="Character Details"):
             background=self.background,
             backstory=self.backstory.value.strip() or None,
             avatar_url=self.avatar_url.value.strip() or None,
-            proxy_open=self.proxy_open.value.strip() or None,
+            proxy_open=new_open,
             proxy_close=self.proxy_close.value.strip() or None,
         )
 
@@ -433,6 +451,40 @@ class BackgroundView(discord.ui.View):
 
 # ── /character proxy commands ─────────────────────────────────────────────────
 
+# ── /character delete ─────────────────────────────────────────────────────────
+
+class DeleteConfirmView(discord.ui.View):
+    def __init__(self, char_name: str):
+        super().__init__(timeout=60)
+        self.char_name = char_name
+
+    @discord.ui.button(label="Yes, delete forever", style=discord.ButtonStyle.danger, emoji="💀")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with get_db() as db:
+            result = await db.execute(
+                select(Character).where(
+                    Character.user_id == interaction.user.id,
+                    Character.guild_id == interaction.guild_id,
+                    Character.is_dead == False,
+                )
+            )
+            char = result.scalar_one_or_none()
+            if not char:
+                await interaction.response.edit_message(content="No character found.", view=None, embed=None)
+                return
+            await db.delete(char)
+        await interaction.response.edit_message(
+            content=f"**{self.char_name}** has been permanently deleted. Use `/character create` to start fresh.",
+            view=None, embed=None,
+        )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Deletion cancelled.", view=None, embed=None)
+
+
+# ── /character proxy set modal ────────────────────────────────────────────────
+
 class ProxySetModal(discord.ui.Modal, title="Set Proxy"):
     proxy_open = discord.ui.TextInput(
         label="Opening bracket / prefix",
@@ -457,7 +509,24 @@ class ProxySetModal(discord.ui.Modal, title="Set Proxy"):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
+        new_open = self.proxy_open.value.strip()
         async with get_db() as db:
+            # Conflict check — no two characters in the same server share the same open bracket
+            conflict = await db.execute(
+                select(Character).where(
+                    Character.guild_id == interaction.guild_id,
+                    Character.proxy_open == new_open,
+                    Character.user_id != interaction.user.id,
+                    Character.is_dead == False,
+                )
+            )
+            if conflict.scalar_one_or_none():
+                await interaction.response.send_message(
+                    f"Another character in this server already uses `{new_open}` as their proxy. Choose a different bracket.",
+                    ephemeral=True,
+                )
+                return
+
             result = await db.execute(
                 select(Character).where(
                     Character.user_id == interaction.user.id,
@@ -469,7 +538,7 @@ class ProxySetModal(discord.ui.Modal, title="Set Proxy"):
             if not char:
                 await interaction.response.send_message("You don't have a character.", ephemeral=True)
                 return
-            char.proxy_open = self.proxy_open.value.strip()
+            char.proxy_open = new_open
             char.proxy_close = self.proxy_close.value.strip() or None
             if self.avatar_url.value.strip():
                 char.avatar_url = self.avatar_url.value.strip()
@@ -568,6 +637,34 @@ async def character_proxy(interaction: discord.Interaction):
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
     await interaction.response.send_modal(ProxySetModal())
+
+
+@character_group.command(name="delete", description="Permanently delete your character")
+async def character_delete(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(Character).where(
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
+                Character.is_dead == False,
+            )
+        )
+        char = result.scalar_one_or_none()
+
+    if not char:
+        await interaction.response.send_message("You don't have a character to delete.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="⚠️ Delete Character?",
+        description=f"**{char.name}** — Level {char.level} {char.race} {char.char_class}\n\nThis is **permanent**. All XP, gold, and inventory will be lost.",
+        color=0xEF4444,
+    )
+    await interaction.response.send_message(embed=embed, view=DeleteConfirmView(char.name), ephemeral=True)
 
 
 @character_group.command(name="proxy_remove", description="Remove your character's proxy")

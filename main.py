@@ -19,6 +19,7 @@ COGS = [
     "cogs.shop",
     "cogs.inventory",
     "cogs.proxy",
+    "cogs.rest",
 ]
 
 @bot.event

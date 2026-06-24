@@ -80,19 +80,44 @@ class ProxyCog(commands.Cog, name="Proxy"):
 
         webhook = await _get_or_create_webhook(message.channel)
         if not webhook:
+            try:
+                await message.author.send(
+                    f"⚠️ **Proxy failed in #{message.channel.name}** — I need **Manage Webhooks** permission.\nAsk a server admin to grant it to me."
+                )
+            except discord.Forbidden:
+                pass
             return
 
         avatar = char.avatar_url or message.author.display_avatar.url
 
         try:
             await message.delete()
+        except discord.Forbidden:
+            try:
+                await message.author.send(
+                    f"⚠️ **Proxy failed in #{message.channel.name}** — I need **Manage Messages** permission to delete your original message.\nAsk a server admin to grant it to me."
+                )
+            except discord.Forbidden:
+                pass
+            return
+        except discord.HTTPException:
+            return
+
+        try:
             await webhook.send(
                 content=inner,
                 username=char.name,
                 avatar_url=avatar,
                 allowed_mentions=discord.AllowedMentions(everyone=False, roles=False),
             )
-        except (discord.Forbidden, discord.HTTPException):
+        except discord.Forbidden:
+            try:
+                await message.author.send(
+                    f"⚠️ **Proxy failed in #{message.channel.name}** — I need **Manage Webhooks** permission to post as your character.\nAsk a server admin to grant it to me."
+                )
+            except discord.Forbidden:
+                pass
+        except discord.HTTPException:
             pass
 
 

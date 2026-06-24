@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
 from database.session import get_db
-from database.models import Character
+from database.models import Character, GuildConfig
 from services.combat_engine import (
     Combatant, make_enemy, enemy_attack, enemy_xp,
     player_attack, player_defend, roll_initiative,
@@ -13,6 +13,23 @@ import random
 
 # ── Active sessions: guild_id → CombatSession ────────────────────────────────
 _sessions: dict[int, "CombatSession"] = {}
+
+
+async def _set_combat_active(guild_id: int, channel_id: int | None):
+    """Persist combat state to DB so restarts can notify players."""
+    async with get_db() as db:
+        result = await db.execute(select(GuildConfig).where(GuildConfig.guild_id == guild_id))
+        config = result.scalar_one_or_none()
+        if config:
+            config.combat_active = channel_id is not None
+            config.combat_channel_id = channel_id
+        else:
+            if channel_id is not None:
+                db.add(GuildConfig(
+                    guild_id=guild_id,
+                    combat_active=True,
+                    combat_channel_id=channel_id,
+                ))
 
 MAX_PLAYERS = 4
 
@@ -563,6 +580,7 @@ async def _end_victory(session: "CombatSession", interaction: discord.Interactio
                 char.hp_current = 0
 
     _sessions.pop(session.guild_id, None)
+    await _set_combat_active(session.guild_id, None)
     await interaction.response.edit_message(embed=session.victory_embed(xp), view=None)
 
 
@@ -585,6 +603,7 @@ async def _end_defeat(session: "CombatSession", interaction: discord.Interaction
                     char.is_dead = True
 
     _sessions.pop(session.guild_id, None)
+    await _set_combat_active(session.guild_id, None)
     try:
         if interaction.response.is_done():
             if session.message:
@@ -625,6 +644,7 @@ class EnemySelect(discord.ui.Select):
             initiator_id=self.initiator_id,
         )
         _sessions[interaction.guild_id] = session
+        await _set_combat_active(interaction.guild_id, interaction.channel_id)
 
         # Auto-add the initiator
         async with get_db() as db:
@@ -750,6 +770,27 @@ class CombatCog(commands.Cog, name="Combat"):
 
     async def cog_unload(self):
         self.bot.tree.remove_command("combat")
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """On startup, notify any channels where combat was active before the restart."""
+        from sqlalchemy import select as sa_select
+        async with get_db() as db:
+            result = await db.execute(
+                sa_select(GuildConfig).where(GuildConfig.combat_active == True)
+            )
+            interrupted = result.scalars().all()
+            for config in interrupted:
+                config.combat_active = False
+                config.combat_channel_id = None
+                channel = self.bot.get_channel(config.combat_channel_id or 0)
+                if channel:
+                    try:
+                        await channel.send(
+                            "⚠️ **LoreForge restarted** — the active combat was interrupted. Use `/combat start` to begin a new fight."
+                        )
+                    except Exception:
+                        pass
 
 
 async def setup(bot):

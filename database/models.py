@@ -66,6 +66,8 @@ class GuildConfig(Base):
     gm_role_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     ai_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     world_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    combat_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    combat_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
