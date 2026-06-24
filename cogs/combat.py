@@ -752,8 +752,15 @@ async def combat_end(interaction: discord.Interaction):
     if not session:
         await interaction.response.send_message("No active combat in this channel.", ephemeral=True)
         return
-    if interaction.user.id not in session.player_user_ids:
-        await interaction.response.send_message("You are not in this fight.", ephemeral=True)
+
+    from services.utils import is_gm
+    user_is_gm = await is_gm(interaction)
+    user_is_initiator = interaction.user.id == session.initiator_id
+
+    if not user_is_gm and not user_is_initiator:
+        await interaction.response.send_message(
+            "Only the player who started this combat or a GM can end it.", ephemeral=True
+        )
         return
 
     session.state = "over"
