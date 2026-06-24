@@ -316,7 +316,7 @@ def step_kit_embed(char_name: str, race: str, char_class: str, background: str) 
 
 class StarterKitView(discord.ui.View):
     def __init__(self, char_name: str, race: str, char_class: str, background: str):
-        super().__init__(timeout=300)
+        super().__init__(timeout=600)
         self.char_name = char_name
         self.race = race
         self.char_class = char_class
@@ -421,7 +421,7 @@ class CharacterPickSelect(discord.ui.Select):
 
 class CharacterPickView(discord.ui.View):
     def __init__(self, chars: list, action: str):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.add_item(CharacterPickSelect(chars, action))
 
 
@@ -505,7 +505,7 @@ class DetailsModal(discord.ui.Modal, title="Character Details"):
 
 class Step4View(discord.ui.View):
     def __init__(self, char_name: str, race: str, char_class: str, background: str):
-        super().__init__(timeout=300)
+        super().__init__(timeout=600)
         self.char_name = char_name
         self.race = race
         self.char_class = char_class
@@ -648,7 +648,7 @@ class RaceSelect(discord.ui.Select):
 
 class RaceView(discord.ui.View):
     def __init__(self, char_name: str):
-        super().__init__(timeout=300)
+        super().__init__(timeout=600)
         self.add_item(RaceSelect(char_name))
 
 
@@ -672,7 +672,7 @@ class ClassSelect(discord.ui.Select):
 
 class ClassView(discord.ui.View):
     def __init__(self, race: str, char_name: str):
-        super().__init__(timeout=300)
+        super().__init__(timeout=600)
         self.add_item(ClassSelect(race, char_name))
 
 
@@ -697,14 +697,14 @@ class BackgroundSelect(discord.ui.Select):
 
 class BackgroundView(discord.ui.View):
     def __init__(self, char_name: str, race: str, char_class: str):
-        super().__init__(timeout=300)
+        super().__init__(timeout=600)
         self.add_item(BackgroundSelect(char_name, race, char_class))
 
 # ── Delete confirm ────────────────────────────────────────────────────────────
 
 class DeleteConfirmView(discord.ui.View):
     def __init__(self, char_name: str, char_id: int):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.char_name = char_name
         self.char_id = char_id
 

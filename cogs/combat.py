@@ -8,6 +8,7 @@ from services.combat_engine import (
     Combatant, player_attack, player_defend, roll_initiative,
     roll, modifier, resolve_named_attack, detect_attack_name,
     tick_conditions, has_condition, apply_condition, effective_ac, CONDITIONS,
+    resolve_grapple, resolve_shove, resolve_hide, resolve_taunt,
 )
 from services.ai_service import classify_combat_action
 from cogs.character import resolve_character, CharacterPickView, pick_embed
@@ -217,7 +218,7 @@ class CombatJoinCharSelect(discord.ui.Select):
 
 class CombatJoinCharView(discord.ui.View):
     def __init__(self, chars: list, session: "CombatSession", lobby_view: "LobbyView"):
-        super().__init__(timeout=30)
+        super().__init__(timeout=None)
         self.add_item(CombatJoinCharSelect(chars, session, lobby_view))
 
 
@@ -225,7 +226,7 @@ class CombatJoinCharView(discord.ui.View):
 
 class LobbyView(discord.ui.View):
     def __init__(self, session: "CombatSession"):
-        super().__init__(timeout=300)
+        super().__init__(timeout=None)
         self.session = session
 
     @discord.ui.button(label="Join Fight", style=discord.ButtonStyle.success, emoji="⚔️")
@@ -285,6 +286,62 @@ class LobbyView(discord.ui.View):
             _sessions.pop(session.channel_id, None)
 
 
+# ── Invite View — sent when host invites a specific user ─────────────────────
+
+class InviteView(discord.ui.View):
+    def __init__(self, session: "CombatSession"):
+        super().__init__(timeout=None)
+        self.session = session
+
+    @discord.ui.button(label="Join Fight", style=discord.ButtonStyle.success, emoji="⚔️")
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        session = self.session
+        if session.state != "lobby":
+            await interaction.response.send_message("This lobby is no longer open.", ephemeral=True)
+            return
+        if interaction.user.id in session.player_user_ids:
+            await interaction.response.send_message("You're already in this fight.", ephemeral=True)
+            return
+        char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+        if not chars:
+            await interaction.response.send_message(
+                "You don't have a living character. Use `/character create` first.", ephemeral=True
+            )
+            return
+        if not char:
+            await interaction.response.send_message(
+                embed=pick_embed("fight as"),
+                view=CombatJoinCharView(chars, session, LobbyView(session)),
+                ephemeral=True,
+            )
+            return
+        if char.is_unconscious:
+            await interaction.response.send_message("Your character is unconscious.", ephemeral=True)
+            return
+        combatant = _build_combatant(char, interaction.user.id)
+        session.players.append(combatant)
+        session.player_user_ids.append(interaction.user.id)
+        await interaction.response.send_message(f"✅ **{char.name}** joined the fight!", ephemeral=True)
+        if session.lobby_message:
+            await session.lobby_message.edit(embed=session.lobby_embed(), view=LobbyView(session))
+        self.stop()
+
+
+# ── Fuzzy target matching ─────────────────────────────────────────────────────
+
+def _fuzzy_find_target(name: str | None, candidates: list[Combatant]) -> Combatant | None:
+    if not name:
+        return None
+    name_lower = name.lower()
+    for c in candidates:
+        if c.name.lower() == name_lower:
+            return c
+    for c in candidates:
+        if name_lower in c.name.lower() or c.name.lower() in name_lower:
+            return c
+    return None
+
+
 # ── Target Select — shown for ATTACK/SPELL before confirm ─────────────────────
 
 class TargetSelect(discord.ui.Select):
@@ -327,7 +384,7 @@ class TargetSelect(discord.ui.Select):
 
 class TargetSelectView(discord.ui.View):
     def __init__(self, session: "CombatSession", player_uid: int, action_data: dict, targets: list[Combatant]):
-        super().__init__(timeout=30)
+        super().__init__(timeout=900)
         self.session = session
         self.add_item(TargetSelect(session, player_uid, action_data, targets))
 
@@ -339,7 +396,7 @@ class TargetSelectView(discord.ui.View):
 
 class ConfirmView(discord.ui.View):
     def __init__(self, session: "CombatSession", player_uid: int):
-        super().__init__(timeout=30)
+        super().__init__(timeout=900)
         self.session = session
         self.player_uid = player_uid
 
@@ -384,7 +441,7 @@ class ConfirmView(discord.ui.View):
 
 class DeathSaveView(discord.ui.View):
     def __init__(self, session: "CombatSession", player_uid: int):
-        super().__init__(timeout=120)
+        super().__init__(timeout=900)
         self.session = session
         self.player_uid = player_uid
 
@@ -491,7 +548,7 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
     action = action_data.get("action", "UNCLEAR")
     channel = session.status_message.channel if session.status_message else None
 
-    if action in ("ATTACK", "SPELL") and target:
+    if action in ("ATTACK", "SPELL", "SKILL") and target:
         attack_name = action_data.get("detected_attack")
         if attack_name:
             res = resolve_named_attack(player, attack_name, target)
@@ -570,6 +627,29 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
         else:
             session.add_log(f"💨 {player.name} tried to flee but was caught! (rolled {player_roll}) — loses their turn.")
 
+    elif action in ("GRAPPLE", "SHOVE", "TAUNT") and target:
+        if action == "GRAPPLE":
+            res = resolve_grapple(player, target)
+        elif action == "SHOVE":
+            res = resolve_shove(player, target)
+        else:
+            res = resolve_taunt(player, target)
+        for line in res["log_lines"]:
+            if channel:
+                await channel.send(line)
+
+    elif action == "HIDE":
+        res = resolve_hide(player)
+        for line in res["log_lines"]:
+            if channel:
+                await channel.send(line)
+
+    elif action == "DASH":
+        session.add_log(f"💨 **{player.name}** dashes — repositioning for next turn!")
+
+    elif action == "HELP":
+        session.add_log(f"🤝 **{player.name}** takes the Help action — granting an ally advantage on their next move!")
+
     elif action == "ITEM":
         healed = player.heal(roll(4) + 2)
         session.add_log(f"🧪 {player.name} uses a potion — healed **{healed} HP**!")
@@ -610,12 +690,13 @@ combat_group = app_commands.Group(name="combat", description="Start and manage c
 @app_commands.describe(
     title="Name for this combat (e.g. 'Arena Match', 'The Duel')",
     fight_type="DnD — AI resolves via RP + proxy messages. Manual — GM-run, bot tracks only.",
+    invite="Optional: ping a user to join when the lobby is created",
 )
 @app_commands.choices(fight_type=[
     app_commands.Choice(name="DnD (AI resolves)", value="dnd"),
     app_commands.Choice(name="Manual (GM-run)", value="manual"),
 ])
-async def combat_start(interaction: discord.Interaction, title: str, fight_type: app_commands.Choice[str]):
+async def combat_start(interaction: discord.Interaction, title: str, fight_type: app_commands.Choice[str], invite: discord.Member | None = None):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
@@ -655,6 +736,34 @@ async def combat_start(interaction: discord.Interaction, title: str, fight_type:
     lobby_view = LobbyView(session)
     session.lobby_message = await interaction.channel.send(embed=session.lobby_embed(), view=lobby_view)
     await interaction.response.send_message("✅ Combat lobby created!", ephemeral=True)
+    if invite:
+        await interaction.channel.send(
+            f"⚔️ {invite.mention} — you've been invited to join **{session.title}**!",
+            view=InviteView(session),
+        )
+
+
+@combat_group.command(name="invite", description="Invite a user to the active combat lobby in this channel")
+@app_commands.describe(user="The user to invite")
+async def combat_invite(interaction: discord.Interaction, user: discord.Member):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    session = _sessions.get(interaction.channel_id)
+    if not session or session.state != "lobby":
+        await interaction.response.send_message("No open combat lobby in this channel.", ephemeral=True)
+        return
+    if interaction.user.id != session.initiator_id:
+        await interaction.response.send_message("Only the host can invite players.", ephemeral=True)
+        return
+    if user.id in session.player_user_ids:
+        await interaction.response.send_message(f"**{user.display_name}** is already in this fight.", ephemeral=True)
+        return
+    await interaction.response.send_message("✅ Invite sent!", ephemeral=True)
+    await interaction.channel.send(
+        f"⚔️ {user.mention} — you've been invited to join **{session.title}**!",
+        view=InviteView(session),
+    )
 
 
 @combat_group.command(name="join", description="Join an active combat lobby in this server")
@@ -720,7 +829,7 @@ async def combat_join(interaction: discord.Interaction):
 
     class LobbyPickView(discord.ui.View):
         def __init__(self_inner):
-            super().__init__(timeout=30)
+            super().__init__(timeout=300)
             self_inner.add_item(LobbyPickSelect())
 
     embed = discord.Embed(
@@ -863,32 +972,74 @@ class CombatCog(commands.Cog, name="Combat"):
         known_attacks = current.class_resources.get("attacks", [])
         attack_name = detect_attack_name(message.content, known_attacks) if known_attacks else None
 
-        result = await classify_combat_action(message.content, current.name, "target")
+        # Build full combatants context for AI
+        combatants_ctx = [
+            {"name": p.name, "hp": f"{p.hp_current}/{p.hp_max}", "class_": p.char_class}
+            for p in session.living_players
+        ]
+
+        result = await classify_combat_action(
+            message.content,
+            current.name,
+            combatants_ctx,
+            player_skills=known_attacks,
+        )
+
+        # Hard-override if a named skill was detected locally
         if attack_name:
             result["action"] = "ATTACK"
             result["detected_attack"] = attack_name
+        elif result["action"] == "SKILL" and result.get("skill_name"):
+            result["detected_attack"] = result["skill_name"]
 
+        # OOC → silent, no response
+        if result["action"] == "OOC":
+            return
+
+        # UNCLEAR → ask player to clarify
         if result["action"] == "UNCLEAR":
+            await message.reply(
+                "🤔 I couldn't make out your action — what are you trying to do?",
+                mention_author=False,
+            )
             return
 
         session.pending_action = result
 
-        if result["action"] in ("ATTACK", "SPELL"):
+        # Actions that require choosing a target
+        _NEEDS_TARGET = {"ATTACK", "SPELL", "SKILL", "GRAPPLE", "SHOVE", "TAUNT"}
+        if result["action"] in _NEEDS_TARGET:
             living_others = [p for p in session.living_players if p is not current]
             if not living_others:
                 session.pending_action = None
                 return
-            await message.reply(
-                "⚔️ **Choose your target:**",
-                view=TargetSelectView(session, uid, result, living_others),
-                mention_author=False,
-            )
+
+            # Try to auto-match target from AI's returned name
+            ai_target = _fuzzy_find_target(result.get("target"), living_others)
+            if ai_target and len(living_others) == 1:
+                # Only one possible target — auto-confirm
+                session.pending_target = ai_target
+                action_desc = result.get("detected_attack") or result["action"].capitalize()
+                session.confirm_message = await message.reply(
+                    f"*{action_desc} at **{ai_target.name}*** — is that right?",
+                    view=ConfirmView(session, uid),
+                    mention_author=False,
+                )
+            else:
+                await message.reply(
+                    "⚔️ **Choose your target:**",
+                    view=TargetSelectView(session, uid, result, living_others),
+                    mention_author=False,
+                )
             return
 
         labels = {
             "DEFEND": "🛡️ Take a defensive stance",
             "FLEE":   "💨 Attempt to flee",
             "ITEM":   "🧪 Use an item",
+            "HIDE":   "👁️ Attempt to hide",
+            "DASH":   "💨 Dash — reposition",
+            "HELP":   "🤝 Take the Help action",
         }
         session.confirm_message = await message.reply(
             f"*{labels.get(result['action'], result['action'])}* — is that right?",

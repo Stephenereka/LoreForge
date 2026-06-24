@@ -125,7 +125,7 @@ def _help_pages() -> list[discord.Embed]:
 
 class HelpView(discord.ui.View):
     def __init__(self, page: int = 0):
-        super().__init__(timeout=120)
+        super().__init__(timeout=600)
         self.page = page
         self.pages = _help_pages()
         self._update_buttons()
