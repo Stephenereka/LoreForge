@@ -428,15 +428,16 @@ async def _handle_training_message(bot, message: discord.Message, actual_user_id
         return
 
     content_lower = message.content.lower()
-    attack_keywords = ["attack", "strike", "hit", "slash", "punch", "kick", "swing", "cut"]
-    defend_keywords = ["defend", "block", "guard", "shield", "brace"]
-    flee_keywords = ["flee", "run", "escape", "retreat"]
-    item_keywords = ["potion", "drink", "heal", "item", "use"]
+    defend_keywords = ["defend", "block", "guard", "shield", "brace", "parry", "dodge", "evade", "deflect"]
+    flee_keywords = ["flee", "run", "escape", "retreat", "back away", "withdraw"]
+    item_keywords = ["potion", "drink", "heal", "item", "use", "consume", "bandage"]
 
-    is_attack = any(kw in content_lower for kw in attack_keywords)
+    # Any message that isn't a defend/flee/item is treated as an attack attempt.
+    # This supports freeform action descriptions ("blasts", "charges", "unleashes ki", etc.)
     is_defend = any(kw in content_lower for kw in defend_keywords)
     is_flee = any(kw in content_lower for kw in flee_keywords)
     is_item = any(kw in content_lower for kw in item_keywords)
+    is_attack = not (is_defend or is_flee or is_item)
 
     player = session.player
     dummy = session.dummy
@@ -477,15 +478,6 @@ async def _handle_training_message(bot, message: discord.Message, actual_user_id
             return
         else:
             session.add_log("💨 You try to flee but fail — the dummy presses its advantage!")
-
-    else:
-        session.add_log(f"📜 {message.content[:80]}")
-        result = player_attack(player)
-        if result["attack_roll"] >= dummy.ac and not result["is_miss"]:
-            dummy.take_damage(result["damage"])
-            session.damage_dealt += result["damage"]
-            session.add_log(f"⚔️ Your action deals {result['damage']} damage.")
-        session.last_player_action = "attack"
 
     # Dummy's turn
     dummy_state = {
