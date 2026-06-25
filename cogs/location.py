@@ -3,11 +3,11 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select, or_, and_
 from database.session import get_db
-from database.models import Location, LocationConnection, CharacterLocation, GuildConfig, Character
+from database.models import Location, LocationConnection, CharacterLocation, GuildConfig, Character, GuildMapCache, GuildMapAnnotation
 from services.utils import gm_only, is_gm
 from services.time_service import get_world_time, get_time_flavor
 from services.weather_service import get_weather, get_weather_flavor, set_weather
-from services.map_service import generate_world_map_overlay, fetch_world_map
+from services.map_service import generate_world_map_overlay, fetch_world_map, fetch_world_map_async
 from cogs.character import resolve_character
 import io
 import urllib.request
@@ -228,21 +228,38 @@ async def cmd_map(ctx):
         ) for l in all_locs
     ]
     player_loc_id = loc.id if loc else None
-    import asyncio
-    if config and config.world_map_url:
-        try:
-            with urllib.request.urlopen(config.world_map_url, timeout=20) as r:
-                base_bytes = r.read()
-        except Exception:
-            base_bytes = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: fetch_world_map(world_name, ctx.guild.id)
+
+    # Fetch base map: use custom URL if set, otherwise use cached/generated map
+    async with get_db() as db:
+        if config and config.world_map_url:
+            try:
+                with urllib.request.urlopen(config.world_map_url, timeout=20) as r:
+                    base_bytes = r.read()
+            except Exception:
+                base_bytes = await fetch_world_map_async(world_name, ctx.guild.id, db)
+        else:
+            base_bytes = await fetch_world_map_async(world_name, ctx.guild.id, db)
+
+        # Fetch annotations for overlay
+        ann_result = await db.execute(
+            select(GuildMapAnnotation).where(
+                GuildMapAnnotation.guild_id == ctx.guild.id
             )
-    else:
-        base_bytes = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: fetch_world_map(world_name, ctx.guild.id)
         )
+        annotations = [
+            dict(
+                annotation_type=a.annotation_type,
+                x=a.x, y=a.y,
+                color=a.color,
+                label=a.label,
+            )
+            for a in list(ann_result.scalars().all())
+        ]
+
     img_bytes = generate_world_map_overlay(
-        base_bytes, loc_data, player_location_id=player_loc_id
+        base_bytes, loc_data,
+        player_location_id=player_loc_id,
+        annotations=annotations or None,
     )
     file = discord.File(img_bytes, filename="world_map.png")
     embed = discord.Embed(title=f"🗺️ {world_name}", color=0x22C55E)
@@ -944,6 +961,123 @@ async def world_clear_map(interaction: discord.Interaction):
         config.world_map_url = None
     await interaction.response.send_message(
         "🗺️ Custom map cleared — `/map` will now use the AI-generated world map.", ephemeral=True
+    )
+
+
+# ── Map Annotation Commands (GM only) ─────────────────────────────────────
+
+ANNOTATION_TYPES = ["road_block", "danger_zone", "icon", "label"]
+
+
+@world_group.command(name="annotate", description="[GM] Add an annotation to the world map overlay")
+@app_commands.describe(
+    type_="Annotation type (road_block, danger_zone, icon, label)",
+    x="Map X coordinate (0–100)",
+    y="Map Y coordinate (0–100)",
+    color="Hex color code (default: #EF4444 for red)",
+    label="Text label (only shown for 'label' and 'icon' types)",
+)
+async def world_annotate(interaction: discord.Interaction,
+                          type_: str,
+                          x: float,
+                          y: float,
+                          color: str = "#EF4444",
+                          label: str = None):
+    if not await gm_only(interaction):
+        return
+    if type_ not in ANNOTATION_TYPES:
+        await interaction.response.send_message(
+            f"Invalid type. Options: {', '.join(ANNOTATION_TYPES)}", ephemeral=True
+        )
+        return
+    x = max(0.0, min(100.0, x))
+    y = max(0.0, min(100.0, y))
+    # Validate hex color
+    if not color.startswith("#") or len(color) not in (4, 7):
+        color = "#EF4444"
+    async with get_db() as db:
+        ann = GuildMapAnnotation(
+            guild_id=interaction.guild_id,
+            annotation_type=type_,
+            x=x,
+            y=y,
+            color=color,
+            label=label,
+            created_by=interaction.user.id,
+        )
+        db.add(ann)
+    type_labels = {
+        "road_block": "🚧 Road Block",
+        "danger_zone": "⚠️ Danger Zone",
+        "icon": "📍 Icon",
+        "label": "🏷️ Label",
+    }
+    desc_parts = [f"**Type:** {type_labels.get(type_, type_)}"]
+    desc_parts.append(f"**Coords:** ({x:.0f}, {y:.0f})")
+    desc_parts.append(f"**Color:** {color}")
+    if label:
+        desc_parts.append(f"**Label:** {label}")
+    embed = discord.Embed(
+        title="🗺️ Annotation Added",
+        description="\n".join(desc_parts),
+        color=0x22C55E,
+    )
+    embed.set_footer(text=f"Annotation ID: {ann.id}")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@world_group.command(name="annotations", description="[GM] List all map overlay annotations")
+async def world_annotations(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
+    async with get_db() as db:
+        result = await db.execute(
+            select(GuildMapAnnotation).where(
+                GuildMapAnnotation.guild_id == interaction.guild_id
+            ).order_by(GuildMapAnnotation.created_at.desc())
+        )
+        anns = list(result.scalars().all())
+    if not anns:
+        await interaction.response.send_message(
+            "No annotations on the world map yet.", ephemeral=True
+        )
+        return
+    lines = []
+    type_emoji = {"road_block": "🚧", "danger_zone": "⚠️", "icon": "📍", "label": "🏷️"}
+    for a in anns:
+        emoji = type_emoji.get(a.annotation_type, "📌")
+        coords = f"({a.x:.0f}, {a.y:.0f})"
+        label_str = f" — *{a.label}*" if a.label else ""
+        lines.append(f"`{a.id:3d}` {emoji} **{a.annotation_type}** @ {coords} {label_str}")
+    await interaction.response.send_message(
+        f"**Map Annotations ({len(anns)}):**\n" + "\n".join(lines),
+        ephemeral=True,
+    )
+
+
+@world_group.command(name="remove-annotation", description="[GM] Remove a map overlay annotation")
+@app_commands.describe(annotation_id="ID of the annotation to remove")
+async def world_remove_annotation(interaction: discord.Interaction, annotation_id: int):
+    if not await gm_only(interaction):
+        return
+    async with get_db() as db:
+        result = await db.execute(
+            select(GuildMapAnnotation).where(
+                GuildMapAnnotation.id == annotation_id,
+                GuildMapAnnotation.guild_id == interaction.guild_id,
+            )
+        )
+        ann = result.scalar_one_or_none()
+        if not ann:
+            await interaction.response.send_message(
+                "Annotation not found.", ephemeral=True
+            )
+            return
+        ann_type = ann.annotation_type
+        ann_id = ann.id
+        await db.delete(ann)
+    await interaction.response.send_message(
+        f"🗑️ Removed annotation **{ann_id}** ({ann_type}).", ephemeral=True
     )
 
 

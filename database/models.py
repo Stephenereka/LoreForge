@@ -593,6 +593,33 @@ class WorldTemplate(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+# ── Map Consistency ────────────────────────────────────────────────────
+
+class GuildMapCache(Base):
+    """Persistent world map cache so the same map survives bot restarts."""
+    __tablename__ = "guild_map_cache"
+
+    guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    map_url: Mapped[str] = mapped_column(Text, nullable=True)
+    map_bytes_b64: Mapped[str] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class GuildMapAnnotation(Base):
+    """Overlay annotations on the world map (road blocks, danger zones, icons, labels)."""
+    __tablename__ = "guild_map_annotations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    annotation_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    x: Mapped[float] = mapped_column(Float, nullable=False)
+    y: Mapped[float] = mapped_column(Float, nullable=False)
+    color: Mapped[str] = mapped_column(String(7), default="#EF4444")
+    label: Mapped[str] = mapped_column(String(100), nullable=True)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 # ── Economy: Houses ──────────────────────────────────────────────────────────
 
 class House(Base):

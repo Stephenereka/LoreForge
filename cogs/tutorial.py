@@ -589,25 +589,9 @@ class TutorialCog(commands.Cog, name="Tutorial"):
     def __init__(self, bot):
         self.bot = bot
         bot.tree.add_command(tutorial_group)
-        self._notified_users = set()
 
     async def cog_unload(self):
         self.bot.tree.remove_command("tutorial")
-
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        if message.author.bot or not message.guild:
-            return
-        key = (message.author.id, message.guild.id)
-        if key in self._notified_users:
-            return
-
-        if await auto_trigger_tutorial(message.author.id, message.guild.id):
-            self._notified_users.add(key)
-            await message.channel.send(
-                f"👋 Welcome to LoreForge, {message.author.mention}! "
-                f"Run `/tutorial` to learn the ropes and earn **50 XP**!"
-            )
 
 
 async def setup(bot):

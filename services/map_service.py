@@ -1,4 +1,5 @@
 import io
+import base64
 import random
 import math
 import urllib.request
@@ -32,14 +33,60 @@ def fetch_world_map(world_name: str, guild_id: int, force: bool = False) -> byte
         return None
 
 
+async def fetch_world_map_async(
+    world_name: str, guild_id: int, db,
+    force: bool = False,
+) -> bytes | None:
+    """Async version — checks GuildMapCache first, fetches from Pollinations if needed,
+    caches to DB so the map survives bot restarts."""
+    from database.models import GuildMapCache
+    from sqlalchemy import select
+
+    if not force:
+        result = await db.execute(
+            select(GuildMapCache).where(GuildMapCache.guild_id == guild_id)
+        )
+        cached = result.scalar_one_or_none()
+        if cached and cached.map_bytes_b64:
+            try:
+                return base64.b64decode(cached.map_bytes_b64)
+            except Exception:
+                pass
+
+    # Fetch from Pollinations (in executor since it's sync I/O)
+    import asyncio
+    data = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: fetch_world_map(world_name, guild_id, force=force)
+    )
+    if data:
+        # Save to DB cache
+        result = await db.execute(
+            select(GuildMapCache).where(GuildMapCache.guild_id == guild_id)
+        )
+        cached = result.scalar_one_or_none()
+        if not cached:
+            cached = GuildMapCache(guild_id=guild_id)
+            db.add(cached)
+        prompt = (
+            f"fantasy world map, top-down view, parchment style, hand-drawn, "
+            f"continents with kingdoms and territories labeled, mountains forests rivers, "
+            f"compass rose, aged paper texture, {world_name}, no text overlays, clean"
+        )
+        cached.map_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}?width=1200&height=800&nologo=true&seed={guild_id}"
+        cached.map_bytes_b64 = base64.b64encode(data).decode("ascii")
+    return data
+
+
 def generate_world_map_overlay(
     base_image_bytes: bytes | None,
     locations: list[dict],
     player_location_id: int | None = None,
     show_hidden: bool = False,
+    annotations: list[dict] | None = None,
 ) -> io.BytesIO:
     """
     Draw location markers on a base map image.
+    Optionally draw annotations (road_block, danger_zone, icon, label).
     Returns BytesIO PNG.
     """
     if not HAS_PIL:
@@ -87,6 +134,43 @@ def generate_world_map_overlay(
             draw.text((lx + 10, ly - 5), name, fill=(255, 255, 200, 255), font=font)
         except Exception:
             pass
+
+    # ── Draw overlay annotations ──────────────────────────────────────
+    if annotations:
+        for ann in annotations:
+            ax = int((ann.get("x", 50) / 100) * width)
+            ay = int((ann.get("y", 50) / 100) * height)
+            ann_type = ann.get("annotation_type", "icon")
+            ann_color_str = ann.get("color", "#EF4444")
+            # Parse hex color to RGBA
+            try:
+                h = ann_color_str.lstrip("#")
+                ar, ag, ab = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            except Exception:
+                ar, ag, ab = 239, 68, 68
+
+            if ann_type == "road_block":
+                # Red X shape
+                arm_len = 14
+                draw.line([(ax - arm_len, ay - arm_len), (ax + arm_len, ay + arm_len)], fill=(ar, ag, ab, 220), width=5)
+                draw.line([(ax + arm_len, ay - arm_len), (ax - arm_len, ay + arm_len)], fill=(ar, ag, ab, 220), width=5)
+            elif ann_type == "danger_zone":
+                # Semi-transparent red circle radius 20px
+                draw.ellipse([ax - 20, ay - 20, ax + 20, ay + 20], fill=(ar, ag, ab, 80), outline=(ar, ag, ab, 200), width=3)
+                # Exclamation mark
+                draw.text((ax - 3, ay - 8), "!", fill=(255, 255, 255, 220))
+            elif ann_type == "icon":
+                # Colored filled circle 8px
+                draw.ellipse([ax - 8, ay - 8, ax + 8, ay + 8], fill=(ar, ag, ab, 220))
+            elif ann_type == "label":
+                # Text only
+                label_text = ann.get("label", "")
+                if label_text:
+                    try:
+                        font = ImageFont.load_default()
+                        draw.text((ax + 6, ay - 5), label_text, fill=(ar, ag, ab, 255), font=font)
+                    except Exception:
+                        pass
 
     result = Image.alpha_composite(base, overlay)
     buf = io.BytesIO()
