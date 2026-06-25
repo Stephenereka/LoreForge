@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select, or_, and_
 from database.session import get_db
-from database.models import Location, LocationConnection, CharacterLocation, GuildConfig, Character, GuildMapCache, GuildMapAnnotation
+from database.models import Location, LocationConnection, CharacterLocation, GuildConfig, Character, GuildMapCache, GuildMapAnnotation, NPC
 from services.utils import gm_only, is_gm
 from services.time_service import get_world_time, get_time_flavor
 from services.weather_service import get_weather, get_weather_flavor, set_weather
@@ -406,6 +406,65 @@ async def cmd_players_here(ctx):
         await ctx.send(f"You are alone at **{loc.name}**.")
     else:
         await ctx.send(f"👥 At **{loc.name}**: {', '.join(names)}")
+
+
+async def _location_name_autocomplete(interaction: discord.Interaction, current: str):
+    async with get_db() as db:
+        result = await db.execute(
+            select(Location).where(
+                Location.guild_id == interaction.guild_id,
+                Location.is_hidden == False,
+                Location.name.ilike(f"%{current}%"),
+            ).limit(25)
+        )
+        locs = result.scalars().all()
+    return [app_commands.Choice(name=loc.name, value=loc.name) for loc in locs]
+
+
+@location_group.command(name="view", description="View a location's details and who's there")
+@app_commands.describe(name="Location name")
+@app_commands.autocomplete(name=_location_name_autocomplete)
+async def loc_view(interaction: discord.Interaction, name: str):
+    await interaction.response.defer()
+    async with get_db() as db:
+        loc_result = await db.execute(
+            select(Location).where(
+                Location.guild_id == interaction.guild_id,
+                Location.name.ilike(name),
+                Location.is_hidden == False,
+            )
+        )
+        loc = loc_result.scalar_one_or_none()
+        if not loc:
+            await interaction.followup.send(
+                f"Location **{name}** not found or not yet discovered.", ephemeral=True
+            )
+            return
+
+        npc_result = await db.execute(
+            select(NPC).where(
+                NPC.guild_id == interaction.guild_id,
+                NPC.location_id == loc.id,
+                NPC.is_dead == False,
+            )
+        )
+        npcs = npc_result.scalars().all()
+
+    exits = await get_exits(loc.id, interaction.guild_id)
+    time_info = await get_world_time(interaction.guild_id)
+    weather_info = await get_weather(interaction.guild_id)
+    embed = location_embed(loc, exits, time_info, weather_info, loc.is_indoors)
+
+    if npcs:
+        npc_lines = []
+        for n in npcs:
+            title_str = f" — *{n.title}*" if n.title else ""
+            npc_lines.append(f"**{n.name}**{title_str}")
+        embed.add_field(name="👥 People Here", value="\n".join(npc_lines), inline=False)
+    else:
+        embed.add_field(name="👥 People Here", value="*No one notable is here right now.*", inline=False)
+
+    await interaction.followup.send(embed=embed)
 
 
 # ── GM Location Commands ──────────────────────────────────────────────────

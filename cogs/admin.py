@@ -97,6 +97,8 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     e.add_field(name="/world set-map", value="Upload a custom world map image (GM only — attach a file)", inline=False)
     e.add_field(name="/world clear-map", value="Reset to the AI-generated world map (GM only)", inline=False)
     e.add_field(name="/look", value="See your current location with description, time, weather, exits", inline=False)
+    e.add_field(name="/look", value="See your current location with description, time, weather, exits, and NPCs", inline=False)
+    e.add_field(name="/location view <name>", value="View any location's details and who's there (with autocomplete)", inline=False)
     e.add_field(name="/travel <direction/location>", value="Move to a connected location", inline=False)
     e.add_field(name="/travel fast <location>", value="Fast travel to a previously discovered location", inline=False)
     e.add_field(name="/map", value="World map with your position highlighted", inline=False)
@@ -110,14 +112,18 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     # Page 8 — NPCs, Quests, Factions, Lore
     e = discord.Embed(title="👥 NPCs  ·  📜 Quests  ·  🏛️ Factions  ·  📚 Lore", color=0xA855F7)
     e.add_field(name="NPC Commands", value=(
-        "`/npc create <name>` — Wizard: location, race, title, description, greeting\n"
-        "`/npc edit <name>` — Edit all NPC fields via modal\n"
-        "`/npc move <name> <location>` — Change NPC's location\n"
-        "`/npc kill / revive <name>` — Mark NPC as dead or alive (GM only)\n"
-        "`/npc list [location]` — Paginated NPC list\n"
-        "`/npc talk <name> [message]` — Talk to an NPC (keyword dialogue)\n"
+        "`/npc nearby` — See all NPCs at your current location\n"
+        "`/npc talk <name> [message]` — Talk to an NPC (keyword or AI dialogue)\n"
         "`/npc look <name>` — See NPC description and appearance\n"
-        "`/npc speak <name> <message>` — GM speaks AS the NPC via webhook"
+        "`/npc list [location]` — Paginated NPC list\n"
+        "`/npc create <name>` — Wizard: location, race, title, description, greeting (GM)\n"
+        "`/npc edit <name>` — Edit all NPC fields via modal (GM)\n"
+        "`/npc move <name> <location>` — Change NPC's location (GM)\n"
+        "`/npc kill / revive <name>` — Mark NPC as dead or alive (GM)\n"
+        "`/npc speak <name> <message>` — GM speaks AS the NPC via webhook proxy\n"
+        "`/npc act <name> <action>` — Post an RP action as the NPC (GM)\n"
+        "`/npc proxy-set <name>` — Configure NPC webhook appearance (GM)\n"
+        "`/npc proxy-mode <name> <auto/manual>` — Toggle proxy mode (GM)"
     ), inline=False)
     e.add_field(name="Quest Commands", value=(
         "`/quest create` — Multi-step wizard to build a quest\n"
@@ -268,7 +274,7 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
         ),
         inline=False,
     )
-    e.set_footer(text="Page 7 / 11  —  Title System")
+    e.set_footer(text="Page 7 / 10  —  Title System")
     pages.append(e)
 
     # Page 3 — Combat
@@ -290,7 +296,7 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     e.add_field(name="/combat log", value="Show the recent action log for this fight", inline=False)
     e.add_field(name="/combat forfeit", value="Leave an active fight mid-combat", inline=False)
     e.add_field(name="/combat end", value="End the fight (GM or host only)", inline=False)
-    e.set_footer(text="Page 7 / 10  —  Combat: Start & Join")
+    e.set_footer(text="Page 8 / 10  —  Combat: Start & Join")
     pages.append(e)
 
     # Page 4 — Combat management + Conditions
@@ -311,7 +317,7 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
         ),
         inline=False,
     )
-    e.set_footer(text="Page 8 / 10  —  Combat: Management & Conditions")
+    e.set_footer(text="Page 9 / 10  —  Combat: Management & Conditions")
     pages.append(e)
 
     # Page 5 — Rest + Shop + Inventory
@@ -631,7 +637,7 @@ class AdminCog(commands.Cog, name="Admin"):
     @commands.is_owner()
     async def seed_world(self, ctx):
         from database.session import get_db
-        from database.models import Location, LocationConnection
+        from database.models import Location, LocationConnection, NPC
         from sqlalchemy import select
 
         LOCATIONS = [
@@ -647,6 +653,65 @@ class AdminCog(commands.Cog, name="Admin"):
             ("Ironhold", "Thornveil Forest",  "west",  "east",  45),
             ("Ironhold", "Ashgate Ruins",     "east",  "west",  90),
             ("Ironhold", "Silverport",        "south", "north", 75),
+        ]
+
+        NPC_SEEDS = [
+            dict(location_name="Ironhold", name="Aldric Ironwall", title="Captain of the Guard", race="Human", gender="Male", age="45",
+                 description="A weathered veteran with iron-grey hair and a battle-worn breastplate. Aldric has protected Ironhold for twenty years and speaks with the authority of someone who has seen every scheme and skirmish the city has to offer.",
+                 appearance="Tall and broad-shouldered, with a scar running from jaw to ear and watchful grey eyes.",
+                 disposition="neutral", is_hostile=False, is_killable=False, hp_max=60, hp_current=60, armor_class=16,
+                 attack_bonus=6, damage_dice="1d8", damage_bonus=4, gold=50,
+                 greeting="Halt. State your business in Ironhold, traveler.",
+                 dialogue_topics={"crime": "We don't tolerate it here. Try anything and you'll see the inside of a cell.", "guard": "My men patrol day and night. Ironhold doesn't sleep.", "rumors": "There's been strange lights in the Ashgate direction. Nothing confirmed yet.", "quest": "If you're looking for work, speak to the guilds. I've no time for freelancers."},
+                 proxy_name="Captain Aldric", proxy_avatar="https://i.imgur.com/XcxkTLb.png", proxy_prefix="aldric>", proxy_mode="automatic", xp_value=0),
+            dict(location_name="Ironhold", name="Mira Ashforge", title="Master Blacksmith", race="Dwarf", gender="Female", age="112",
+                 description="A compact dwarven smith with arms like oak branches and hands permanently blackened by forge-soot. Mira's weapons are known across three kingdoms — and she knows it.",
+                 appearance="Short and powerful, with braided red hair threaded with iron beads and perpetually squinting eyes from decades of forge-light.",
+                 disposition="friendly", is_hostile=False, is_killable=False, hp_max=40, hp_current=40, armor_class=12,
+                 attack_bonus=4, damage_dice="1d6", damage_bonus=3, gold=500,
+                 greeting="Aye, what do ye need? Weapons, armor, or just to gawk at a master at work?",
+                 dialogue_topics={"weapons": "Best steel in the realm comes from my forge. None of that elven silver nonsense.", "repairs": "I can fix what's broken. Usually cheaper than buying new.", "crafting": "I don't teach. Too many apprentices and not enough talent in the lot of 'em.", "ironhold": "Built this forge with my own hands thirty years back. Ironhold grew around it, if you ask me."},
+                 proxy_name="Mira Ashforge", proxy_avatar="https://i.imgur.com/8GqhVJK.png", proxy_prefix="mira>", proxy_mode="automatic", xp_value=0),
+            dict(location_name="The Crimson Peaks", name="Rhogar Stoneclan", title="Elder of the Red Summit", race="Dwarf", gender="Male", age="300",
+                 description="The ancient patriarch of the Stoneclan who has watched these peaks for three centuries. He speaks slowly, weighing each word as if it costs him something.",
+                 appearance="Ancient and gnarled, with white-streaked red beard that reaches his belt and deep-set eyes that glow faintly amber in the dark.",
+                 disposition="wary", is_hostile=False, is_killable=False, hp_max=50, hp_current=50, armor_class=13,
+                 attack_bonus=5, damage_dice="1d6", damage_bonus=2, gold=200,
+                 greeting="You walk where clan blood was spilled. Speak carefully.",
+                 dialogue_topics={"clan": "The Stoneclan has held these peaks since before the lowland cities had names. We will hold them after.", "ore": "The red veins run deep. But some ore is better left buried.", "danger": "These peaks are alive. The stone remembers old hungers.", "history": "Three centuries is long enough to watch three empires rise and fall. And yet the peaks remain."},
+                 proxy_name="Elder Rhogar", proxy_avatar="https://i.imgur.com/M7QK2Hv.png", proxy_prefix="rhogar>", proxy_mode="automatic", xp_value=0),
+            dict(location_name="Thornveil Forest", name="Sylvara", title="Voice of the Ancient Wood", race="Dryad", gender="Female", age="Unknown",
+                 description="A dryad spirit woven from bark and moonlight. Sylvara speaks in riddles and metaphors, communicating through whispers in the rustling leaves as much as through words.",
+                 appearance="Tall and slender with bark-textured skin that shifts like shadows, emerald eyes that glow in darkness, and hair like autumn leaves that drift without wind.",
+                 disposition="neutral", is_hostile=False, is_killable=False, hp_max=35, hp_current=35, armor_class=14,
+                 attack_bonus=3, damage_dice="1d4", damage_bonus=2, gold=0,
+                 greeting="*The leaves part around you.* The forest asks why you have come.",
+                 dialogue_topics={"forest": "I am the forest. The forest is me. Do not ask the fire what burning feels like.", "spirits": "They are restless since the ruins were disturbed. Something was awoken.", "herbs": "What grows here has purpose. Take only what you need, and leave something in return.", "danger": "Three travelers entered last moon. The forest keeps them still. Tread with reverence."},
+                 proxy_name="Sylvara", proxy_avatar="https://i.imgur.com/9TpYwCz.png", proxy_prefix="sylvara>", proxy_mode="automatic", xp_value=0),
+            dict(location_name="Ashgate Ruins", name="Vex the Scholar", title="Antiquarian of the Fallen Empire", race="Human", gender="Male", age="38",
+                 description="A gaunt, twitchy academic who has spent years in these ruins cataloguing what no sane person would stay to study. His robes are patched, his notes are everywhere, and his eyes dart constantly toward the deeper shadows.",
+                 appearance="Pale and thin, with ink-stained fingers, round spectacles cracked on one lens, and a satchel that seems to contain half a library.",
+                 disposition="friendly", is_hostile=False, is_killable=False, hp_max=20, hp_current=20, armor_class=10,
+                 attack_bonus=1, damage_dice="1d4", damage_bonus=0, gold=10,
+                 greeting="Oh! Another human — what a relief. I was beginning to think the echoes had started answering back.",
+                 dialogue_topics={"ruins": "This was the Ashgate Empire's eastern vault. The seals were broken from the inside. That's — that's very unusual.", "danger": "The sub-levels are genuinely hazardous. I go no further than Level 2 now. Something ate my torch on Level 3.", "discovery": "I found a sealed chamber last week. The carvings match nothing in recorded history. I'm very excited and also slightly terrified.", "help": "If you're going deeper, bring light. And perhaps something to fight with. And run fast."},
+                 proxy_name="Vex the Scholar", proxy_avatar="https://i.imgur.com/3RTpKcW.png", proxy_prefix="vex>", proxy_mode="automatic", xp_value=0),
+            dict(location_name="Silverport", name="Harlan Dusk", title="Harbor Master", race="Human", gender="Male", age="55",
+                 description="The ironhanded Harbor Master of Silverport who controls every ship berth, cargo manifest, and dockside dispute. Harlan knows where every coin in Silverport came from and where it's going.",
+                 appearance="Heavyset with a sun-cracked face, sea-blue eyes, and a coat with so many pockets it's practically a filing system.",
+                 disposition="neutral", is_hostile=False, is_killable=False, hp_max=45, hp_current=45, armor_class=11,
+                 attack_bonus=3, damage_dice="1d6", damage_bonus=1, gold=300,
+                 greeting="Dock fees are due before you unload anything. After that, welcome to Silverport.",
+                 dialogue_topics={"trade": "Silverport moves more coin in a month than Ironhold sees in a year. Don't let the charm fool you — this is a city of business.", "ships": "I track every vessel. If it docked here, I know its cargo, crew, and destination.", "rumors": "Heard a black-sailed ship three nights back, no manifest. Didn't stop. Whatever it carried, someone didn't want records.", "smuggling": "We have none. Officially. Try harder next time."},
+                 proxy_name="Harbor Master Dusk", proxy_avatar="https://i.imgur.com/K7Tl3Am.png", proxy_prefix="dusk>", proxy_mode="automatic", xp_value=0),
+            dict(location_name="Silverport", name="Selia Brightcoin", title="Merchant of Rare Curiosities", race="Half-Elf", gender="Female", age="34",
+                 description="A quick-tongued merchant who specializes in items of dubious origin and unquestionable value. Selia's stall is a chaos of artifacts, maps, and things that occasionally move on their own.",
+                 appearance="Slim with coppery skin, silver hair cut sharply to one side, and an ever-present merchant's smile that never quite reaches her golden eyes.",
+                 disposition="friendly", is_hostile=False, is_killable=False, hp_max=25, hp_current=25, armor_class=11,
+                 attack_bonus=2, damage_dice="1d4", damage_bonus=1, gold=1000,
+                 greeting="Ah, a discerning buyer! Come, come — I have something you didn't know you needed.",
+                 dialogue_topics={"items": "Everything has a price. Some things just have a very interesting one.", "origin": "I never ask where things come from. It's better for everyone that way.", "rare": "Looking for something specific? Describe it. I may know someone who knows someone.", "haggling": "I respect a good haggle. Make your offer. We'll see if we can come to something beautiful."},
+                 proxy_name="Selia Brightcoin", proxy_avatar="https://i.imgur.com/5VrQ8Jp.png", proxy_prefix="selia>", proxy_mode="automatic", xp_value=0),
         ]
 
         async with get_db() as db:
@@ -671,8 +736,31 @@ class AdminCog(commands.Cog, name="Admin"):
                     if not ex.scalar_one_or_none():
                         db.add(LocationConnection(guild_id=ctx.guild.id, from_location_id=f, to_location_id=t, direction=d, label=None, is_locked=False, is_secret=False, travel_time_minutes=travel_time, search_dc=15))
 
+        # Seed NPCs
+        npc_count = 0
+        async with get_db() as db:
+            for npc_data in NPC_SEEDS:
+                loc_name = npc_data.pop("location_name")
+                loc_id = loc_map.get(loc_name)
+                if not loc_id:
+                    continue
+                existing = await db.execute(
+                    select(NPC).where(NPC.guild_id == ctx.guild.id, NPC.name == npc_data["name"])
+                )
+                if existing.scalar_one_or_none():
+                    continue
+                npc = NPC(guild_id=ctx.guild.id, location_id=loc_id, created_by=ctx.author.id, **npc_data)
+                db.add(npc)
+                npc_count += 1
+
         names = ", ".join(f"**{n}**" for n in loc_map.keys())
-        await ctx.send(f"✅ World seeded!\n🗺️ Locations: {names}\n🔗 All connected to Ironhold (N/S/E/W)")
+        await ctx.send(
+            f"✅ World seeded!\n"
+            f"🗺️ Locations: {names}\n"
+            f"🔗 All connected to Ironhold (N/S/E/W)\n"
+            f"👥 NPCs seeded: **{npc_count}** across all locations\n"
+            f"*(Run `!seed_world` again to skip existing records)*"
+        )
 
 
 async def setup(bot):

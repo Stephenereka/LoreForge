@@ -529,6 +529,75 @@ async def npc_look(interaction: discord.Interaction, name: str):
     await interaction.response.send_message(embed=embed)
 
 
+@npc_group.command(name="nearby", description="See all NPCs at your current location")
+async def npc_nearby(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    char = await get_active_char(interaction.user.id, interaction.guild_id)
+    if not char:
+        await interaction.followup.send(
+            "No active character. Use `/character create` first.", ephemeral=True
+        )
+        return
+
+    async with get_db() as db:
+        cl_result = await db.execute(
+            select(CharacterLocation).where(
+                CharacterLocation.character_id == char.id,
+                CharacterLocation.guild_id == interaction.guild_id,
+            )
+        )
+        cl = cl_result.scalar_one_or_none()
+        if not cl:
+            await interaction.followup.send(
+                "You're not at any location yet. Use `/travel` to explore.", ephemeral=True
+            )
+            return
+
+        npc_result = await db.execute(
+            select(NPC).where(
+                NPC.guild_id == interaction.guild_id,
+                NPC.location_id == cl.location_id,
+                NPC.is_dead == False,
+            )
+        )
+        npcs = npc_result.scalars().all()
+
+        loc_result = await db.execute(select(Location).where(Location.id == cl.location_id))
+        loc = loc_result.scalar_one_or_none()
+
+    if not npcs:
+        await interaction.followup.send(
+            f"No one notable is at **{loc.name if loc else 'your location'}** right now.",
+            ephemeral=True,
+        )
+        return
+
+    DISPOSITION_ICON = {
+        "friendly": "😊", "neutral": "😐", "hostile": "😠",
+        "wary": "😒", "fearful": "😨",
+    }
+    embed = discord.Embed(
+        title=f"👥 People at {loc.name if loc else 'Your Location'}",
+        color=0xA855F7,
+    )
+    for n in npcs:
+        icon = DISPOSITION_ICON.get(n.disposition, "😐")
+        lines = []
+        if n.race:
+            lines.append(f"*{n.race}*")
+        if n.title:
+            lines.append(n.title)
+        if n.is_hostile:
+            lines.append("⚠️ **Hostile**")
+        lines.append(f"{icon} {n.disposition.capitalize()}")
+        if n.greeting:
+            lines.append(f'*"{n.greeting[:80]}{"..." if len(n.greeting) > 80 else ""}"*')
+        embed.add_field(name=n.name, value="\n".join(lines), inline=True)
+
+    embed.set_footer(text="Use /npc talk <name> to speak with them · LoreForge")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 @npc_group.command(name="proxy-set", description="Configure NPC proxy appearance (GM only)")
 @app_commands.describe(name="NPC name", proxy_name="Display name for webhook messages", avatar_url="Avatar image URL", prefix="Prefix for manual proxy mode (e.g., !)")
 async def npc_proxy_set(interaction: discord.Interaction, name: str, proxy_name: str, avatar_url: str = None, prefix: str = None):
