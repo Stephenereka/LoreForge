@@ -384,8 +384,8 @@ async def loc_create(interaction: discord.Interaction,
                       type_: str,
                       description: str = "",
                       biome: str = "",
-                      x: float = 0,
-                      y: float = 0,
+                      x: float = 0.0,
+                      y: float = 0.0,
                       is_safe: bool = False):
     if not await gm_only(interaction):
         return
@@ -409,6 +409,7 @@ async def loc_create(interaction: discord.Interaction,
             is_hidden=False,
             danger_level=1,
             resources={},
+            created_by=interaction.user.id,
         )
         db.add(loc)
     await interaction.response.send_message(
@@ -689,8 +690,9 @@ async def loc_set_weather(interaction: discord.Interaction, weather_type: str):
 
 @world_group.command(name="generate", description="[GM] Generate random world locations")
 @app_commands.describe(count="How many locations to generate")
-@gm_only()
 async def world_generate(interaction: discord.Interaction, count: int = 10):
+    if not await gm_only(interaction):
+        return
     if count > 50:
         await interaction.response.send_message("Max 50 locations at once.", ephemeral=True)
         return
@@ -737,6 +739,7 @@ async def world_generate(interaction: discord.Interaction, count: int = 10):
                 is_hidden=False,
                 danger_level=random.randint(1, 5),
                 resources={},
+                created_by=interaction.user.id,
             )
             db.add(loc)
             created += 1
@@ -747,8 +750,9 @@ async def world_generate(interaction: discord.Interaction, count: int = 10):
 
 
 @world_group.command(name="link", description="[GM] Auto-link nearby locations")
-@gm_only()
 async def world_link(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
     await interaction.response.defer(ephemeral=True)
 
     async with get_db() as db:
@@ -811,8 +815,9 @@ async def world_link(interaction: discord.Interaction):
 
 
 @world_group.command(name="info", description="[GM] World info overview")
-@gm_only()
 async def world_info(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
     async with get_db() as db:
         loc_count = await db.scalar(
             select(Location.id).where(
