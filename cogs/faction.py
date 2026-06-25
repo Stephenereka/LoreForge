@@ -170,6 +170,7 @@ async def faction_delete(interaction: discord.Interaction, name: str):
     if not await is_gm(interaction):
         await interaction.response.send_message("Only GMs can delete factions.", ephemeral=True)
         return
+    await interaction.response.defer()
     async with get_db() as db:
         result = await db.execute(
             select(Faction).where(
@@ -179,14 +180,15 @@ async def faction_delete(interaction: discord.Interaction, name: str):
         )
         faction = result.scalar_one_or_none()
         if not faction:
-            await interaction.response.send_message("Faction not found.", ephemeral=True)
+            await interaction.followup.send("Faction not found.", ephemeral=True)
             return
         await db.delete(faction)
-    await interaction.response.send_message(f"🗑️ Deleted faction **{name}**.")
+    await interaction.followup.send(f"🗑️ Deleted faction **{name}**.")
 
 
 @faction_group.command(name="list", description="List all factions")
 async def faction_list(interaction: discord.Interaction):
+    await interaction.response.defer()
     async with get_db() as db:
         result = await db.execute(
             select(Faction).where(Faction.guild_id == interaction.guild_id)
@@ -204,7 +206,7 @@ async def faction_list(interaction: discord.Interaction):
         char = char_result.scalar_one_or_none()
 
     if not factions:
-        await interaction.response.send_message("No factions in this world.", ephemeral=True)
+        await interaction.followup.send("No factions in this world.", ephemeral=True)
         return
 
     embed = discord.Embed(title="🏛️ Factions", color=0x6366F1)
@@ -228,12 +230,13 @@ async def faction_list(interaction: discord.Interaction):
             inline=False,
         )
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @faction_group.command(name="status", description="Check your reputation with a faction")
 @app_commands.describe(name="Faction name")
 async def faction_status(interaction: discord.Interaction, name: str):
+    await interaction.response.defer()
     async with get_db() as db:
         result = await db.execute(
             select(Faction).where(
@@ -243,7 +246,7 @@ async def faction_status(interaction: discord.Interaction, name: str):
         )
         faction = result.scalar_one_or_none()
         if not faction:
-            await interaction.response.send_message("Faction not found.", ephemeral=True)
+            await interaction.followup.send("Faction not found.", ephemeral=True)
             return
 
         char_result = await db.execute(
@@ -255,7 +258,7 @@ async def faction_status(interaction: discord.Interaction, name: str):
         )
         char = char_result.scalar_one_or_none()
         if not char:
-            await interaction.response.send_message("You need an active character.", ephemeral=True)
+            await interaction.followup.send("You need an active character.", ephemeral=True)
             return
 
         rep_result = await db.execute(
@@ -298,12 +301,13 @@ async def faction_status(interaction: discord.Interaction, name: str):
             perks_text = "\n".join(f"• {p.perk_type}: {p.perk_data.get('description', '')}" for p in unlocked[:5])
             embed.add_field(name="Unlocked Perks", value=perks_text, inline=False)
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
 
 @faction_group.command(name="history", description="View your recent reputation changes")
 @app_commands.describe(name="Faction name")
 async def faction_history(interaction: discord.Interaction, name: str):
+    await interaction.response.defer()
     async with get_db() as db:
         result = await db.execute(
             select(Faction).where(
@@ -313,7 +317,7 @@ async def faction_history(interaction: discord.Interaction, name: str):
         )
         faction = result.scalar_one_or_none()
         if not faction:
-            await interaction.response.send_message("Faction not found.", ephemeral=True)
+            await interaction.followup.send("Faction not found.", ephemeral=True)
             return
 
         char_result = await db.execute(
@@ -325,7 +329,7 @@ async def faction_history(interaction: discord.Interaction, name: str):
         )
         char = char_result.scalar_one_or_none()
         if not char:
-            await interaction.response.send_message("You need an active character.", ephemeral=True)
+            await interaction.followup.send("You need an active character.", ephemeral=True)
             return
 
         rep_result = await db.execute(
@@ -344,7 +348,7 @@ async def faction_history(interaction: discord.Interaction, name: str):
         )
         embed.set_footer(text="Use /gm faction award to change reputation")
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
 
 @faction_group.command(name="award", description="Award faction reputation to a player (GM only)")
@@ -365,6 +369,7 @@ async def faction_award(
         await interaction.response.send_message("Only GMs can award faction reputation.", ephemeral=True)
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         result = await db.execute(
             select(Faction).where(
@@ -374,7 +379,7 @@ async def faction_award(
         )
         faction = result.scalar_one_or_none()
         if not faction:
-            await interaction.response.send_message("Faction not found.", ephemeral=True)
+            await interaction.followup.send("Faction not found.", ephemeral=True)
             return
 
         char_result = await db.execute(
@@ -386,7 +391,7 @@ async def faction_award(
         )
         char = char_result.scalar_one_or_none()
         if not char:
-            await interaction.response.send_message(f"{user.display_name} doesn't have an active character.", ephemeral=True)
+            await interaction.followup.send(f"{user.display_name} doesn't have an active character.", ephemeral=True)
             return
 
     new_rep, old_tier, new_tier = await change_reputation(
@@ -397,7 +402,7 @@ async def faction_award(
     if old_tier != new_tier:
         msg += f"\n⚡ Tier changed: **{old_tier}** → **{new_tier}**!"
 
-    await interaction.response.send_message(msg)
+    await interaction.followup.send(msg)
 
 
 class FactionCog(commands.Cog, name="Faction"):

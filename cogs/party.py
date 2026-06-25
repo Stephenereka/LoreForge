@@ -43,14 +43,15 @@ async def get_player_party(character_id: int, guild_id: int):
 @party_group.command(name="create", description="Create a new party")
 @app_commands.describe(name="Optional name for your party")
 async def party_create(interaction: discord.Interaction, name: str = None):
+    await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
     if not char:
-        await interaction.response.send_message("You need an active living character first.", ephemeral=True)
+        await interaction.followup.send("You need an active living character first.", ephemeral=True)
         return
 
     party, _ = await get_player_party(char.id, interaction.guild_id)
     if party:
-        await interaction.response.send_message("You're already in a party. Leave it first.", ephemeral=True)
+        await interaction.followup.send("You're already in a party. Leave it first.", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -67,7 +68,7 @@ async def party_create(interaction: discord.Interaction, name: str = None):
             guild_id=interaction.guild_id,
         ))
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         f"✅ Party **{party.name}** created! Invite others with `/party invite @user`."
     )
 
@@ -75,24 +76,25 @@ async def party_create(interaction: discord.Interaction, name: str = None):
 @party_group.command(name="invite", description="Invite a user to your party")
 @app_commands.describe(user="The user to invite")
 async def party_invite(interaction: discord.Interaction, user: discord.Member):
+    await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
     if not char:
-        await interaction.response.send_message("You need an active living character.", ephemeral=True)
+        await interaction.followup.send("You need an active living character.", ephemeral=True)
         return
 
     party, member = await get_player_party(char.id, interaction.guild_id)
     if not party or party.leader_character_id != char.id:
-        await interaction.response.send_message("Only the party leader can invite.", ephemeral=True)
+        await interaction.followup.send("Only the party leader can invite.", ephemeral=True)
         return
 
     target_char = await get_active_character(user.id, interaction.guild_id)
     if not target_char:
-        await interaction.response.send_message(f"{user.display_name} doesn't have an active character.", ephemeral=True)
+        await interaction.followup.send(f"{user.display_name} doesn't have an active character.", ephemeral=True)
         return
 
     target_party, _ = await get_player_party(target_char.id, interaction.guild_id)
     if target_party:
-        await interaction.response.send_message(f"{user.display_name} is already in a party.", ephemeral=True)
+        await interaction.followup.send(f"{user.display_name} is already in a party.", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -102,21 +104,22 @@ async def party_invite(interaction: discord.Interaction, user: discord.Member):
             guild_id=interaction.guild_id,
         ))
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         f"✅ {user.mention} joined **{party.name}**!"
     )
 
 
 @party_group.command(name="leave", description="Leave your current party")
 async def party_leave(interaction: discord.Interaction):
+    await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
     if not char:
-        await interaction.response.send_message("You need an active living character.", ephemeral=True)
+        await interaction.followup.send("You need an active living character.", ephemeral=True)
         return
 
     party, member = await get_player_party(char.id, interaction.guild_id)
     if not party:
-        await interaction.response.send_message("You're not in a party.", ephemeral=True)
+        await interaction.followup.send("You're not in a party.", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -133,19 +136,20 @@ async def party_leave(interaction: discord.Interaction):
                 delete(PartyGroup).where(PartyGroup.id == party.id)
             )
 
-    await interaction.response.send_message("You left the party.")
+    await interaction.followup.send("You left the party.")
 
 
 @party_group.command(name="disband", description="Disband your party (leader only)")
 async def party_disband(interaction: discord.Interaction):
+    await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
     if not char:
-        await interaction.response.send_message("You need an active living character.", ephemeral=True)
+        await interaction.followup.send("You need an active living character.", ephemeral=True)
         return
 
     party, _ = await get_player_party(char.id, interaction.guild_id)
     if not party or party.leader_character_id != char.id:
-        await interaction.response.send_message("Only the party leader can disband.", ephemeral=True)
+        await interaction.followup.send("Only the party leader can disband.", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -156,19 +160,20 @@ async def party_disband(interaction: discord.Interaction):
             delete(PartyGroup).where(PartyGroup.id == party.id)
         )
 
-    await interaction.response.send_message(f"✅ Party **{party.name}** disbanded.")
+    await interaction.followup.send(f"✅ Party **{party.name}** disbanded.")
 
 
 @party_group.command(name="status", description="See party status")
 async def party_status(interaction: discord.Interaction):
+    await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
     if not char:
-        await interaction.response.send_message("You need an active living character.", ephemeral=True)
+        await interaction.followup.send("You need an active living character.", ephemeral=True)
         return
 
     party, member = await get_player_party(char.id, interaction.guild_id)
     if not party:
-        await interaction.response.send_message("You're not in a party.", ephemeral=True)
+        await interaction.followup.send("You're not in a party.", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -195,20 +200,21 @@ async def party_status(interaction: discord.Interaction):
                     inline=True,
                 )
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @party_group.command(name="travel", description="Travel as a party (leader only)")
 @app_commands.describe(direction="Direction or location name to travel to")
 async def party_travel(interaction: discord.Interaction, direction: str):
+    await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
     if not char:
-        await interaction.response.send_message("You need an active living character.", ephemeral=True)
+        await interaction.followup.send("You need an active living character.", ephemeral=True)
         return
 
     party, member = await get_player_party(char.id, interaction.guild_id)
     if not party or party.leader_character_id != char.id:
-        await interaction.response.send_message("Only the party leader can lead travel.", ephemeral=True)
+        await interaction.followup.send("Only the party leader can lead travel.", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -223,7 +229,7 @@ async def party_travel(interaction: discord.Interaction, direction: str):
         )
         leader_loc = loc_result.scalar_one_or_none()
         if not leader_loc:
-            await interaction.response.send_message("You don't have a location set.", ephemeral=True)
+            await interaction.followup.send("You don't have a location set.", ephemeral=True)
             return
 
         # For each member, update their location to match leader's destination
@@ -239,7 +245,7 @@ async def party_travel(interaction: discord.Interaction, direction: str):
                 location_id=leader_loc.location_id,
             ))
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         f"✅ The party follows you traveling **{direction}**!"
     )
 

@@ -179,9 +179,10 @@ async def quest_create(interaction: discord.Interaction):
 
 @quest_group.command(name="list", description="List available quests")
 async def quest_list(interaction: discord.Interaction):
+    await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
     if not char:
-        await interaction.response.send_message("You need an active living character.", ephemeral=True)
+        await interaction.followup.send("You need an active living character.", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -207,7 +208,7 @@ async def quest_list(interaction: discord.Interaction):
         available = [q for q in quests if q.id not in accepted_ids]
 
     if not available:
-        await interaction.response.send_message("No available quests right now.", ephemeral=True)
+        await interaction.followup.send("No available quests right now.", ephemeral=True)
         return
 
     embed = discord.Embed(title="📜 Available Quests", color=0x22C55E)
@@ -218,15 +219,16 @@ async def quest_list(interaction: discord.Interaction):
             inline=False,
         )
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @quest_group.command(name="accept", description="Accept a quest")
 @app_commands.describe(name="Quest name")
 async def quest_accept(interaction: discord.Interaction, name: str):
+    await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
     if not char:
-        await interaction.response.send_message("You need an active living character.", ephemeral=True)
+        await interaction.followup.send("You need an active living character.", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -239,7 +241,7 @@ async def quest_accept(interaction: discord.Interaction, name: str):
         )
         quest = result.scalar_one_or_none()
         if not quest:
-            await interaction.response.send_message("Quest not found.", ephemeral=True)
+            await interaction.followup.send("Quest not found.", ephemeral=True)
             return
 
         existing = await db.execute(
@@ -249,7 +251,7 @@ async def quest_accept(interaction: discord.Interaction, name: str):
             )
         )
         if existing.scalar_one_or_none():
-            await interaction.response.send_message("You've already accepted this quest.", ephemeral=True)
+            await interaction.followup.send("You've already accepted this quest.", ephemeral=True)
             return
 
         db.add(PlayerQuest(
@@ -266,14 +268,15 @@ async def quest_accept(interaction: discord.Interaction, name: str):
     )
     embed.add_field(name="Rewards", value=f"✨ {quest.reward_xp} XP  ·  🪙 {quest.reward_gold} gold", inline=False)
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @quest_group.command(name="status", description="Check your active quests")
 async def quest_status(interaction: discord.Interaction):
+    await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
     if not char:
-        await interaction.response.send_message("You need an active living character.", ephemeral=True)
+        await interaction.followup.send("You need an active living character.", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -287,7 +290,7 @@ async def quest_status(interaction: discord.Interaction):
         pqs = result.scalars().all()
 
     if not pqs:
-        await interaction.response.send_message("You have no active quests.", ephemeral=True)
+        await interaction.followup.send("You have no active quests.", ephemeral=True)
         return
 
     embed = discord.Embed(title=f"📜 Quest Status — {char.name}", color=0x22C55E)
@@ -316,15 +319,16 @@ async def quest_status(interaction: discord.Interaction):
             inline=False,
         )
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @quest_group.command(name="complete", description="Request quest completion (sends to GM for approval)")
 @app_commands.describe(name="Quest name")
 async def quest_complete(interaction: discord.Interaction, name: str):
+    await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
     if not char:
-        await interaction.response.send_message("You need an active living character.", ephemeral=True)
+        await interaction.followup.send("You need an active living character.", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -336,7 +340,7 @@ async def quest_complete(interaction: discord.Interaction, name: str):
         )
         quest = result.scalar_one_or_none()
         if not quest:
-            await interaction.response.send_message("Quest not found.", ephemeral=True)
+            await interaction.followup.send("Quest not found.", ephemeral=True)
             return
 
         pq_result = await db.execute(
@@ -348,7 +352,7 @@ async def quest_complete(interaction: discord.Interaction, name: str):
         )
         pq = pq_result.scalar_one_or_none()
         if not pq:
-            await interaction.response.send_message("You haven't accepted this quest.", ephemeral=True)
+            await interaction.followup.send("You haven't accepted this quest.", ephemeral=True)
             return
 
     # Send approval embed to channel
@@ -360,7 +364,7 @@ async def quest_complete(interaction: discord.Interaction, name: str):
     embed.add_field(name="Rewards", value=f"✨ {quest.reward_xp} XP  ·  🪙 {quest.reward_gold} gold", inline=False)
 
     view = QuestCompleteView(char.id, interaction.guild_id, quest.id, pq.id)
-    await interaction.response.send_message(embed=embed, view=view)
+    await interaction.followup.send(embed=embed, view=view)
 
 
 class QuestCompleteView(discord.ui.View):
@@ -410,9 +414,10 @@ class QuestCompleteView(discord.ui.View):
 
 @quest_group.command(name="journal", description="View your quest history")
 async def quest_journal(interaction: discord.Interaction):
+    await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
     if not char:
-        await interaction.response.send_message("You need an active living character.", ephemeral=True)
+        await interaction.followup.send("You need an active living character.", ephemeral=True)
         return
 
     async with get_db() as db:
@@ -425,7 +430,7 @@ async def quest_journal(interaction: discord.Interaction):
         pqs = result.scalars().all()
 
     if not pqs:
-        await interaction.response.send_message("Your quest journal is empty.", ephemeral=True)
+        await interaction.followup.send("Your quest journal is empty.", ephemeral=True)
         return
 
     embed = discord.Embed(title=f"📖 {char.name}'s Quest Journal", color=0x22C55E)
@@ -440,7 +445,7 @@ async def quest_journal(interaction: discord.Interaction):
             inline=False,
         )
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 class QuestCog(commands.Cog, name="Quest"):

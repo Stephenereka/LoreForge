@@ -389,6 +389,7 @@ async def npc_add_dialogue(interaction: discord.Interaction, name: str, keyword:
 @app_commands.describe(name="NPC name", message="What you want to say")
 @app_commands.autocomplete(name=_npc_autocomplete)
 async def npc_talk(interaction: discord.Interaction, name: str, message: str = None):
+    await interaction.response.defer()
     async with get_db() as db:
         result = await db.execute(
             select(NPC).where(
@@ -399,7 +400,7 @@ async def npc_talk(interaction: discord.Interaction, name: str, message: str = N
         )
         npc = result.scalar_one_or_none()
         if not npc:
-            await interaction.response.send_message("NPC not found or is dead.", ephemeral=True)
+            await interaction.followup.send("NPC not found or is dead.", ephemeral=True)
             return
 
         # Get or create NPC memory
@@ -492,12 +493,12 @@ async def npc_talk(interaction: discord.Interaction, name: str, message: str = N
         await send_npc_proxy_message(
             interaction.client, interaction.channel, npc, response or "..."
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=discord.Embed(description=f"💬 You speak to **{npc.name}**.", color=0xA855F7),
             ephemeral=True,
         )
     else:
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
 
 @npc_group.command(name="look", description="Look at an NPC's appearance")

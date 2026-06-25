@@ -39,6 +39,7 @@ COGS = [
     "cogs.heavenly_demon",
     "cogs.ai_config",
     "cogs.sessions",
+    "cogs.titles",
 ]
 
 async def _weather_task():

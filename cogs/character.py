@@ -6,6 +6,7 @@ from database.session import get_db
 from database.models import Character, PendingApproval, GuildConfig
 from services.combat_engine import STARTER_WEAPONS, STARTER_ATTACKS, WEAPON_DAMAGE, roll as dice_roll
 from services.leveling import xp_bar, xp_for_next_level, check_level_up
+from services.title_service import get_active_title
 import math
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -527,7 +528,7 @@ async def resolve_character(user_id: int, guild_id: int) -> tuple:
 
 # ── Sheet embed ───────────────────────────────────────────────────────────────
 
-def build_sheet_embed(char: Character) -> discord.Embed:
+def build_sheet_embed(char: Character, active_title_display: str | None = None, active_title_color: int | None = None) -> discord.Embed:
     stats = {
         "str": char.strength, "dex": char.dexterity, "con": char.constitution,
         "int": char.intelligence, "wis": char.wisdom, "cha": char.charisma,
@@ -536,10 +537,11 @@ def build_sheet_embed(char: Character) -> discord.Embed:
     saves = CLASSES.get(char.char_class, {}).get("saves", [])
 
     active_tag = "  ★" if char.is_active else ""
+    embed_title = f"{active_title_display}  ·  {char.name}{active_tag}" if active_title_display else f"{char.name}{active_tag}"
     embed = discord.Embed(
-        title=f"{char.name}{active_tag}",
+        title=embed_title,
         description=f"*{char.race} {char.char_class} — Level {char.level}*",
-        color=0x8B5CF6,
+        color=active_title_color or 0x8B5CF6,
     )
 
     if char.avatar_url:
@@ -846,10 +848,17 @@ class CharacterPickSelect(discord.ui.Select):
         action = self._action
 
         if action == "sheet":
-            await interaction.response.edit_message(embed=build_sheet_embed(char), view=SheetView(char))
+            async with get_db() as db:
+                active = await get_active_title(db, char.id)
+            embed = build_sheet_embed(char, active_title_display=active[0] if active else None,
+                                           active_title_color=active[1] if active else None)
+            await interaction.response.edit_message(embed=embed, view=SheetView(char))
 
         elif action == "show":
-            embed = build_sheet_embed(char)
+            async with get_db() as db:
+                active = await get_active_title(db, char.id)
+            embed = build_sheet_embed(char, active_title_display=active[0] if active else None,
+                                           active_title_color=active[1] if active else None)
             embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
             await interaction.response.edit_message(content="✅ Posted to channel!", embed=None, view=None)
             await interaction.channel.send(embed=embed)
@@ -1889,9 +1898,11 @@ async def character_create(interaction: discord.Interaction, name: str):
         await interaction.response.send_message("Name must be 2–32 characters.", ephemeral=True)
         return
 
+    await interaction.response.defer(ephemeral=True)
+
     chars = await get_characters(interaction.user.id, interaction.guild_id)
     if len(chars) >= MAX_CHARACTERS:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"You already have {MAX_CHARACTERS} characters. Delete one with `/character delete` first.",
             ephemeral=True,
         )
@@ -1908,7 +1919,7 @@ async def character_create(interaction: discord.Interaction, name: str):
         color=0x8B5CF6,
     )
     type_embed.set_footer(text="Custom characters can only do manual combat (no AI resolution)")
-    await interaction.response.send_message(embed=type_embed, view=CharTypeView(name), ephemeral=True)
+    await interaction.followup.send(embed=type_embed, view=CharTypeView(name), ephemeral=True)
 
 
 @character_group.command(name="use", description="Set your active character — all commands use them automatically")
@@ -1917,9 +1928,11 @@ async def character_use(interaction: discord.Interaction):
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
 
+    await interaction.response.defer(ephemeral=True)
+
     chars = await get_characters(interaction.user.id, interaction.guild_id)
     if not chars:
-        await interaction.response.send_message("No characters found. Use `/character create`.", ephemeral=True)
+        await interaction.followup.send("No characters found. Use `/character create`.", ephemeral=True)
         return
 
     if len(chars) == 1:
@@ -1928,12 +1941,12 @@ async def character_use(interaction: discord.Interaction):
             c = result.scalar_one_or_none()
             if c:
                 c.is_active = True
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"✅ **{chars[0].name}** is your active character.", ephemeral=True
         )
         return
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         embed=pick_embed("set as active"),
         view=CharacterPickView(chars, "use"),
         ephemeral=True,
@@ -1946,6 +1959,8 @@ async def character_unuse(interaction: discord.Interaction):
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
 
+    await interaction.response.defer(ephemeral=True)
+
     async with get_db() as db:
         result = await db.execute(
             select(Character).where(
@@ -1957,12 +1972,12 @@ async def character_unuse(interaction: discord.Interaction):
         )
         char = result.scalar_one_or_none()
         if not char:
-            await interaction.response.send_message("You don't have an active character set.", ephemeral=True)
+            await interaction.followup.send("You don't have an active character set.", ephemeral=True)
             return
         name = char.name
         char.is_active = False
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         f"**{name}** is no longer your active character. You'll be asked to choose each time.",
         ephemeral=True,
     )
@@ -1974,15 +1989,21 @@ async def character_sheet(interaction: discord.Interaction):
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
 
+    await interaction.response.defer(ephemeral=True)
+
     char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
     if not chars:
-        await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
+        await interaction.followup.send("No character found. Use `/character create`.", ephemeral=True)
         return
     if char:
         view = SheetView(char)
-        await interaction.response.send_message(embed=build_sheet_embed(char), view=view, ephemeral=True)
+        async with get_db() as db:
+            active = await get_active_title(db, char.id)
+        embed = build_sheet_embed(char, active_title_display=active[0] if active else None,
+                                       active_title_color=active[1] if active else None)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
     else:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=pick_embed("view sheet for"), view=CharacterPickView(chars, "sheet"), ephemeral=True
         )
 
@@ -1993,16 +2014,21 @@ async def character_show(interaction: discord.Interaction):
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
 
+    await interaction.response.defer()
+
     char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
     if not chars:
-        await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
+        await interaction.followup.send("No character found. Use `/character create`.", ephemeral=True)
         return
     if char:
-        embed = build_sheet_embed(char)
+        async with get_db() as db:
+            active = await get_active_title(db, char.id)
+        embed = build_sheet_embed(char, active_title_display=active[0] if active else None,
+                                       active_title_color=active[1] if active else None)
         embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
     else:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=pick_embed("show"), view=CharacterPickView(chars, "show"), ephemeral=True
         )
 
@@ -2031,9 +2057,11 @@ async def character_delete(interaction: discord.Interaction):
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
 
+    await interaction.response.defer(ephemeral=True)
+
     char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
     if not chars:
-        await interaction.response.send_message("You don't have any characters to delete.", ephemeral=True)
+        await interaction.followup.send("You don't have any characters to delete.", ephemeral=True)
         return
     if char:
         embed = discord.Embed(
@@ -2041,9 +2069,9 @@ async def character_delete(interaction: discord.Interaction):
             description=f"**{char.name}** — Level {char.level} {char.race} {char.char_class}\n\nThis is **permanent**. All XP, gold, and inventory will be lost.",
             color=0xEF4444,
         )
-        await interaction.response.send_message(embed=embed, view=DeleteConfirmView(char.name, char.id), ephemeral=True)
+        await interaction.followup.send(embed=embed, view=DeleteConfirmView(char.name, char.id), ephemeral=True)
     else:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=pick_embed("delete"), view=CharacterPickView(chars, "delete"), ephemeral=True
         )
 
@@ -2054,6 +2082,8 @@ async def character_list(interaction: discord.Interaction, public: bool = False)
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
+
+    await interaction.response.defer(ephemeral=not public)
 
     async with get_db() as db:
         result = await db.execute(
@@ -2091,7 +2121,7 @@ async def character_list(interaction: discord.Interaction, public: bool = False)
         )
     embed.set_footer(text=f"{len(chars)}/{MAX_CHARACTERS} character slots used  •  LoreForge")
 
-    await interaction.response.send_message(embed=embed, ephemeral=not public)
+    await interaction.followup.send(embed=embed, ephemeral=not public)
 
 
 @character_group.command(name="proxy_remove", description="Remove a character's proxy")
@@ -2100,9 +2130,11 @@ async def character_proxy_remove(interaction: discord.Interaction):
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
 
+    await interaction.response.defer(ephemeral=True)
+
     char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
     if not chars:
-        await interaction.response.send_message("No character found.", ephemeral=True)
+        await interaction.followup.send("No character found.", ephemeral=True)
         return
     if char:
         async with get_db() as db:
@@ -2111,9 +2143,9 @@ async def character_proxy_remove(interaction: discord.Interaction):
             if c:
                 c.proxy_open = None
                 c.proxy_close = None
-        await interaction.response.send_message(f"Proxy removed from **{char.name}**.", ephemeral=True)
+        await interaction.followup.send(f"Proxy removed from **{char.name}**.", ephemeral=True)
     else:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=pick_embed("remove proxy from"), view=CharacterPickView(chars, "proxy_remove"), ephemeral=True
         )
 
@@ -2271,6 +2303,8 @@ async def character_edit_stats(interaction: discord.Interaction, field: app_comm
             ephemeral=True,
         )
         return
+
+    await interaction.response.defer(ephemeral=True)
 
     char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
     if not chars:

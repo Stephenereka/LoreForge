@@ -16,6 +16,7 @@ from services.combat_engine import (
 from services.ai_service import classify_combat_action
 from services.leveling import pvp_xp_reward, check_level_up, hp_gain_on_level, feature_at_level, xp_bar, ASI_LEVELS
 from cogs.character import resolve_character, CharacterPickView, pick_embed, _offer_attack_unlock
+from services.title_service import get_active_title
 from services.utils import is_gm
 from discord.ext import commands
 
@@ -42,13 +43,13 @@ async def _set_combat_active(guild_id: int, channel_id: int | None):
                 ))
 
 
-def _build_combatant(char: Character, user_id: int) -> Combatant:
+async def _build_combatant(char: Character, user_id: int) -> Combatant:
     inventory = char.inventory or []
     equipped_weapon = next(
         (it["key"] for it in inventory if it.get("type") == "weapon" and it.get("equipped")),
         "unarmed",
     )
-    return Combatant(
+    combatant = Combatant(
         id=str(user_id),
         name=char.name,
         is_player=True,
@@ -72,6 +73,15 @@ def _build_combatant(char: Character, user_id: int) -> Combatant:
         class_resources=dict(char.class_resources or {}),
         weapon=equipped_weapon,
     )
+    # Load active title
+    try:
+        async with get_db() as db:
+            active = await get_active_title(db, char.id)
+        if active:
+            combatant.title_display = active[0]
+    except Exception:
+        pass
+    return combatant
 
 
 # ── Session ───────────────────────────────────────────────────────────────────
@@ -154,9 +164,10 @@ class CombatSession:
         current = self.current_combatant
         pct = current.hp_current / current.hp_max if current.hp_max > 0 else 0
         color = 0x22C55E if pct > 0.5 else (0xF97316 if pct > 0.25 else 0xEF4444)
+        current_label = f"{current.title_display} | {current.name}" if current.title_display else current.name
 
         embed = discord.Embed(
-            title=f"⚔️ {self.title}  —  Round {self.round}  —  **{current.name}'s turn**",
+            title=f"⚔️ {self.title}  —  Round {self.round}  —  **{current_label}'s turn**",
             color=color,
         )
         for p in self.players:
@@ -224,7 +235,7 @@ class CombatJoinCharSelect(discord.ui.Select):
         if interaction.user.id in session.player_user_ids:
             await interaction.response.edit_message(content="You're already in this fight.", embed=None, view=None)
             return
-        combatant = _build_combatant(char, interaction.user.id)
+        combatant = await _build_combatant(char, interaction.user.id)
         session.players.append(combatant)
         session.player_user_ids.append(interaction.user.id)
         await interaction.response.edit_message(content=f"✅ **{char.name}** joined the fight!", embed=None, view=None)
@@ -265,7 +276,7 @@ class LobbyView(discord.ui.View):
         if char.is_unconscious:
             await interaction.response.send_message("Your character is unconscious.", ephemeral=True)
             return
-        combatant = _build_combatant(char, interaction.user.id)
+        combatant = await _build_combatant(char, interaction.user.id)
         session.players.append(combatant)
         session.player_user_ids.append(interaction.user.id)
         await interaction.response.defer()
@@ -345,7 +356,7 @@ class InviteView(discord.ui.View):
         if char.is_unconscious:
             await interaction.response.send_message("Your character is unconscious.", ephemeral=True)
             return
-        combatant = _build_combatant(char, interaction.user.id)
+        combatant = await _build_combatant(char, interaction.user.id)
         session.players.append(combatant)
         session.player_user_ids.append(interaction.user.id)
         await interaction.response.send_message(f"✅ **{char.name}** joined the fight!", ephemeral=True)
@@ -827,6 +838,8 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
     if action in ("ATTACK", "SPELL", "SKILL") and target:
         attack_name = action_data.get("detected_attack")
         just_downed = False
+        p_name_log = f"{player.title_display} | {player.name}" if player.title_display else player.name
+        t_name_log = f"{target.title_display} | {target.name}" if target.title_display else target.name
         if attack_name:
             res = resolve_named_attack(player, attack_name, target)
             for line in res.get("log_lines", []):
@@ -834,43 +847,43 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
                     await channel.send(line)
             if res["is_heal"]:
                 player.heal(res["heal_amount"])
-                session.add_log(f"💚 {player.name} heals **{res['heal_amount']} HP** from **{attack_name}**!")
+                session.add_log(f"💚 {p_name_log} heals **{res['heal_amount']} HP** from **{attack_name}**!")
             elif res["miss"]:
-                session.add_log(f"🎲 {player.name} — natural 1 on **{attack_name}**!")
+                session.add_log(f"🎲 {p_name_log} — natural 1 on **{attack_name}**!")
             elif res["hit"]:
                 if res["damage"] > 0:
                     was_conscious = not target.is_unconscious and not target.is_dead
                     target.take_damage(res["damage"])
                     crit = " *(Crit!)*" if res["crit"] else ""
-                    session.add_log(f"⚔️ **{attack_name}** — {player.name} hits {target.name} for **{res['damage']} dmg**{crit}")
+                    session.add_log(f"⚔️ **{attack_name}** — {p_name_log} hits {t_name_log} for **{res['damage']} dmg**{crit}")
                     if was_conscious and target.is_unconscious:
                         just_downed = True
                 for cond in res.get("conditions_applied", []):
                     apply_condition(target, cond["name"], cond["duration"])
                     icon = CONDITIONS.get(cond["name"], {}).get("icon", "⚡")
-                    session.add_log(f"{icon} {target.name} is now {cond['name']}!")
+                    session.add_log(f"{icon} {t_name_log} is now {cond['name']}!")
             else:
-                session.add_log(f"🛡️ **{attack_name}** misses {target.name} ({res.get('attack_roll', '?')} vs AC {effective_ac(target)})")
+                session.add_log(f"🛡️ **{attack_name}** misses {t_name_log} ({res.get('attack_roll', '?')} vs AC {effective_ac(target)})")
             for cond in res.get("self_conditions", []):
                 apply_condition(player, cond["name"], cond["duration"])
                 icon = CONDITIONS.get(cond["name"], {}).get("icon", "⚡")
-                session.add_log(f"{icon} {player.name} is now {cond['name']}!")
+                session.add_log(f"{icon} {p_name_log} is now {cond['name']}!")
         else:
             result = player_attack(player, weapon=player.weapon)
             if channel:
-                await channel.send(f"🎲 {player.name} rolls **{result['attack_roll']}** to hit {target.name}.")
+                await channel.send(f"🎲 {p_name_log} rolls **{result['attack_roll']}** to hit {t_name_log}.")
             if result["is_miss"]:
-                session.add_log(f"🎲 {player.name} — natural 1, missed!")
+                session.add_log(f"🎲 {p_name_log} — natural 1, missed!")
             elif result["attack_roll"] >= effective_ac(target):
                 was_conscious = not target.is_unconscious and not target.is_dead
                 target.take_damage(result["damage"])
                 crit = " *(Crit!)*" if result["is_crit"] else ""
                 sneak = f" +{result['sneak_dice']}d6 sneak" if result["sneak_dice"] else ""
-                session.add_log(f"⚔️ {player.name} hits {target.name} for **{result['damage']} dmg**{crit}{sneak}")
+                session.add_log(f"⚔️ {p_name_log} hits {t_name_log} for **{result['damage']} dmg**{crit}{sneak}")
                 if was_conscious and target.is_unconscious:
                     just_downed = True
             else:
-                session.add_log(f"🛡️ {player.name} misses {target.name} ({result['attack_roll']} vs AC {effective_ac(target)})")
+                session.add_log(f"🛡️ {p_name_log} misses {t_name_log} ({result['attack_roll']} vs AC {effective_ac(target)})")
 
         if just_downed:
             uid = session.user_id_for(player)
@@ -1104,19 +1117,20 @@ async def combat_start(interaction: discord.Interaction, title: str, fight_type:
         await interaction.response.send_message("A combat is already active in this channel.", ephemeral=True)
         return
 
+    await interaction.response.defer(ephemeral=True)
     char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
     if not chars:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "You don't have a living character. Use `/character create` first.", ephemeral=True
         )
         return
     if not char:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "You have multiple characters with no active one. Use `/character use` first.", ephemeral=True
         )
         return
     if char.is_unconscious:
-        await interaction.response.send_message("Your character is unconscious.", ephemeral=True)
+        await interaction.followup.send("Your character is unconscious.", ephemeral=True)
         return
 
     session = CombatSession(
@@ -1129,13 +1143,13 @@ async def combat_start(interaction: discord.Interaction, title: str, fight_type:
     _sessions[interaction.channel_id] = session
     await _set_combat_active(interaction.guild_id, interaction.channel_id)
 
-    combatant = _build_combatant(char, interaction.user.id)
+    combatant = await _build_combatant(char, interaction.user.id)
     session.players.append(combatant)
     session.player_user_ids.append(interaction.user.id)
 
     lobby_view = LobbyView(session)
     session.lobby_message = await interaction.channel.send(embed=session.lobby_embed(), view=lobby_view)
-    await interaction.response.send_message("✅ Combat lobby created!", ephemeral=True)
+    await interaction.followup.send("✅ Combat lobby created!", ephemeral=True)
     if invite:
         invite_view = InviteView(session)
         invite_msg = await interaction.channel.send(
@@ -1196,7 +1210,7 @@ async def combat_join(interaction: discord.Interaction):
             return None
         if char.is_unconscious:
             return "Your character is unconscious."
-        combatant = _build_combatant(char, inter.user.id)
+        combatant = await _build_combatant(char, inter.user.id)
         session.players.append(combatant)
         session.player_user_ids.append(inter.user.id)
         if session.lobby_message:
@@ -1659,6 +1673,7 @@ async def combat_config_log_channel(interaction: discord.Interaction, channel: d
     if not interaction.user.guild_permissions.manage_guild:
         await interaction.response.send_message("You need the **Manage Server** permission to use this.", ephemeral=True)
         return
+    await interaction.response.defer(ephemeral=True)
     async with get_db() as db:
         result = await db.execute(select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id))
         config = result.scalar_one_or_none()
@@ -1666,7 +1681,7 @@ async def combat_config_log_channel(interaction: discord.Interaction, channel: d
             config.log_channel_id = channel.id
         else:
             db.add(GuildConfig(guild_id=interaction.guild_id, log_channel_id=channel.id))
-    await interaction.response.send_message(
+    await interaction.followup.send(
         embed=discord.Embed(
             title="✅ Log Channel Set",
             description=f"Audit logs will be posted to {channel.mention}.",

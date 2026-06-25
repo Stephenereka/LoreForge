@@ -807,3 +807,34 @@ class DailyReward(Base):
     character_id: Mapped[int] = mapped_column(ForeignKey("characters.id"), unique=True, nullable=False)
     last_claimed: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     streak: Mapped[int] = mapped_column(Integer, default=0)
+
+
+# ── Phase 4: Title System ─────────────────────────────────────────────────
+
+class Title(Base):
+    """A title that can be awarded to characters (e.g. 'The Undying', 'Dragon Slayer')."""
+    __tablename__ = "titles"
+    __table_args__ = (UniqueConstraint("guild_id", "name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    tier: Mapped[str] = mapped_column(String, default="common")
+    description: Mapped[str] = mapped_column(Text, nullable=True)
+    is_unique: Mapped[bool] = mapped_column(Boolean, default=False)
+    auto_unlock_condition: Mapped[dict] = mapped_column(JSON, nullable=True)
+    created_by: Mapped[str] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CharacterTitle(Base):
+    """Junction table linking characters to titles they hold."""
+    __tablename__ = "character_titles"
+    __table_args__ = (UniqueConstraint("character_id", "title_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    character_id: Mapped[int] = mapped_column(Integer, ForeignKey("characters.id", ondelete="CASCADE"), nullable=False)
+    title_id: Mapped[int] = mapped_column(Integer, ForeignKey("titles.id", ondelete="CASCADE"), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    awarded_by: Mapped[str] = mapped_column(String, nullable=True)
+    awarded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

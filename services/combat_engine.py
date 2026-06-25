@@ -53,6 +53,8 @@ class Combatant:
     death_saves_success: int = 0
     death_saves_failure: int = 0
 
+    title_display: str | None = None  # e.g. "👑 The Undying", set during _build_combatant
+
     conditions: list = field(default_factory=list)
     class_resources: dict = field(default_factory=dict)
 

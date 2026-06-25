@@ -9,6 +9,8 @@ from database.models import Character, GuildConfig, GuildGM, PendingApproval
 from services.utils import gm_only, owner_only, is_gm
 from cogs.character import _offer_attack_unlock
 from services.leveling import check_level_up, hp_gain_on_level, xp_bar
+from services.title_service import create_title, award_title, revoke_title, list_guild_titles, TIER_META
+from database.models import Title, CharacterTitle
 
 # ---------------------------------------------------------------------------
 # Mechanical fields that PendingApproval can change
@@ -1208,6 +1210,7 @@ async def gm_boss_list(interaction: discord.Interaction):
     if not await gm_only(interaction):
         return
 
+    await interaction.response.defer(ephemeral=True)
     async with get_db() as db:
         from database.models import BossTemplate
         result = await db.execute(
@@ -1218,7 +1221,7 @@ async def gm_boss_list(interaction: discord.Interaction):
         templates = list(result.scalars().all())
 
     if not templates:
-        await interaction.response.send_message("No boss templates created yet.", ephemeral=True)
+        await interaction.followup.send("No boss templates created yet.", ephemeral=True)
         return
 
     embed = discord.Embed(
@@ -1232,7 +1235,7 @@ async def gm_boss_list(interaction: discord.Interaction):
             inline=False,
         )
     embed.set_footer(text=f"{len(templates)} template(s)  •  LoreForge")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 # ── /gm boss spawn ────────────────────────────────────────────────────────────
@@ -1259,6 +1262,7 @@ async def gm_boss_spawn(interaction: discord.Interaction, name: str, hp_override
     if not await gm_only(interaction):
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         from database.models import BossTemplate, SpawnedBoss
         result = await db.execute(
@@ -1269,7 +1273,7 @@ async def gm_boss_spawn(interaction: discord.Interaction, name: str, hp_override
         )
         t = result.scalar_one_or_none()
         if not t:
-            await interaction.response.send_message(f"Boss template **{name}** not found.", ephemeral=True)
+            await interaction.followup.send(f"Boss template **{name}** not found.", ephemeral=True)
             return
 
         display_name = name_override or t.name
@@ -1324,7 +1328,7 @@ async def gm_boss_spawn(interaction: discord.Interaction, name: str, hp_override
     embed.add_field(name="⚔️ Legendary Actions", value=str(t.legendary_action_count), inline=True)
     embed.add_field(name="✨ XP Value", value=str(t.xp_value), inline=True)
     embed.set_footer(text=f"Spawned by {interaction.user.display_name}  •  ID: {sid}")
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 # ── /gm boss force-attack ─────────────────────────────────────────────────────
@@ -1335,6 +1339,7 @@ async def gm_boss_force_attack(interaction: discord.Interaction, user: discord.M
     if not await gm_only(interaction):
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         from database.models import SpawnedBoss
         result = await db.execute(
@@ -1345,7 +1350,7 @@ async def gm_boss_force_attack(interaction: discord.Interaction, user: discord.M
         )
         boss = result.scalar_one_or_none()
         if not boss:
-            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            await interaction.followup.send("No active boss in this channel.", ephemeral=True)
             return
 
         boss.forced_target_id = user.id
@@ -1355,7 +1360,7 @@ async def gm_boss_force_attack(interaction: discord.Interaction, user: discord.M
         description=f"**{boss.display_name}** is now targeting **{user.display_name}**!",
         color=0xEF4444,
     )
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 # ── /gm boss force-ability ────────────────────────────────────────────────────
@@ -1366,6 +1371,7 @@ async def gm_boss_force_ability(interaction: discord.Interaction, ability_name: 
     if not await gm_only(interaction):
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         from database.models import SpawnedBoss
         result = await db.execute(
@@ -1376,14 +1382,14 @@ async def gm_boss_force_ability(interaction: discord.Interaction, ability_name: 
         )
         boss = result.scalar_one_or_none()
         if not boss:
-            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            await interaction.followup.send("No active boss in this channel.", ephemeral=True)
             return
 
         phase_key = f"phase_{boss.current_phase}"
         abilities = (boss.phase_abilities or {}).get(phase_key, [])
         ability = next((a for a in abilities if a.get("name", "").lower() == ability_name.lower()), None)
         if not ability:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Ability **{ability_name}** not found in current phase ({boss.current_phase}).",
                 ephemeral=True,
             )
@@ -1398,7 +1404,7 @@ async def gm_boss_force_ability(interaction: discord.Interaction, ability_name: 
         embed.add_field(name="Effect", value=ability["effect"], inline=True)
     if ability.get("condition_applied"):
         embed.add_field(name="Condition", value=ability["condition_applied"], inline=True)
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 # ── /gm boss set-phase ────────────────────────────────────────────────────────
@@ -1412,6 +1418,7 @@ async def gm_boss_set_phase(interaction: discord.Interaction, phase: int):
         await interaction.response.send_message("Phase must be 1-4.", ephemeral=True)
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         from database.models import SpawnedBoss
         result = await db.execute(
@@ -1422,7 +1429,7 @@ async def gm_boss_set_phase(interaction: discord.Interaction, phase: int):
         )
         boss = result.scalar_one_or_none()
         if not boss:
-            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            await interaction.followup.send("No active boss in this channel.", ephemeral=True)
             return
 
         old_phase = boss.current_phase
@@ -1443,7 +1450,7 @@ async def gm_boss_set_phase(interaction: discord.Interaction, phase: int):
     )
     embed.add_field(name="Previous Phase", value=str(old_phase), inline=True)
     embed.add_field(name="New Phase", value=str(phase), inline=True)
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 # ── /gm boss hp ───────────────────────────────────────────────────────────────
@@ -1457,6 +1464,7 @@ async def gm_boss_hp(interaction: discord.Interaction, value: int):
         await interaction.response.send_message("HP cannot be negative.", ephemeral=True)
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         from database.models import SpawnedBoss
         result = await db.execute(
@@ -1467,7 +1475,7 @@ async def gm_boss_hp(interaction: discord.Interaction, value: int):
         )
         boss = result.scalar_one_or_none()
         if not boss:
-            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            await interaction.followup.send("No active boss in this channel.", ephemeral=True)
             return
 
         old_hp = boss.hp_current
@@ -1493,7 +1501,7 @@ async def gm_boss_hp(interaction: discord.Interaction, value: int):
     )
     embed.add_field(name="Phase", value=str(boss.current_phase), inline=True)
     embed.add_field(name="HP %", value=f"{round(pct * 100)}%", inline=True)
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 # ── /gm boss summon-minions ───────────────────────────────────────────────────
@@ -1503,6 +1511,7 @@ async def gm_boss_summon_minions(interaction: discord.Interaction):
     if not await gm_only(interaction):
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         from database.models import SpawnedBoss, BossTemplate
         result = await db.execute(
@@ -1513,18 +1522,18 @@ async def gm_boss_summon_minions(interaction: discord.Interaction):
         )
         boss = result.scalar_one_or_none()
         if not boss:
-            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            await interaction.followup.send("No active boss in this channel.", ephemeral=True)
             return
 
         mini_template_id = boss.minion_template_id
         if not mini_template_id:
-            await interaction.response.send_message("This boss has no minion template configured.", ephemeral=True)
+            await interaction.followup.send("This boss has no minion template configured.", ephemeral=True)
             return
 
         t_result = await db.execute(select(BossTemplate).where(BossTemplate.id == mini_template_id))
         mini_t = t_result.scalar_one_or_none()
         if not mini_t:
-            await interaction.response.send_message("Minion template not found.", ephemeral=True)
+            await interaction.followup.send("Minion template not found.", ephemeral=True)
             return
 
         count = boss.minion_count_per_summon or 2
@@ -1551,7 +1560,7 @@ async def gm_boss_summon_minions(interaction: discord.Interaction):
         description=f"**{count}** **{mini_t.name}**(s) emerge to aid **{boss.display_name}**!",
         color=0xF97316,
     )
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 # ── /gm boss legendary ────────────────────────────────────────────────────────
@@ -1562,6 +1571,7 @@ async def gm_boss_legendary(interaction: discord.Interaction, action_name: str):
     if not await gm_only(interaction):
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         from database.models import SpawnedBoss
         result = await db.execute(
@@ -1572,11 +1582,11 @@ async def gm_boss_legendary(interaction: discord.Interaction, action_name: str):
         )
         boss = result.scalar_one_or_none()
         if not boss:
-            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            await interaction.followup.send("No active boss in this channel.", ephemeral=True)
             return
 
         if boss.legendary_actions_remaining <= 0:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"{boss.display_name} has no legendary actions remaining this round.",
                 ephemeral=True,
             )
@@ -1587,7 +1597,7 @@ async def gm_boss_legendary(interaction: discord.Interaction, action_name: str):
             None,
         )
         if not action:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Legendary action **{action_name}** not found.",
                 ephemeral=True,
             )
@@ -1595,7 +1605,7 @@ async def gm_boss_legendary(interaction: discord.Interaction, action_name: str):
 
         cost = action.get("cost", 1)
         if boss.legendary_actions_remaining < cost:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Need {cost} legendary action(s) but only {boss.legendary_actions_remaining} remaining.",
                 ephemeral=True,
             )
@@ -1609,7 +1619,7 @@ async def gm_boss_legendary(interaction: discord.Interaction, action_name: str):
         color=0xEF4444,
     )
     embed.add_field(name="Legendary Actions Remaining", value=f"{boss.legendary_actions_remaining}/{boss.legendary_action_count}", inline=True)
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 # ── /gm boss kill ─────────────────────────────────────────────────────────────
@@ -1619,6 +1629,7 @@ async def gm_boss_kill(interaction: discord.Interaction):
     if not await gm_only(interaction):
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         from database.models import SpawnedBoss, Character
         result = await db.execute(
@@ -1629,7 +1640,7 @@ async def gm_boss_kill(interaction: discord.Interaction):
         )
         boss = result.scalar_one_or_none()
         if not boss:
-            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            await interaction.followup.send("No active boss in this channel.", ephemeral=True)
             return
 
         xp_value = boss.xp_value or 500
@@ -1678,7 +1689,7 @@ async def gm_boss_kill(interaction: discord.Interaction):
             loot_lines.append(f"• {item.get('item', 'Unknown')} {qty_str} ({round(chance * 100)}% chance)")
         embed.add_field(name="🎁 Loot Table", value="\n".join(loot_lines) or "None", inline=False)
     embed.set_footer(text="Use /gm boss spawn to summon another")
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 # ── /gm boss flee ─────────────────────────────────────────────────────────────
@@ -1688,6 +1699,7 @@ async def gm_boss_flee(interaction: discord.Interaction):
     if not await gm_only(interaction):
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         from database.models import SpawnedBoss, Character
         result = await db.execute(
@@ -1698,7 +1710,7 @@ async def gm_boss_flee(interaction: discord.Interaction):
         )
         boss = result.scalar_one_or_none()
         if not boss:
-            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            await interaction.followup.send("No active boss in this channel.", ephemeral=True)
             return
 
         xp_value = boss.xp_value or 500
@@ -1727,7 +1739,217 @@ async def gm_boss_flee(interaction: discord.Interaction):
                     f"The party earns **{xp_per_player} XP** each (half value) for driving it off.",
         color=0xF97316,
     )
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
+
+
+# ---------------------------------------------------------------------------
+# /gm title subgroup
+# ---------------------------------------------------------------------------
+
+gm_title_group = app_commands.Group(name="title", description="GM: manage character titles", parent=gm_group)
+
+
+# ── /gm title create ──────────────────────────────────────────────────────────
+
+@gm_title_group.command(name="create", description="Create a new title for this server (GM only)")
+@app_commands.describe(
+    name="Title name (e.g. 'The Undying')",
+    tier="Rarity tier",
+    description="Flavor text for the title",
+    unique="Only one holder at a time?",
+)
+@app_commands.choices(tier=[
+    app_commands.Choice(name="Common", value="common"),
+    app_commands.Choice(name="Rare", value="rare"),
+    app_commands.Choice(name="Epic", value="epic"),
+    app_commands.Choice(name="Legendary", value="legendary"),
+    app_commands.Choice(name="Mythic", value="mythic"),
+])
+async def gm_title_create(
+    interaction: discord.Interaction,
+    name: str,
+    tier: app_commands.Choice[str],
+    description: str | None = None,
+    unique: bool = False,
+):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer()
+    async with get_db() as db:
+        try:
+            title = await create_title(
+                db=db,
+                guild_id=str(interaction.guild_id),
+                name=name.strip(),
+                tier=tier.value,
+                description=description.strip() if description else None,
+                is_unique=unique,
+                created_by=str(interaction.user.id),
+            )
+        except ValueError as e:
+            await interaction.followup.send(str(e), ephemeral=True)
+            return
+
+    meta = TIER_META.get(title.tier, TIER_META["common"])
+    embed = discord.Embed(
+        title=f"{meta['icon']} Title Created",
+        description=f"**{meta['icon']} {title.name}** — *{meta['label']}*",
+        color=meta["color"],
+    )
+    if title.description:
+        embed.add_field(name="Description", value=title.description, inline=False)
+    embed.add_field(name="Unique", value="Yes — only one holder" if title.is_unique else "No", inline=True)
+    embed.set_footer(text="Use /gm title award to give this title to a character")
+    await interaction.followup.send(embed=embed)
+
+
+# ── /gm title award ───────────────────────────────────────────────────────────
+
+@gm_title_group.command(name="award", description="Give a title to a character (GM only)")
+@app_commands.describe(character_name="Name of the character", title_name="Name of the title")
+async def gm_title_award(interaction: discord.Interaction, character_name: str, title_name: str):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer()
+    async with get_db() as db:
+        char = await db.scalar(select(Character).where(
+            Character.guild_id == str(interaction.guild_id),
+            Character.name.ilike(character_name),
+        ))
+        if not char:
+            await interaction.followup.send(
+                f"No character named '{character_name}' found.", ephemeral=True
+            )
+            return
+
+        title = await db.scalar(select(Title).where(
+            Title.guild_id == str(interaction.guild_id),
+            Title.name.ilike(title_name),
+        ))
+        if not title:
+            await interaction.followup.send(
+                f"No title named '{title_name}' found in this server.", ephemeral=True
+            )
+            return
+
+        try:
+            ct = await award_title(db, char.id, title.id, str(interaction.user.id))
+        except ValueError as e:
+            await interaction.followup.send(str(e), ephemeral=True)
+            return
+
+    meta = TIER_META.get(title.tier, TIER_META["common"])
+    embed = discord.Embed(
+        title="Title Awarded",
+        description=f"{meta['icon']} **{title.name}** awarded to **{char.name}**!",
+        color=meta["color"],
+    )
+    await interaction.followup.send(embed=embed)
+
+
+# ── /gm title revoke ──────────────────────────────────────────────────────────
+
+@gm_title_group.command(name="revoke", description="Remove a title from a character (GM only)")
+@app_commands.describe(character_name="Name of the character", title_name="Name of the title")
+async def gm_title_revoke(interaction: discord.Interaction, character_name: str, title_name: str):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer()
+    async with get_db() as db:
+        char = await db.scalar(select(Character).where(
+            Character.guild_id == str(interaction.guild_id),
+            Character.name.ilike(character_name),
+        ))
+        if not char:
+            await interaction.followup.send(
+                f"No character named '{character_name}' found.", ephemeral=True
+            )
+            return
+
+        title = await db.scalar(select(Title).where(
+            Title.guild_id == str(interaction.guild_id),
+            Title.name.ilike(title_name),
+        ))
+        if not title:
+            await interaction.followup.send(
+                f"No title named '{title_name}' found in this server.", ephemeral=True
+            )
+            return
+
+        removed = await revoke_title(db, char.id, title.id)
+        if not removed:
+            await interaction.followup.send(
+                f"**{char.name}** doesn't hold the title '{title_name}'.", ephemeral=True
+            )
+            return
+
+    await interaction.followup.send(
+        f"❌ **{title_name}** revoked from **{char.name}**."
+    )
+
+
+# ── /gm title delete ──────────────────────────────────────────────────────────
+
+@gm_title_group.command(name="delete", description="Permanently delete a title from the server (GM only)")
+@app_commands.describe(title_name="Name of the title to delete")
+async def gm_title_delete(interaction: discord.Interaction, title_name: str):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer()
+    async with get_db() as db:
+        title = await db.scalar(select(Title).where(
+            Title.guild_id == str(interaction.guild_id),
+            Title.name.ilike(title_name),
+        ))
+        if not title:
+            await interaction.followup.send(
+                f"No title named '{title_name}' found.", ephemeral=True
+            )
+            return
+
+        # Remove all character associations first
+        await db.execute(
+            delete(CharacterTitle).where(CharacterTitle.title_id == title.id)
+        )
+        await db.delete(title)
+        await db.commit()
+
+    await interaction.followup.send(
+        f"🗑️ Title **{title_name}** and all its character associations have been deleted."
+    )
+
+
+# ── /gm title list ────────────────────────────────────────────────────────────
+
+@gm_title_group.command(name="list", description="List all titles in this server with holder counts (GM only)")
+async def gm_title_list(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+    async with get_db() as db:
+        titles = await list_guild_titles(db, str(interaction.guild_id))
+
+    if not titles:
+        await interaction.followup.send(
+            "No titles defined in this server yet. Use `/gm title create` to add one.",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title="🏅 Titles — This Server",
+        color=0xF1C40F,
+    )
+    for t in titles:
+        meta = TIER_META.get(t.tier, TIER_META["common"])
+        unique_tag = " [Unique]" if t.is_unique else ""
+        embed.add_field(
+            name=f"{meta['icon']} {t.name}{unique_tag}",
+            value=f"*{meta['label']}*  ·  {t.description or 'No description'}",
+            inline=False,
+        )
+    embed.set_footer(text=f"{len(titles)} title(s)  •  LoreForge")
+    await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 # ---------------------------------------------------------------------------

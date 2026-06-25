@@ -236,6 +236,41 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     e.set_footer(text="Page 6 / 10  —  Character")
     pages.append(e)
 
+    # Page 7 — Titles
+    e = discord.Embed(title="⬡ Title System", color=0xF1C40F)
+    e.description = "Earn and display titles that appear above your character's name in all embeds."
+    e.add_field(
+        name="Player Commands",
+        value=(
+            "`/title list` — see all your titles\n"
+            "`/title set <name>` — display a title above your name\n"
+            "`/title clear` — stop displaying a title\n"
+            "`/title view <char>` — view another character's titles"
+        ),
+        inline=False,
+    )
+    e.add_field(
+        name="GM Commands",
+        value=(
+            "`/gm title create <name> <tier>` — create a new title\n"
+            "`/gm title award <char> <title>` — give a title to a character\n"
+            "`/gm title revoke <char> <title>` — remove a title from a character\n"
+            "`/gm title delete <title>` — permanently delete a title\n"
+            "`/gm title list` — list all titles in this server"
+        ),
+        inline=False,
+    )
+    e.add_field(
+        name="Tiers",
+        value=(
+            "· Common  |  ✦ Rare  |  ⬡ Epic  |  👑 Legendary  |  🔥 Mythic\n"
+            "Each tier has its own color that changes the embed's sidebar when that title is active."
+        ),
+        inline=False,
+    )
+    e.set_footer(text="Page 7 / 11  —  Title System")
+    pages.append(e)
+
     # Page 3 — Combat
     e = discord.Embed(
         title="⚔️ Combat — Starting & Joining",

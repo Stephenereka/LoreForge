@@ -16,7 +16,7 @@ async def _get_characters_at_location(guild_id: int) -> list[str]:
     async with get_db() as db:
         result = await db.execute(
             select(Character).where(
-                Character.guild_id == guild_id,
+                Character.guild_id == str(guild_id),
                 Character.is_active == True,
                 Character.is_dead == False,
             )
@@ -30,15 +30,16 @@ async def session_start(interaction: discord.Interaction, title: str | None = No
     if not await gm_only(interaction):
         return
 
+    await interaction.response.defer()
     chars = await _get_characters_at_location(interaction.guild_id)
     async with get_db() as db:
         log = SessionLog(
-            guild_id=interaction.guild_id,
-            channel_id=interaction.channel_id,
+            guild_id=str(interaction.guild_id),
+            channel_id=str(interaction.channel_id),
             title=title or f"Session {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
             started_at=datetime.utcnow(),
             characters_present=chars,
-            created_by=interaction.user.id,
+            created_by=str(interaction.user.id),
         )
         db.add(log)
         await db.flush()
@@ -52,7 +53,7 @@ async def session_start(interaction: discord.Interaction, title: str | None = No
         color=0x22C55E,
     )
     embed.set_footer(text=f"Session ID: {session_id} • LoreForge")
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
     # Pin the embed
     try:
         await interaction.channel.pins()
@@ -65,18 +66,19 @@ async def session_end(interaction: discord.Interaction):
     if not await gm_only(interaction):
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         result = await db.execute(
             select(SessionLog).where(
-                SessionLog.guild_id == interaction.guild_id,
-                SessionLog.channel_id == interaction.channel_id,
+                SessionLog.guild_id == str(interaction.guild_id),
+                SessionLog.channel_id == str(interaction.channel_id),
                 SessionLog.ended_at.is_(None),
             ).order_by(desc(SessionLog.started_at)).limit(1)
         )
         log = result.scalar_one_or_none()
 
         if not log:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "No active session found in this channel. Use `/session start` first.",
                 ephemeral=True,
             )
@@ -86,7 +88,7 @@ async def session_end(interaction: discord.Interaction):
 
         # Check if AI summaries are enabled
         ai_config = await db.execute(
-            select(AIConfig).where(AIConfig.guild_id == interaction.guild_id)
+            select(AIConfig).where(AIConfig.guild_id == str(interaction.guild_id))
         )
         config = ai_config.scalar_one_or_none()
         ai_enabled = config and config.session_summary_enabled
@@ -142,7 +144,7 @@ async def session_end(interaction: discord.Interaction):
         embed.add_field(name="📖 Summary", value="*No AI summary available. Toggle summaries with `/ai toggle summary`.*", inline=False)
 
     embed.set_footer(text="LoreForge Session Log")
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @session_group.command(name="summary", description="Generate or regenerate the summary for the most recent session")
@@ -150,17 +152,18 @@ async def session_summary(interaction: discord.Interaction):
     if not await gm_only(interaction):
         return
 
+    await interaction.response.defer()
     async with get_db() as db:
         result = await db.execute(
             select(SessionLog).where(
-                SessionLog.guild_id == interaction.guild_id,
-                SessionLog.channel_id == interaction.channel_id,
+                SessionLog.guild_id == str(interaction.guild_id),
+                SessionLog.channel_id == str(interaction.channel_id),
             ).order_by(desc(SessionLog.started_at)).limit(1)
         )
         log = result.scalar_one_or_none()
 
         if not log:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "No sessions found in this channel.", ephemeral=True
             )
             return
@@ -207,21 +210,22 @@ async def session_summary(interaction: discord.Interaction):
         embed.add_field(name="📖 Narrative", value="*AI summary unavailable.*", inline=False)
 
     embed.set_footer(text="Use /session log to view past sessions")
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @session_group.command(name="log", description="View all past sessions (paginated)")
 async def session_log(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
     async with get_db() as db:
         result = await db.execute(
             select(SessionLog).where(
-                SessionLog.guild_id == interaction.guild_id,
+                SessionLog.guild_id == str(interaction.guild_id),
             ).order_by(desc(SessionLog.started_at)).limit(50)
         )
         sessions = list(result.scalars().all())
 
     if not sessions:
-        await interaction.response.send_message("No sessions recorded yet.", ephemeral=True)
+        await interaction.followup.send("No sessions recorded yet.", ephemeral=True)
         return
 
     class SessionLogView(discord.ui.View):
@@ -270,7 +274,7 @@ async def session_log(interaction: discord.Interaction):
             await interaction.response.edit_message(embed=self._build_embed(), view=self)
 
     view = SessionLogView(pages=sessions[:20], page=0)
-    await interaction.response.send_message(embed=view._build_embed(), view=view, ephemeral=True)
+    await interaction.followup.send(embed=view._build_embed(), view=view, ephemeral=True)
 
 
 class SessionsCog(commands.Cog, name="Sessions"):
