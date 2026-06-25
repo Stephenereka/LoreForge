@@ -1,4 +1,4 @@
-import discord
+﻿import discord
 from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
@@ -15,15 +15,15 @@ class TitlesCog(commands.Cog, name="Titles"):
 
     title_group = app_commands.Group(name="title", description="Manage your character's displayed title")
 
-    # ── /title list ───────────────────────────────────────────────────────
+    # â”€â”€ /title list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @title_group.command(name="list", description="View all titles your character holds")
     async def title_list(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         async with get_db() as db:
             char = await db.scalar(select(Character).where(
-                Character.user_id == str(interaction.user.id),
-                Character.guild_id == str(interaction.guild_id),
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
                 Character.is_active == True,
             ))
             if not char:
@@ -53,7 +53,7 @@ class TitlesCog(commands.Cog, name="Titles"):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # ── /title set ────────────────────────────────────────────────────────
+    # â”€â”€ /title set â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @title_group.command(name="set", description="Set your active displayed title")
     @app_commands.describe(title_name="The name of the title to display")
@@ -61,8 +61,8 @@ class TitlesCog(commands.Cog, name="Titles"):
         await interaction.response.defer(ephemeral=True)
         async with get_db() as db:
             char = await db.scalar(select(Character).where(
-                Character.user_id == str(interaction.user.id),
-                Character.guild_id == str(interaction.guild_id),
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
                 Character.is_active == True,
             ))
             if not char:
@@ -80,19 +80,19 @@ class TitlesCog(commands.Cog, name="Titles"):
             await set_active_title(db, char.id, match["id"])
 
         await interaction.followup.send(
-            f"✦ **{match['display']}** is now displayed above your name.",
+            f"âœ¦ **{match['display']}** is now displayed above your name.",
             ephemeral=True,
         )
 
-    # ── /title clear ──────────────────────────────────────────────────────
+    # â”€â”€ /title clear â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @title_group.command(name="clear", description="Stop displaying a title above your name")
     async def title_clear(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         async with get_db() as db:
             char = await db.scalar(select(Character).where(
-                Character.user_id == str(interaction.user.id),
-                Character.guild_id == str(interaction.guild_id),
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
                 Character.is_active == True,
             ))
             if not char:
@@ -103,11 +103,11 @@ class TitlesCog(commands.Cog, name="Titles"):
             await set_active_title(db, char.id, None)
 
         await interaction.followup.send(
-            "Title cleared — your character now displays no title.",
+            "Title cleared â€” your character now displays no title.",
             ephemeral=True,
         )
 
-    # ── /title view ───────────────────────────────────────────────────────
+    # â”€â”€ /title view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @title_group.command(name="view", description="View another character's titles")
     @app_commands.describe(character_name="Name of the character to inspect")
@@ -116,7 +116,7 @@ class TitlesCog(commands.Cog, name="Titles"):
         async with get_db() as db:
             char = await db.scalar(select(Character).where(
                 Character.name.ilike(character_name),
-                Character.guild_id == str(interaction.guild_id),
+                Character.guild_id == interaction.guild_id,
             ))
             if not char:
                 await interaction.followup.send(
@@ -135,7 +135,7 @@ class TitlesCog(commands.Cog, name="Titles"):
         color = active[1] if active else 0x95A5A6
         embed = discord.Embed(
             title=f"{active[0] if active else '(No active title)'}",
-            description=f"**{char.name}** · {char.char_class} Lv.{char.level}",
+            description=f"**{char.name}** Â· {char.char_class} Lv.{char.level}",
             color=color,
         )
         for t in titles:

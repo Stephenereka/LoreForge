@@ -1,4 +1,4 @@
-import discord
+﻿import discord
 from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select, delete
@@ -110,7 +110,7 @@ class SheetEditModal(discord.ui.Modal, title="Edit Character Stats"):
                     new_val = int(raw)
                 except ValueError:
                     await interaction.response.send_message(
-                        f"Invalid value for **{attr}**: `{raw}` — must be a whole number.",
+                        f"Invalid value for **{attr}**: `{raw}` â€” must be a whole number.",
                         ephemeral=True,
                     )
                     return
@@ -126,7 +126,7 @@ class SheetEditModal(discord.ui.Modal, title="Edit Character Stats"):
             return
 
         change_lines = "\n".join(
-            f"• **{f}**: {o} → {n}" for f, o, n in changes
+            f"â€¢ **{f}**: {o} â†’ {n}" for f, o, n in changes
         )
         embed = discord.Embed(
             title="Character Edited",
@@ -203,7 +203,7 @@ class SheetEditModal2(discord.ui.Modal, title="Edit Character Stats (cont.)"):
                     new_val = int(raw)
                 except ValueError:
                     await interaction.response.send_message(
-                        f"Invalid value for **{attr}**: `{raw}` — must be a whole number.",
+                        f"Invalid value for **{attr}**: `{raw}` â€” must be a whole number.",
                         ephemeral=True,
                     )
                     return
@@ -219,7 +219,7 @@ class SheetEditModal2(discord.ui.Modal, title="Edit Character Stats (cont.)"):
             return
 
         change_lines = "\n".join(
-            f"• **{f}**: {o} → {n}" for f, o, n in changes
+            f"â€¢ **{f}**: {o} â†’ {n}" for f, o, n in changes
         )
         embed = discord.Embed(
             title="Character Edited",
@@ -375,14 +375,14 @@ async def gm_list(interaction: discord.Interaction):
         gm_rows = result.scalars().all()
 
     owner = interaction.guild.owner
-    lines = [f"👑 {owner.mention} (Server Owner)"]
+    lines = [f"ðŸ‘‘ {owner.mention} (Server Owner)"]
     for row in gm_rows:
         member = interaction.guild.get_member(row.user_id)
         mention = member.mention if member else f"<@{row.user_id}>"
-        lines.append(f"⚔️ {mention}")
+        lines.append(f"âš”ï¸ {mention}")
 
     embed = discord.Embed(
-        title=f"Game Masters — {interaction.guild.name}",
+        title=f"Game Masters â€” {interaction.guild.name}",
         description="\n".join(lines) if lines else "No GMs registered.",
         color=0x6366F1,
         timestamp=datetime.utcnow(),
@@ -514,15 +514,15 @@ async def gm_pending(interaction: discord.Interaction):
         mention = member.mention if member else f"<@{req.user_id}>"
         ts = req.requested_at.strftime("%Y-%m-%d %H:%M") if req.requested_at else "unknown"
         lines.append(
-            f"**ID {req.id}** — {req.character_name} | `{req.field_name}`: "
-            f"`{req.old_value}` → `{req.new_value}`\n"
+            f"**ID {req.id}** â€” {req.character_name} | `{req.field_name}`: "
+            f"`{req.old_value}` â†’ `{req.new_value}`\n"
             f"  Requested by {mention} at {ts}"
         )
 
     description = "\n\n".join(lines)
     # Truncate if too long
     if len(description) > 4000:
-        description = description[:3990] + "\n…"
+        description = description[:3990] + "\nâ€¦"
 
     embed = discord.Embed(
         title="Pending Stat Requests",
@@ -620,7 +620,7 @@ async def gm_approve(interaction: discord.Interaction, request_id: int):
     audit = discord.Embed(
         title="Approval Audit Log",
         description=(
-            f"**{req.character_name}** — `{req.field_name}`: `{old_val}` → `{new_val}`\n"
+            f"**{req.character_name}** â€” `{req.field_name}`: `{old_val}` â†’ `{new_val}`\n"
             f"Approved by {interaction.user.mention} | Requested by {notify_mention}"
         ),
         color=0x22C55E,
@@ -690,7 +690,7 @@ async def gm_deny(
     audit = discord.Embed(
         title="Denial Audit Log",
         description=(
-            f"**{req.character_name}** — `{req.field_name}`: `{req.old_value}` → `{req.new_value}` (NOT applied)\n"
+            f"**{req.character_name}** â€” `{req.field_name}`: `{req.old_value}` â†’ `{req.new_value}` (NOT applied)\n"
             f"Denied by {interaction.user.mention} | Requested by {notify_mention}"
             + (f"\nReason: {reason}" if reason else "")
         ),
@@ -790,7 +790,7 @@ async def gm_xp(interaction: discord.Interaction, user: discord.Member, amount: 
             name="LEVEL UP!",
             value=(
                 f"**{char_snapshot['name']}** is now **Level {new_level}**!\n"
-                f"HP increased by **+{hp_gained}** → {char_snapshot['hp_max']} max"
+                f"HP increased by **+{hp_gained}** â†’ {char_snapshot['hp_max']} max"
             ),
             inline=False,
         )
@@ -811,7 +811,7 @@ async def gm_xp(interaction: discord.Interaction, user: discord.Member, amount: 
 
 
 # ---------------------------------------------------------------------------
-# /gm edit — GM Edit Panel (full character edit, instant, no approval)
+# /gm edit â€” GM Edit Panel (full character edit, instant, no approval)
 # ---------------------------------------------------------------------------
 
 class GMEditModal(discord.ui.Modal, title="GM Edit Character"):
@@ -831,7 +831,7 @@ class GMEditModal(discord.ui.Modal, title="GM Edit Character"):
     armor_class = discord.ui.TextInput(label="Armor Class", required=False)
 
     def __init__(self, char: Character, editor: discord.Member):
-        super().__init__(title=f"GM Edit — {char.name}")
+        super().__init__(title=f"GM Edit â€” {char.name}")
         self.char = char
         self.editor = editor
         # Pre-fill with current values
@@ -898,9 +898,9 @@ class GMEditModal(discord.ui.Modal, title="GM Edit Character"):
             await interaction.response.send_message("No changes were made.", ephemeral=True)
             return
 
-        change_lines = "\n".join(f"• **{f}**: {o} → {n}" for f, o, n in changes)
+        change_lines = "\n".join(f"â€¢ **{f}**: {o} â†’ {n}" for f, o, n in changes)
         embed = discord.Embed(
-            title="✅ Character Edited",
+            title="âœ… Character Edited",
             description=f"**{char.name}** was updated by GM {self.editor.display_name}.",
             color=0x22C55E,
         )
@@ -984,7 +984,7 @@ async def gm_edit(interaction: discord.Interaction, user: discord.Member | None 
 
 
 # ---------------------------------------------------------------------------
-# /gm dashboard — World stats overview
+# /gm dashboard â€” World stats overview
 # ---------------------------------------------------------------------------
 
 @gm_group.command(name="dashboard", description="View world overview stats (GM only)")
@@ -1118,17 +1118,17 @@ async def gm_pending_user(interaction: discord.Interaction, user: discord.Member
     for req in requests:
         ts = req.requested_at.strftime("%Y-%m-%d %H:%M") if req.requested_at else "unknown"
         lines.append(
-            f"**ID {req.id}** — {req.character_name} | `{req.field_name}`: "
-            f"`{req.old_value}` → `{req.new_value}`\n"
+            f"**ID {req.id}** â€” {req.character_name} | `{req.field_name}`: "
+            f"`{req.old_value}` â†’ `{req.new_value}`\n"
             f"  Requested at {ts}"
         )
 
     description = "\n\n".join(lines)
     if len(description) > 4000:
-        description = description[:3990] + "\n…"
+        description = description[:3990] + "\nâ€¦"
 
     embed = discord.Embed(
-        title=f"Pending Requests — {user.display_name}",
+        title=f"Pending Requests â€” {user.display_name}",
         description=description,
         color=0xF59E0B,
         timestamp=datetime.utcnow(),
@@ -1144,7 +1144,7 @@ async def gm_pending_user(interaction: discord.Interaction, user: discord.Member
 boss_group = app_commands.Group(name="boss", description="Boss encounter management (GM only)", parent=gm_group)
 
 
-# ── /gm boss create ───────────────────────────────────────────────────────────
+# â”€â”€ /gm boss create â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class BossCreateModal(discord.ui.Modal, title="Create Boss Template"):
     name = discord.ui.TextInput(label="Boss Name", max_length=100)
@@ -1184,7 +1184,7 @@ class BossCreateModal(discord.ui.Modal, title="Create Boss Template"):
             tid = template.id
 
         embed = discord.Embed(
-            title="🗡️ Boss Template Created",
+            title="ðŸ—¡ï¸ Boss Template Created",
             description=f"**{self.name.value.strip()}** is ready for battle!",
             color=0xEF4444,
         )
@@ -1192,7 +1192,7 @@ class BossCreateModal(discord.ui.Modal, title="Create Boss Template"):
         embed.add_field(name="AC", value=str(ac), inline=True)
         embed.add_field(name="Damage", value=self.damage_dice.value.strip(), inline=True)
         embed.add_field(name="XP", value=str(xp), inline=True)
-        embed.set_footer(text=f"Template ID: {tid} • Use /gm boss spawn to deploy")
+        embed.set_footer(text=f"Template ID: {tid} â€¢ Use /gm boss spawn to deploy")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -1203,7 +1203,7 @@ async def gm_boss_create(interaction: discord.Interaction):
     await interaction.response.send_modal(BossCreateModal())
 
 
-# ── /gm boss list ─────────────────────────────────────────────────────────────
+# â”€â”€ /gm boss list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @boss_group.command(name="list", description="List all boss templates (GM only)")
 async def gm_boss_list(interaction: discord.Interaction):
@@ -1225,20 +1225,20 @@ async def gm_boss_list(interaction: discord.Interaction):
         return
 
     embed = discord.Embed(
-        title="🗡️ Boss Templates",
+        title="ðŸ—¡ï¸ Boss Templates",
         color=0xEF4444,
     )
     for t in templates[:20]:
         embed.add_field(
             name=f"{t.name} ({t.title or 'No title'})",
-            value=f"❤️ {t.hp_max}  🛡️ {t.armor_class}  ⚔️ {t.damage_dice}  ✨ {t.xp_value} XP  ⚡ {t.phase_count} phase(s)",
+            value=f"â¤ï¸ {t.hp_max}  ðŸ›¡ï¸ {t.armor_class}  âš”ï¸ {t.damage_dice}  âœ¨ {t.xp_value} XP  âš¡ {t.phase_count} phase(s)",
             inline=False,
         )
-    embed.set_footer(text=f"{len(templates)} template(s)  •  LoreForge")
+    embed.set_footer(text=f"{len(templates)} template(s)  â€¢  LoreForge")
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-# ── /gm boss spawn ────────────────────────────────────────────────────────────
+# â”€â”€ /gm boss spawn â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def _boss_name_autocomplete(interaction: discord.Interaction, current: str):
     async with get_db() as db:
@@ -1311,27 +1311,27 @@ async def gm_boss_spawn(interaction: discord.Interaction, name: str, hp_override
 
     # Build intro embed
     hp_bar_filled = 10
-    hp_bar = "█" * hp_bar_filled + "░" * (10 - hp_bar_filled)
+    hp_bar = "â–ˆ" * hp_bar_filled + "â–‘" * (10 - hp_bar_filled)
     embed = discord.Embed(
-        title=f"🗡️ {display_name} has appeared!",
+        title=f"ðŸ—¡ï¸ {display_name} has appeared!",
         description=t.description[:500],
         color=0xEF4444,
     )
-    embed.add_field(name="❤️ HP", value=f"`{hp_bar}` **{hp}/{hp}**", inline=True)
-    embed.add_field(name="🛡️ AC", value=str(t.armor_class), inline=True)
-    embed.add_field(name="⚡ Phases", value=str(t.phase_count or 1), inline=True)
+    embed.add_field(name="â¤ï¸ HP", value=f"`{hp_bar}` **{hp}/{hp}**", inline=True)
+    embed.add_field(name="ðŸ›¡ï¸ AC", value=str(t.armor_class), inline=True)
+    embed.add_field(name="âš¡ Phases", value=str(t.phase_count or 1), inline=True)
     if t.image_url:
         embed.set_image(url=t.image_url)
 
     lair_text = "Yes" if t.is_lair_boss else "No"
-    embed.add_field(name="🏰 Lair Boss", value=lair_text, inline=True)
-    embed.add_field(name="⚔️ Legendary Actions", value=str(t.legendary_action_count), inline=True)
-    embed.add_field(name="✨ XP Value", value=str(t.xp_value), inline=True)
-    embed.set_footer(text=f"Spawned by {interaction.user.display_name}  •  ID: {sid}")
+    embed.add_field(name="ðŸ° Lair Boss", value=lair_text, inline=True)
+    embed.add_field(name="âš”ï¸ Legendary Actions", value=str(t.legendary_action_count), inline=True)
+    embed.add_field(name="âœ¨ XP Value", value=str(t.xp_value), inline=True)
+    embed.set_footer(text=f"Spawned by {interaction.user.display_name}  â€¢  ID: {sid}")
     await interaction.followup.send(embed=embed)
 
 
-# ── /gm boss force-attack ─────────────────────────────────────────────────────
+# â”€â”€ /gm boss force-attack â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @boss_group.command(name="force-attack", description="Force the active boss to target a specific player (GM only)")
 @app_commands.describe(user="The player for the boss to target")
@@ -1356,14 +1356,14 @@ async def gm_boss_force_attack(interaction: discord.Interaction, user: discord.M
         boss.forced_target_id = user.id
 
     embed = discord.Embed(
-        title="🎯 Boss Target Set",
+        title="ðŸŽ¯ Boss Target Set",
         description=f"**{boss.display_name}** is now targeting **{user.display_name}**!",
         color=0xEF4444,
     )
     await interaction.followup.send(embed=embed)
 
 
-# ── /gm boss force-ability ────────────────────────────────────────────────────
+# â”€â”€ /gm boss force-ability â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @boss_group.command(name="force-ability", description="Force the boss to use a specific phase ability (GM only)")
 @app_commands.describe(ability_name="Name of the ability to use")
@@ -1396,7 +1396,7 @@ async def gm_boss_force_ability(interaction: discord.Interaction, ability_name: 
             return
 
     embed = discord.Embed(
-        title=f"⚡ Boss Ability — {ability['name']}",
+        title=f"âš¡ Boss Ability â€” {ability['name']}",
         description=ability.get("description", f"{boss.display_name} uses {ability['name']}!"),
         color=0xEF4444,
     )
@@ -1407,7 +1407,7 @@ async def gm_boss_force_ability(interaction: discord.Interaction, ability_name: 
     await interaction.followup.send(embed=embed)
 
 
-# ── /gm boss set-phase ────────────────────────────────────────────────────────
+# â”€â”€ /gm boss set-phase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @boss_group.command(name="set-phase", description="Manually set the boss's current phase (GM only)")
 @app_commands.describe(phase="Phase number (1-4)")
@@ -1437,13 +1437,13 @@ async def gm_boss_set_phase(interaction: discord.Interaction, phase: int):
 
     phase_descriptions = {
         1: "The boss fights normally.",
-        2: "The boss becomes more aggressive — new abilities unlock!",
+        2: "The boss becomes more aggressive â€” new abilities unlock!",
         3: "The boss is enraged! Powerful attacks are unleashed!",
-        4: "Desperate measures — the boss fights with everything it has!",
+        4: "Desperate measures â€” the boss fights with everything it has!",
     }
 
     embed = discord.Embed(
-        title=f"⚡ Phase Change!",
+        title=f"âš¡ Phase Change!",
         description=f"**{boss.display_name}** shifts to **Phase {phase}**!\n\n"
                     f"*{phase_descriptions.get(phase, 'The boss transforms!')}*",
         color=0xEF4444,
@@ -1453,7 +1453,7 @@ async def gm_boss_set_phase(interaction: discord.Interaction, phase: int):
     await interaction.followup.send(embed=embed)
 
 
-# ── /gm boss hp ───────────────────────────────────────────────────────────────
+# â”€â”€ /gm boss hp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @boss_group.command(name="hp", description="Set the active boss's HP directly (GM only)")
 @app_commands.describe(value="New HP value")
@@ -1493,9 +1493,9 @@ async def gm_boss_hp(interaction: discord.Interaction, value: int):
     # Build HP bar
     pct = boss.hp_current / boss.hp_max if boss.hp_max > 0 else 0
     bar_filled = round(pct * 10)
-    hp_bar = "█" * bar_filled + "░" * (10 - bar_filled)
+    hp_bar = "â–ˆ" * bar_filled + "â–‘" * (10 - bar_filled)
     embed = discord.Embed(
-        title=f"❤️ {boss.display_name} HP Updated",
+        title=f"â¤ï¸ {boss.display_name} HP Updated",
         description=f"`{hp_bar}` **{boss.hp_current}/{boss.hp_max}**  (was `{old_hp}`)",
         color=0x22C55E if pct > 0.5 else (0xF97316 if pct > 0.25 else 0xEF4444),
     )
@@ -1504,7 +1504,7 @@ async def gm_boss_hp(interaction: discord.Interaction, value: int):
     await interaction.followup.send(embed=embed)
 
 
-# ── /gm boss summon-minions ───────────────────────────────────────────────────
+# â”€â”€ /gm boss summon-minions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @boss_group.command(name="summon-minions", description="Spawn minions for the active boss (GM only)")
 async def gm_boss_summon_minions(interaction: discord.Interaction):
@@ -1556,14 +1556,14 @@ async def gm_boss_summon_minions(interaction: discord.Interaction):
             db.add(mini)
 
     embed = discord.Embed(
-        title=f"👥 Minions Arrive!",
+        title=f"ðŸ‘¥ Minions Arrive!",
         description=f"**{count}** **{mini_t.name}**(s) emerge to aid **{boss.display_name}**!",
         color=0xF97316,
     )
     await interaction.followup.send(embed=embed)
 
 
-# ── /gm boss legendary ────────────────────────────────────────────────────────
+# â”€â”€ /gm boss legendary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @boss_group.command(name="legendary", description="Use a legendary action for the active boss (GM only)")
 @app_commands.describe(action_name="Name of the legendary action to use")
@@ -1614,7 +1614,7 @@ async def gm_boss_legendary(interaction: discord.Interaction, action_name: str):
         boss.legendary_actions_remaining -= cost
 
     embed = discord.Embed(
-        title=f"⚡ Legendary Action — {action['name']}",
+        title=f"âš¡ Legendary Action â€” {action['name']}",
         description=action.get("description", f"{boss.display_name} unleashes a legendary power!") or f"{boss.display_name} unleashes a legendary power!",
         color=0xEF4444,
     )
@@ -1622,7 +1622,7 @@ async def gm_boss_legendary(interaction: discord.Interaction, action_name: str):
     await interaction.followup.send(embed=embed)
 
 
-# ── /gm boss kill ─────────────────────────────────────────────────────────────
+# â”€â”€ /gm boss kill â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @boss_group.command(name="kill", description="Instantly kill the active boss and award loot/XP (GM only)")
 async def gm_boss_kill(interaction: discord.Interaction):
@@ -1668,33 +1668,33 @@ async def gm_boss_kill(interaction: discord.Interaction):
         await db.delete(boss)
 
     embed = discord.Embed(
-        title=f"💀 {boss_name} Defeated!",
+        title=f"ðŸ’€ {boss_name} Defeated!",
         description=f"The mighty **{boss_name}** has fallen!",
         color=0x22C55E,
     )
     if combat_participants:
         embed.add_field(
-            name="✨ XP Awarded",
+            name="âœ¨ XP Awarded",
             value=f"**{xp_per_player} XP** each to {participant_count} player(s)",
             inline=False,
         )
     if gold_drop > 0:
-        embed.add_field(name="💰 Gold", value=f"**{gold_drop}** gold dropped!", inline=True)
+        embed.add_field(name="ðŸ’° Gold", value=f"**{gold_drop}** gold dropped!", inline=True)
     if loot_table:
         loot_lines = []
         for item in loot_table:
             qty = item.get("qty", 1)
             chance = item.get("chance", 1.0)
             qty_str = f"x{qty}" if qty > 1 else ""
-            loot_lines.append(f"• {item.get('item', 'Unknown')} {qty_str} ({round(chance * 100)}% chance)")
-        embed.add_field(name="🎁 Loot Table", value="\n".join(loot_lines) or "None", inline=False)
+            loot_lines.append(f"â€¢ {item.get('item', 'Unknown')} {qty_str} ({round(chance * 100)}% chance)")
+        embed.add_field(name="ðŸŽ Loot Table", value="\n".join(loot_lines) or "None", inline=False)
     embed.set_footer(text="Use /gm boss spawn to summon another")
     await interaction.followup.send(embed=embed)
 
 
-# ── /gm boss flee ─────────────────────────────────────────────────────────────
+# â”€â”€ /gm boss flee â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-@boss_group.command(name="flee", description="The active boss flees — awards half XP (GM only)")
+@boss_group.command(name="flee", description="The active boss flees â€” awards half XP (GM only)")
 async def gm_boss_flee(interaction: discord.Interaction):
     if not await gm_only(interaction):
         return
@@ -1734,7 +1734,7 @@ async def gm_boss_flee(interaction: discord.Interaction):
         await db.delete(boss)
 
     embed = discord.Embed(
-        title=f"💨 {boss_name} Flees!",
+        title=f"ðŸ’¨ {boss_name} Flees!",
         description=f"**{boss_name}** retreats in defeat! "
                     f"The party earns **{xp_per_player} XP** each (half value) for driving it off.",
         color=0xF97316,
@@ -1749,7 +1749,7 @@ async def gm_boss_flee(interaction: discord.Interaction):
 gm_title_group = app_commands.Group(name="title", description="GM: manage character titles", parent=gm_group)
 
 
-# ── /gm title create ──────────────────────────────────────────────────────────
+# â”€â”€ /gm title create â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @gm_title_group.command(name="create", description="Create a new title for this server (GM only)")
 @app_commands.describe(
@@ -1793,17 +1793,17 @@ async def gm_title_create(
     meta = TIER_META.get(title.tier, TIER_META["common"])
     embed = discord.Embed(
         title=f"{meta['icon']} Title Created",
-        description=f"**{meta['icon']} {title.name}** — *{meta['label']}*",
+        description=f"**{meta['icon']} {title.name}** â€” *{meta['label']}*",
         color=meta["color"],
     )
     if title.description:
         embed.add_field(name="Description", value=title.description, inline=False)
-    embed.add_field(name="Unique", value="Yes — only one holder" if title.is_unique else "No", inline=True)
+    embed.add_field(name="Unique", value="Yes â€” only one holder" if title.is_unique else "No", inline=True)
     embed.set_footer(text="Use /gm title award to give this title to a character")
     await interaction.followup.send(embed=embed)
 
 
-# ── /gm title award ───────────────────────────────────────────────────────────
+# â”€â”€ /gm title award â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @gm_title_group.command(name="award", description="Give a title to a character (GM only)")
 @app_commands.describe(character_name="Name of the character", title_name="Name of the title")
@@ -1813,7 +1813,7 @@ async def gm_title_award(interaction: discord.Interaction, character_name: str, 
     await interaction.response.defer()
     async with get_db() as db:
         char = await db.scalar(select(Character).where(
-            Character.guild_id == str(interaction.guild_id),
+            Character.guild_id == interaction.guild_id,
             Character.name.ilike(character_name),
         ))
         if not char:
@@ -1847,7 +1847,7 @@ async def gm_title_award(interaction: discord.Interaction, character_name: str, 
     await interaction.followup.send(embed=embed)
 
 
-# ── /gm title revoke ──────────────────────────────────────────────────────────
+# â”€â”€ /gm title revoke â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @gm_title_group.command(name="revoke", description="Remove a title from a character (GM only)")
 @app_commands.describe(character_name="Name of the character", title_name="Name of the title")
@@ -1857,7 +1857,7 @@ async def gm_title_revoke(interaction: discord.Interaction, character_name: str,
     await interaction.response.defer()
     async with get_db() as db:
         char = await db.scalar(select(Character).where(
-            Character.guild_id == str(interaction.guild_id),
+            Character.guild_id == interaction.guild_id,
             Character.name.ilike(character_name),
         ))
         if not char:
@@ -1884,11 +1884,11 @@ async def gm_title_revoke(interaction: discord.Interaction, character_name: str,
             return
 
     await interaction.followup.send(
-        f"❌ **{title_name}** revoked from **{char.name}**."
+        f"âŒ **{title_name}** revoked from **{char.name}**."
     )
 
 
-# ── /gm title delete ──────────────────────────────────────────────────────────
+# â”€â”€ /gm title delete â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @gm_title_group.command(name="delete", description="Permanently delete a title from the server (GM only)")
 @app_commands.describe(title_name="Name of the title to delete")
@@ -1915,11 +1915,11 @@ async def gm_title_delete(interaction: discord.Interaction, title_name: str):
         await db.commit()
 
     await interaction.followup.send(
-        f"🗑️ Title **{title_name}** and all its character associations have been deleted."
+        f"ðŸ—‘ï¸ Title **{title_name}** and all its character associations have been deleted."
     )
 
 
-# ── /gm title list ────────────────────────────────────────────────────────────
+# â”€â”€ /gm title list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @gm_title_group.command(name="list", description="List all titles in this server with holder counts (GM only)")
 async def gm_title_list(interaction: discord.Interaction):
@@ -1937,7 +1937,7 @@ async def gm_title_list(interaction: discord.Interaction):
         return
 
     embed = discord.Embed(
-        title="🏅 Titles — This Server",
+        title="ðŸ… Titles â€” This Server",
         color=0xF1C40F,
     )
     for t in titles:
@@ -1945,10 +1945,10 @@ async def gm_title_list(interaction: discord.Interaction):
         unique_tag = " [Unique]" if t.is_unique else ""
         embed.add_field(
             name=f"{meta['icon']} {t.name}{unique_tag}",
-            value=f"*{meta['label']}*  ·  {t.description or 'No description'}",
+            value=f"*{meta['label']}*  Â·  {t.description or 'No description'}",
             inline=False,
         )
-    embed.set_footer(text=f"{len(titles)} title(s)  •  LoreForge")
+    embed.set_footer(text=f"{len(titles)} title(s)  â€¢  LoreForge")
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 

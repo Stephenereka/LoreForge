@@ -1,4 +1,4 @@
-import discord
+﻿import discord
 from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select, desc
@@ -16,7 +16,7 @@ async def _get_characters_at_location(guild_id: int) -> list[str]:
     async with get_db() as db:
         result = await db.execute(
             select(Character).where(
-                Character.guild_id == str(guild_id),
+                Character.guild_id == guild_id,
                 Character.is_active == True,
                 Character.is_dead == False,
             )
@@ -46,13 +46,13 @@ async def session_start(interaction: discord.Interaction, title: str | None = No
         session_id = log.id
 
     embed = discord.Embed(
-        title="📜 Session Started",
+        title="ðŸ“œ Session Started",
         description=f"**{title or 'Untitled Session'}** has begun!\n\n"
                     f"**Characters present:** {', '.join(chars) if chars else 'None yet'}\n"
                     f"Use `/session end` when the session is over.",
         color=0x22C55E,
     )
-    embed.set_footer(text=f"Session ID: {session_id} • LoreForge")
+    embed.set_footer(text=f"Session ID: {session_id} â€¢ LoreForge")
     await interaction.followup.send(embed=embed)
     # Pin the embed
     try:
@@ -70,8 +70,8 @@ async def session_end(interaction: discord.Interaction):
     async with get_db() as db:
         result = await db.execute(
             select(SessionLog).where(
-                SessionLog.guild_id == str(interaction.guild_id),
-                SessionLog.channel_id == str(interaction.channel_id),
+                SessionLog.guild_id == interaction.guild_id,
+                SessionLog.channel_id == interaction.channel_id,
                 SessionLog.ended_at.is_(None),
             ).order_by(desc(SessionLog.started_at)).limit(1)
         )
@@ -88,7 +88,7 @@ async def session_end(interaction: discord.Interaction):
 
         # Check if AI summaries are enabled
         ai_config = await db.execute(
-            select(AIConfig).where(AIConfig.guild_id == str(interaction.guild_id))
+            select(AIConfig).where(AIConfig.guild_id == interaction.guild_id)
         )
         config = ai_config.scalar_one_or_none()
         ai_enabled = config and config.session_summary_enabled
@@ -127,21 +127,21 @@ async def session_end(interaction: discord.Interaction):
             log.summary_text = summary_text
 
     embed = discord.Embed(
-        title=f"📜 Session Ended — {log.title if log else 'Session'}",
+        title=f"ðŸ“œ Session Ended â€” {log.title if log else 'Session'}",
         color=0x6366F1,
     )
-    embed.add_field(name="⏱️ Duration", value="Active", inline=True)
-    embed.add_field(name="⚔️ Combats", value=str(log.combat_count or 0), inline=True)
-    embed.add_field(name="📋 Quests", value=str(log.quest_completions or 0), inline=True)
-    embed.add_field(name="✨ XP Earned", value=str(log.total_xp or 0), inline=True)
-    embed.add_field(name="🎭 Characters", value=", ".join(log.characters_present or []) or "None", inline=False)
+    embed.add_field(name="â±ï¸ Duration", value="Active", inline=True)
+    embed.add_field(name="âš”ï¸ Combats", value=str(log.combat_count or 0), inline=True)
+    embed.add_field(name="ðŸ“‹ Quests", value=str(log.quest_completions or 0), inline=True)
+    embed.add_field(name="âœ¨ XP Earned", value=str(log.total_xp or 0), inline=True)
+    embed.add_field(name="ðŸŽ­ Characters", value=", ".join(log.characters_present or []) or "None", inline=False)
 
     if summary_text:
-        embed.add_field(name="📖 Summary", value=summary_text, inline=False)
+        embed.add_field(name="ðŸ“– Summary", value=summary_text, inline=False)
     elif log.summary_text:
-        embed.add_field(name="📖 Summary", value=log.summary_text, inline=False)
+        embed.add_field(name="ðŸ“– Summary", value=log.summary_text, inline=False)
     else:
-        embed.add_field(name="📖 Summary", value="*No AI summary available. Toggle summaries with `/ai toggle summary`.*", inline=False)
+        embed.add_field(name="ðŸ“– Summary", value="*No AI summary available. Toggle summaries with `/ai toggle summary`.*", inline=False)
 
     embed.set_footer(text="LoreForge Session Log")
     await interaction.followup.send(embed=embed)
@@ -156,8 +156,8 @@ async def session_summary(interaction: discord.Interaction):
     async with get_db() as db:
         result = await db.execute(
             select(SessionLog).where(
-                SessionLog.guild_id == str(interaction.guild_id),
-                SessionLog.channel_id == str(interaction.channel_id),
+                SessionLog.guild_id == interaction.guild_id,
+                SessionLog.channel_id == interaction.channel_id,
             ).order_by(desc(SessionLog.started_at)).limit(1)
         )
         log = result.scalar_one_or_none()
@@ -196,18 +196,18 @@ async def session_summary(interaction: discord.Interaction):
             log.summary_text = summary
 
     embed = discord.Embed(
-        title="📜 Session Summary",
+        title="ðŸ“œ Session Summary",
         color=0x6366F1,
     )
-    embed.add_field(name="🎭 Characters", value=", ".join(log.characters_present or []) or "None", inline=False)
-    embed.add_field(name="⚔️ Combats", value=str(log.combat_count or 0), inline=True)
-    embed.add_field(name="📋 Quests", value=str(log.quest_completions or 0), inline=True)
-    embed.add_field(name="✨ XP", value=str(log.total_xp or 0), inline=True)
+    embed.add_field(name="ðŸŽ­ Characters", value=", ".join(log.characters_present or []) or "None", inline=False)
+    embed.add_field(name="âš”ï¸ Combats", value=str(log.combat_count or 0), inline=True)
+    embed.add_field(name="ðŸ“‹ Quests", value=str(log.quest_completions or 0), inline=True)
+    embed.add_field(name="âœ¨ XP", value=str(log.total_xp or 0), inline=True)
 
     if summary:
-        embed.add_field(name="📖 Narrative", value=summary, inline=False)
+        embed.add_field(name="ðŸ“– Narrative", value=summary, inline=False)
     else:
-        embed.add_field(name="📖 Narrative", value="*AI summary unavailable.*", inline=False)
+        embed.add_field(name="ðŸ“– Narrative", value="*AI summary unavailable.*", inline=False)
 
     embed.set_footer(text="Use /session log to view past sessions")
     await interaction.followup.send(embed=embed)
@@ -219,7 +219,7 @@ async def session_log(interaction: discord.Interaction):
     async with get_db() as db:
         result = await db.execute(
             select(SessionLog).where(
-                SessionLog.guild_id == str(interaction.guild_id),
+                SessionLog.guild_id == interaction.guild_id,
             ).order_by(desc(SessionLog.started_at)).limit(50)
         )
         sessions = list(result.scalars().all())
@@ -242,7 +242,7 @@ async def session_log(interaction: discord.Interaction):
         def _build_embed(self):
             s = self.pages[self.page]
             embed = discord.Embed(
-                title=f"📜 Session Log — Page {self.page + 1}/{len(self.pages)}",
+                title=f"ðŸ“œ Session Log â€” Page {self.page + 1}/{len(self.pages)}",
                 color=0x6366F1,
             )
             embed.add_field(name="Title", value=s.title or "Untitled", inline=True)
@@ -254,20 +254,20 @@ async def session_log(interaction: discord.Interaction):
                 minutes = int((duration_seconds % 3600) // 60)
                 embed.add_field(name="Duration", value=f"{hours}h {minutes}m", inline=True)
             embed.add_field(name="Characters", value=", ".join(s.characters_present or []) or "None", inline=False)
-            embed.add_field(name="⚔️", value=str(s.combat_count or 0), inline=True)
-            embed.add_field(name="📋", value=str(s.quest_completions or 0), inline=True)
-            embed.add_field(name="✨ XP", value=str(s.total_xp or 0), inline=True)
+            embed.add_field(name="âš”ï¸", value=str(s.combat_count or 0), inline=True)
+            embed.add_field(name="ðŸ“‹", value=str(s.quest_completions or 0), inline=True)
+            embed.add_field(name="âœ¨ XP", value=str(s.total_xp or 0), inline=True)
             if s.summary_text:
                 embed.add_field(name="Summary", value=s.summary_text[:500], inline=False)
             return embed
 
-        @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
+        @discord.ui.button(label="â—€ Prev", style=discord.ButtonStyle.secondary)
         async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
             self.page -= 1
             self._update_buttons()
             await interaction.response.edit_message(embed=self._build_embed(), view=self)
 
-        @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.primary)
+        @discord.ui.button(label="Next â–¶", style=discord.ButtonStyle.primary)
         async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
             self.page += 1
             self._update_buttons()

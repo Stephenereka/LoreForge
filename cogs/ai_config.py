@@ -1,4 +1,4 @@
-import discord
+﻿import discord
 from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
@@ -9,10 +9,10 @@ from services.utils import gm_only
 ai_group = app_commands.Group(name="ai", description="AI system configuration (GM only)")
 
 _STYLE_CHOICES = [
-    app_commands.Choice(name="Epic — cinematic, dramatic", value="epic"),
-    app_commands.Choice(name="Gritty — brutal, realistic", value="gritty"),
-    app_commands.Choice(name="Comedic — light, humorous", value="comedic"),
-    app_commands.Choice(name="Minimal — one-liner only", value="minimal"),
+    app_commands.Choice(name="Epic â€” cinematic, dramatic", value="epic"),
+    app_commands.Choice(name="Gritty â€” brutal, realistic", value="gritty"),
+    app_commands.Choice(name="Comedic â€” light, humorous", value="comedic"),
+    app_commands.Choice(name="Minimal â€” one-liner only", value="minimal"),
 ]
 
 
@@ -22,28 +22,28 @@ async def ai_status(interaction: discord.Interaction):
         return
     await interaction.response.defer(ephemeral=True)
     async with get_db() as db:
-        config = await db.scalar(select(AIConfig).where(AIConfig.guild_id == str(interaction.guild_id)))
+        config = await db.scalar(select(AIConfig).where(AIConfig.guild_id == interaction.guild_id))
         if not config:
             config = AIConfig(guild_id=str(interaction.guild_id))
             db.add(config)
             await db.flush()
-        narration_status = "✅ ON" if config.narration_enabled else "❌ OFF"
-        npc_status = "✅ ON" if config.npc_ai_enabled else "❌ OFF"
-        summary_status = "✅ ON" if config.session_summary_enabled else "❌ OFF"
+        narration_status = "âœ… ON" if config.narration_enabled else "âŒ OFF"
+        npc_status = "âœ… ON" if config.npc_ai_enabled else "âŒ OFF"
+        summary_status = "âœ… ON" if config.session_summary_enabled else "âŒ OFF"
         style = config.narration_style
     embed = discord.Embed(
-        title="🤖 AI System Status",
+        title="ðŸ¤– AI System Status",
         description=f"Current AI configuration for **{interaction.guild.name}**",
         color=0x6366F1,
     )
-    embed.add_field(name="⚔️ Combat Narration", value=f"{narration_status}  — Style: **{style}**", inline=False)
-    embed.add_field(name="💬 NPC Dialogue (AI)", value=npc_status, inline=False)
-    embed.add_field(name="📜 Session Summaries", value=summary_status, inline=False)
+    embed.add_field(name="âš”ï¸ Combat Narration", value=f"{narration_status}  â€” Style: **{style}**", inline=False)
+    embed.add_field(name="ðŸ’¬ NPC Dialogue (AI)", value=npc_status, inline=False)
+    embed.add_field(name="ðŸ“œ Session Summaries", value=summary_status, inline=False)
     embed.set_footer(text="Use /ai toggle and /ai style to configure")
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-# ── Toggle subgroup ───────────────────────────────────────────────────────────
+# â”€â”€ Toggle subgroup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 ai_toggle = app_commands.Group(name="toggle", description="Toggle AI features", parent=ai_group)
 
@@ -54,7 +54,7 @@ async def ai_toggle_narration(interaction: discord.Interaction):
         return
     await interaction.response.defer()
     async with get_db() as db:
-        config = await db.scalar(select(AIConfig).where(AIConfig.guild_id == str(interaction.guild_id)))
+        config = await db.scalar(select(AIConfig).where(AIConfig.guild_id == interaction.guild_id))
         if not config:
             config = AIConfig(guild_id=str(interaction.guild_id))
             db.add(config)
@@ -65,12 +65,12 @@ async def ai_toggle_narration(interaction: discord.Interaction):
         narration_style = config.narration_style
     status = "enabled" if narration_enabled else "disabled"
     embed = discord.Embed(
-        title="⚙️ AI Narration Toggled",
+        title="âš™ï¸ AI Narration Toggled",
         description=f"Combat narration is now **{status}**.",
         color=0x22C55E if narration_enabled else 0xEF4444,
     )
     embed.add_field(name="Style", value=narration_style, inline=True)
-    embed.add_field(name="Narration Status", value="✅ ON" if narration_enabled else "❌ OFF", inline=True)
+    embed.add_field(name="Narration Status", value="âœ… ON" if narration_enabled else "âŒ OFF", inline=True)
     await interaction.followup.send(embed=embed)
 
 
@@ -80,7 +80,7 @@ async def ai_toggle_npc(interaction: discord.Interaction):
         return
     await interaction.response.defer()
     async with get_db() as db:
-        config = await db.scalar(select(AIConfig).where(AIConfig.guild_id == str(interaction.guild_id)))
+        config = await db.scalar(select(AIConfig).where(AIConfig.guild_id == interaction.guild_id))
         if not config:
             config = AIConfig(guild_id=str(interaction.guild_id))
             db.add(config)
@@ -90,7 +90,7 @@ async def ai_toggle_npc(interaction: discord.Interaction):
         npc_ai_enabled = config.npc_ai_enabled
     status = "enabled" if npc_ai_enabled else "disabled"
     embed = discord.Embed(
-        title="⚙️ AI NPC Dialogue Toggled",
+        title="âš™ï¸ AI NPC Dialogue Toggled",
         description=f"AI NPC dialogue is now **{status}**.",
         color=0x22C55E if npc_ai_enabled else 0xEF4444,
     )
@@ -103,7 +103,7 @@ async def ai_toggle_summary(interaction: discord.Interaction):
         return
     await interaction.response.defer()
     async with get_db() as db:
-        config = await db.scalar(select(AIConfig).where(AIConfig.guild_id == str(interaction.guild_id)))
+        config = await db.scalar(select(AIConfig).where(AIConfig.guild_id == interaction.guild_id))
         if not config:
             config = AIConfig(guild_id=str(interaction.guild_id))
             db.add(config)
@@ -113,14 +113,14 @@ async def ai_toggle_summary(interaction: discord.Interaction):
         summary_enabled = config.session_summary_enabled
     status = "enabled" if summary_enabled else "disabled"
     embed = discord.Embed(
-        title="⚙️ Session Summaries Toggled",
+        title="âš™ï¸ Session Summaries Toggled",
         description=f"Auto session summaries are now **{status}**.",
         color=0x22C55E if summary_enabled else 0xEF4444,
     )
     await interaction.followup.send(embed=embed)
 
 
-# ── Style command ─────────────────────────────────────────────────────────────
+# â”€â”€ Style command â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @ai_group.command(name="style", description="Set the AI narration style (GM only)")
 @app_commands.describe(style="The narration tone to use")
@@ -130,7 +130,7 @@ async def ai_style(interaction: discord.Interaction, style: app_commands.Choice[
         return
     await interaction.response.defer()
     async with get_db() as db:
-        config = await db.scalar(select(AIConfig).where(AIConfig.guild_id == str(interaction.guild_id)))
+        config = await db.scalar(select(AIConfig).where(AIConfig.guild_id == interaction.guild_id))
         if not config:
             config = AIConfig(guild_id=str(interaction.guild_id))
             db.add(config)
@@ -138,7 +138,7 @@ async def ai_style(interaction: discord.Interaction, style: app_commands.Choice[
         config.narration_style = style.value
         config.updated_by = str(interaction.user.id)
     embed = discord.Embed(
-        title="🎭 Narration Style Updated",
+        title="ðŸŽ­ Narration Style Updated",
         description=f"Combat narration style set to **{style.name}**.",
         color=0x6366F1,
     )
