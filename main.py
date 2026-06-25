@@ -122,6 +122,20 @@ async def _time_update_task():
         await asyncio.sleep(60)
 
 
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: Exception):
+    import traceback
+    print(f"[CMD ERROR] {interaction.command} — {error}")
+    traceback.print_exc()
+    msg = f"Something went wrong: `{type(error).__name__}: {error}`"
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except Exception:
+        pass
+
 @bot.event
 async def on_ready():
     await init_db()

@@ -49,5 +49,20 @@ async def init_db():
             "ALTER TABLE characters ADD COLUMN IF NOT EXISTS wild_shape_active BOOLEAN DEFAULT FALSE",
             "ALTER TABLE characters ADD COLUMN IF NOT EXISTS wild_shape_form VARCHAR(30)",
             "ALTER TABLE characters ADD COLUMN IF NOT EXISTS wild_shape_hp INTEGER DEFAULT 0",
+            # Combat state columns (safe no-op if already exist)
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_dead BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_unconscious BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS hp_temp INTEGER DEFAULT 0",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_saves_success INTEGER DEFAULT 0",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_saves_failure INTEGER DEFAULT 0",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS conditions JSONB DEFAULT '[]'",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS skill_proficiencies JSONB DEFAULT '[]'",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS class_resources JSONB DEFAULT '{}'",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS backstory TEXT",
+            # GuildConfig extras
+            "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS log_channel_id BIGINT",
+            "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS gm_channel_id BIGINT",
+            "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS world_map_url TEXT",
+            "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS world_name VARCHAR(100) DEFAULT 'LoreForge World'",
         ]:
             await conn.execute(text(stmt))
