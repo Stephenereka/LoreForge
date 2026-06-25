@@ -60,6 +60,48 @@ def _tao_max(char: Character) -> int:
     intel = _mod(char.intelligence)
     return max(base, char.level + wis + intel)
 
+# ── Path descriptions with level upgrades ──────────────────────────────────────
+
+PATH_FULL = {
+    "Heavenly Demon": {
+        "flavor": "You command blades as extensions of your will. Telekinetic sword control, orbital defense, and Sword Storm become your signature. The sword does not merely obey — it anticipates.",
+        "level_6": "**Sword Orbit (Passive):** While controlling 1+ flying swords, gain **+2 AC** and a reaction to strike attackers who hit you.",
+        "level_11": "**Sword Storm (Action, 4 Tao):** All controlled swords strike every enemy in a 30-ft radius. Each sword deals full damage and your AC bonus doubles to +4.",
+        "level_17": "**Hundred Blade Domain (Active, 8 Tao, 1/rest):** Fill a 60-ft radius with orbiting blades. You automatically hit every enemy in the domain for **3d10** slashing at the start of your turn. Domain lasts 1 minute.",
+    },
+    "Blood Demon": {
+        "flavor": "You chain Demonic Forms at terrifying speed — turning combat into a seamless massacre. Each strike births the next. Your enemies cannot find a gap between your attacks.",
+        "level_6": "**Form Cascade (Passive):** When you use a Demonic Form that makes 3+ attacks, you may chain it into another form by paying its Tao cost. Chain up to **2 forms** per turn.",
+        "level_11": "**Form Torrent (Passive):** Increase chain limit to **5 forms** per turn. Each form in a chain deals +1d6 bonus damage.",
+        "level_17": "**Blood Moon Massacre (Active, 10 Tao, 1/rest):** Chain up to **10 forms** in a single turn. Every 5th attack in the chain is an automatic critical hit.",
+    },
+    "Elemental Demon": {
+        "flavor": "Your Tao takes elemental form — fire, lightning, wind, or cold. Every strike ignites the air, freezes the ground, or tears the sky. The elements obey the Heavenly Demon.",
+        "level_6": "**Elemental Burst (Active, 3 Tao):** Release a 20-ft radius explosion of your element. Creatures take full damage (DEX save halves) and are pushed 15 ft + knocked prone on failure.",
+        "level_11": "**Elemental Aura (Passive):** While Tao ≥ 4, elemental damage radiates 15 ft around you. Creatures entering or starting turn there take **2d6** elemental damage. Your weapon attacks deal +1d8 elemental damage.",
+        "level_17": "**Heavenly Demon Manifestation (Active, 8 Tao, 1/rest, 1 min):** Your body becomes elemental energy. +3 AC, advantage on all attacks, +1 extra action per turn, +3 martial arts dice per hit. When it ends: 1 level of exhaustion.",
+    },
+}
+
+ELEMENT_DETAILS = {
+    "Fire": {
+        "desc": "Burning damage over time. Targets hit take 1d6 fire at start of your next turn (stacks up to 3 times).",
+        "burst_extra": "Creatures that fail the save are also **Burning** (1d6 at start of their turn, save ends).",
+    },
+    "Lightning": {
+        "desc": "Stun chance on hit. Targets hit must make CON save (DC = your save DC) or be Stunned until end of your next turn.",
+        "burst_extra": "Creatures that fail the save are **Stunned** until the end of your next turn.",
+    },
+    "Wind": {
+        "desc": "Extra attack per turn. After using a Demonic Form, make 1 additional basic attack against a different target. +10 ft movement.",
+        "burst_extra": "Creatures that fail the save are knocked **Prone** and pushed an additional **30 ft**.",
+    },
+    "Cold": {
+        "desc": "Slow on hit. Target's speed is halved until end of your next turn (save ends). Stacking slows can freeze.",
+        "burst_extra": "Creatures that fail the save have their **speed reduced to 0** and cannot take reactions until the end of your next turn.",
+    },
+}
+
 # ── 24 Forms data ────────────────────────────────────────────────────────────
 
 FORMS = {
@@ -877,6 +919,381 @@ class HeavenlyDemonCog(commands.Cog):
         stance = "🗡️🗡️ Active" if res.get("hd_dual_wield") else "Off"
         e.add_field(name="⚔️ Dual Wield Stance", value=stance, inline=True)
         await interaction.response.send_message(embed=e, ephemeral=True)
+
+    # ── Comprehensive Codex Viewer ──────────────────────────────────────────
+
+    @hd_group.command(name="codex", description="📖 View the complete Heavenly Demon Heir class compendium")
+    async def hd_codex(self, interaction: discord.Interaction):
+        """Comprehensive 10-page class viewer showing every system, form, path, and feature."""
+        if interaction.user.id != OWNER_ID:
+            return
+        char = await _get_hd_char(interaction)
+        level = char.level if char else 1
+        dex_mod = _mod(char.dexterity) if char else 0
+        wis_mod = _mod(char.wisdom) if char else 0
+        pb = _PROF_BONUS.get(level, 2)
+        dc = 8 + pb + wis_mod
+        cnt, sides = _sword_die(level)
+        dmg_die = f"{cnt}d{sides}"
+        tao_mx = _tao_max(char) if char else _TAO_MAX_TABLE.get(level, 2)
+        max_swords = _SWORD_MAX_TABLE.get(level, 1)
+
+        pages = []
+
+        # ── Page 1: Class Overview ──────────────────────────────────────────────
+        e = discord.Embed(
+            title="📖 Heavenly Demon Heir — Class Codex",
+            description=(
+                "A martial cultivator who combines sword mastery, demonic martial arts, "
+                "and an internal **Tao system** that enhances every facet of combat. Through "
+                "cultivation of Tao, you unleash rapid sequences of attacks, manipulate blades "
+                "through the air with your mind, and ascend to supernatural dominance.\n\n"
+                "*\"The blade does not merely obey — it fears the Heavenly Demon.\"*"
+            ),
+            color=0x8B0000,
+        )
+        e.add_field(name="🎲 Hit Die", value="d8", inline=True)
+        e.add_field(name="⭐ Primary Stat", value="Dexterity", inline=True)
+        e.add_field(name="🛡️ Saving Throws", value="DEX & WIS", inline=True)
+        e.add_field(name="🗡️ Weapon Die", value=f"{dmg_die} + DEX mod", inline=True)
+        e.add_field(name="🌀 Tao Capacity", value=f"{tao_mx} at level {level}", inline=True)
+        e.add_field(name="🗡️ Max Controlled Swords", value=f"{max_swords}", inline=True)
+        e.add_field(name="📊 Stats at Your Level", value=f"DEX: {_mod(char.dexterity) if char else 0:+d} | WIS: {wis_mod:+d}\nProf: +{pb} | Save DC: {dc} | Crit: {'18-20' if level >= 20 else '20'}", inline=False)
+        e.add_field(
+            name="🧩 Three Paths (choose at level 3)",
+            value=(
+                "**Path of the Heavenly Demon** — Telekinetic sword master. Orbital defense, Sword Storm.\n"
+                "**Path of the Blood Demon** — Form combo specialist. Chain up to 10 forms per turn.\n"
+                "**Path of the Elemental Demon** — Elemental devastation. Fire, Lightning, Wind, or Cold."
+            ),
+            inline=False,
+        )
+        e.set_footer(text="Page 1/10 — Class Overview · Use /hd codex at any level to see your current progression")
+        pages.append(e)
+
+        # ── Page 2: Tao & Nano Systems ──────────────────────────────────────────
+        e = discord.Embed(
+            title="🌀 Tao System — The Fuel of the Heavenly Demon",
+            description=(
+                "Tao is your internal cultivation energy — the lifeblood of every Demonic Sword Form, "
+                "every telekinetic blade, and every path-specific ability. Managing Tao is the core "
+                "of the Heavenly Demon Heir gameplay."
+            ),
+            color=0x8B0000,
+        )
+        e.add_field(
+            name="⚡ Tao Points",
+            value=(
+                f"**Maximum:** `{tao_mx}` at level {level}\n"
+                f"**Formula:** `max(level_table, level + WIS_mod + INT_mod)`\n"
+                "**Recovery:** All Tao restored on **long rest**\n"
+                "**Exhaustion:** If Tao hits 0, you fall **unconscious** 💀\n\n"
+                "Spend Tao to activate Demonic Sword Forms. Each form has a cost from 1 to 8+ Tao. "
+                "Higher-tier forms cost more but deal exponentially more damage."
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name="🔋 Perfect Tao Circulation (Level 10+)",
+            value=(
+                "At the start of each of your turns, regenerate **WIS modifier** (minimum 1) Tao.\n"
+                "This keeps you fighting turn after turn without running dry."
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name="🤖 Nano System (Passive — Always Active)",
+            value=(
+                "Your internal combat AI enhances your body:\n"
+                "• **Advantage on initiative rolls** — you almost always strike first\n"
+                "• **Reroll one attack roll per turn** — use after seeing the result\n"
+                "• Upgrades at level 20: **crit range becomes 18-20**"
+            ),
+            inline=False,
+        )
+        e.set_footer(text="Page 2/10 — Tao & Nano Systems")
+        pages.append(e)
+
+        # ── Page 3: Subclass Paths ──────────────────────────────────────────────
+        path_lines = []
+        for path_name, path_data in PATH_FULL.items():
+            p_desc = path_data["flavor"]
+            l6 = path_data["level_6"]
+            l11 = path_data["level_11"]
+            l17 = path_data["level_17"]
+            lock6 = "✅" if level >= 6 else "🔒 Lv6"
+            lock11 = "✅" if level >= 11 else "🔒 Lv11"
+            lock17 = "✅" if level >= 17 else "🔒 Lv17"
+            path_lines.append(
+                f"### ⚔️ {path_name}\n"
+                f"{p_desc}\n\n"
+                f"{lock6} **Level 6:** {l6}\n"
+                f"{lock11} **Level 11:** {l11}\n"
+                f"{lock17} **Level 17:** {l17}"
+            )
+        e = discord.Embed(
+            title="⚔️ Subclass Paths — Choose at Level 3",
+            description="\n\n".join(path_lines),
+            color=0x8B0000,
+        )
+        # Add element details if Elemental Demon
+        elem_lines = []
+        for elem, data in ELEMENT_DETAILS.items():
+            emoji = ELEMENT_EMOJI[elem]
+            elem_lines.append(f"{emoji} **{elem}** — {data['desc']}")
+        e.add_field(
+            name="🌪️ Elemental Demon Elements",
+            value="\n".join(elem_lines),
+            inline=False,
+        )
+        e.set_footer(text="Page 3/10 — Subclass Paths · Path improvements at levels 6, 11, and 17")
+        pages.append(e)
+
+        # ── Page 4: Level Progression ───────────────────────────────────────────
+        LEVEL_FEATURES = {
+            1: "**Demonic Forms (Basic)** — Unlock 6 Basic forms. Nano System active. Tao capacity: 2.",
+            2: "**Sword Flight** — Channel Tao into your blade to fly. Speed: 30 ft. Concentration.",
+            3: "**Choose Your Path** — Heavenly Demon, Blood Demon, or Elemental Demon. Path sets your playstyle.",
+            4: "**Phantom Step** — Spend 1 Tao to teleport 30 ft as a bonus action. **ASI +2** (STR/DEX/CON/INT/WIS/CHA).",
+            5: "**Extra Attack** — Attack twice per turn. **Intermediate Forms** unlock. Tao capacity: 6.",
+            6: "**Tao Empowered Strikes** — Weapon attacks count as magical. **Path upgrade: Level 6 ability**.",
+            7: "**Tao Sword Control** — Spend 2 Tao per sword to control blades telekinetically. 90-ft range.",
+            8: "**ASI +2** — Increase two ability scores or one by 2. Swords max +1.",
+            9: "**Advanced Forms** — 6 Advanced Demonic Forms unlock. Forms cost 3-4 Tao.",
+            10: "**Perfect Tao Circulation** — Regenerate WIS mod Tao at start of each turn. Tao capacity: 12.",
+            11: "**Path Upgrade: Level 11** — Major path ability upgrade. Swords max: 6.",
+            12: "**ASI +2** — Increase ability scores. Stronger sword damage.",
+            13: "**Tao Capacity Boost** — Tao max increases significantly. Sword damage die upgrades.",
+            14: "**ASI +2** — Increase ability scores.",
+            15: "**Supreme Forms** — 6 Supreme Forms unlock (cost 5-8 Tao). **Heavenly Demon Body**: +2 AC, resistance to non-magical damage. Tao capacity: 25.",
+            16: "**ASI +2** — Increase ability scores. Swords max: 8.",
+            17: "**Path Upgrade: Level 17** — Capstone path ability. Swords max: 10. Massive power spike.",
+            18: "**Heavenly Demon Body (Improved)** — Resistance to ALL damage. +3 AC.",
+            19: "**ASI +2** — Increase ability scores. Swords max: 15. Crit range: 19-20.",
+            20: "**Heavenly Demon Ascension** — Crit range: **18-20**. Free bonus attack per turn. **Absolute Heavenly Demon State**, **Heavenly Demon Catastrophe**, **Sword Rain: Heavenly Demon Cataclysm**. Tao capacity: 50.",
+        }
+        lines = []
+        for lvl in range(1, 21):
+            locked = "🔒" if level < lvl else "✅"
+            feature = LEVEL_FEATURES.get(lvl, "")
+            lines.append(f"{locked} **Lv{lvl}** — {feature}")
+        e = discord.Embed(
+            title="📈 Level Progression — Level 1 to 20",
+            description="\n".join(lines),
+            color=0x8B0000,
+        )
+        e.set_footer(text=f"Page 4/10 — Level Progression · Your level: {level}")
+        pages.append(e)
+
+        # ── Page 5-8: Forms by Tier ────────────────────────────────────────────
+        for tier, tier_emoji, tier_label in [
+            ("Basic", "⚪", "Basic Forms (Lv1)"),
+            ("Intermediate", "🟡", "Intermediate Forms (Lv5)"),
+            ("Advanced", "🔴", "Advanced Forms (Lv9)"),
+            ("Supreme", "🌌", "Supreme Forms (Lv15)"),
+        ]:
+            tier_forms = {n: f for n, f in FORMS.items() if f["tier"] == tier}
+            form_lines = []
+            for name, f in tier_forms.items():
+                unlocked = level >= f["unlock"]
+                lock = "✅" if unlocked else f"🔒"
+                tags = []
+                if f.get("aoe"): tags.append("AOE")
+                if f.get("void"): tags.append("VOID")
+                if f.get("per_tao"): tags.append("variable")
+                if f.get("dual_attacks"): tags.append("dual")
+                if f.get("ally_bonus"): tags.append("support")
+                if f.get("save_effect"): tags.append("debuff")
+                if f.get("no_reaction"): tags.append("stealth")
+                if f.get("ignore_resistance"): tags.append("pierce")
+                if f.get("ignore_half_ac"): tags.append("pierce")
+                if f.get("lightning_cut"): tags.append("chain")
+                tag_str = f" *[{', '.join(tags)}]*" if tags else ""
+                atk_str = f" {f['attacks']} atk{'s' if f['attacks'] != 1 else ''}"
+                bonus = ""
+                if f.get("bonus_dice"):
+                    bonus = f" +{f['bonus_dice'][0]}d{f['bonus_dice'][1]} each"
+                elif f.get("per_tao"):
+                    bonus = " +1d6/Tao spent"
+                form_lines.append(
+                    f"{lock} **{name}**{tag_str} — {f['tao']} Tao{atk_str}{bonus}\n"
+                    f"> {f['desc']}"
+                )
+            e = discord.Embed(
+                title=f"{tier_emoji} {tier_label} ({len(tier_forms)} Forms)",
+                description="\n\n".join(form_lines),
+                color=0x8B0000,
+            )
+            e.set_footer(text=f"Page {5 + ['Basic','Intermediate','Advanced','Supreme'].index(tier)}/10 · Your level: {level}")
+            pages.append(e)
+
+        # ── Page 9: Sword Control System ────────────────────────────────────────
+        e = discord.Embed(
+            title="🗡️ Tao Sword Control — Telekinetic Blade Mastery",
+            description=(
+                "At **level 7**, your Sword Flight evolves into **Tao Sword Control** — the ability "
+                "to suspend and command multiple blades telekinetically. Each sword orbits within a "
+                "**90-ft radius** and attacks on your mental command."
+            ),
+            color=0x8B0000,
+        )
+        e.add_field(
+            name="⚡ Mechanics",
+            value=(
+                f"• **Cost:** 2 Tao per controlled sword\n"
+                f"• **Max Swords at your level:** {max_swords}\n"
+                f"• **Range:** 90 ft for each sword\n"
+                f"• **Sword Die:** {dmg_die} + DEX mod per hit\n"
+                f"• **Attack:** d20 + {pb + dex_mod} + DEX\n"
+                f"• **Crit range:** {'18-20' if level >= 20 else '20'}"
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name="🔹 Heavenly Demon Path Bonus",
+            value=(
+                "**Sword Orbit (Lv6, Passive):** +2 AC while controlling 1+ swords. "
+                "Reaction available to strike attackers who hit you.\n"
+                "**Sword Storm (Lv11, 4 Tao):** All swords hit every enemy in 30 ft. AC bonus doubles to +4.\n"
+                "**Hundred Blade Domain (Lv17, 8 Tao):** 60-ft radius domain auto-hits for 3d10/round."
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name="🗡️ Sword Control Table",
+            value=(
+                "Lv1-2: 1 sword · Lv3-4: 2 · Lv5-6: 3 · Lv7-8: 4 · Lv9-10: 5\n"
+                "Lv11-12: 6 · Lv13-14: 7 · Lv15-16: 8 · Lv17: 10 · Lv18: 12 · Lv19: 15 · Lv20: 20"
+            ),
+            inline=False,
+        )
+        e.set_footer(text="Page 9/10 — Sword Control System · Use /hd swords control <count> to activate")
+        pages.append(e)
+
+        # ── Page 10: Ultimate Techniques ────────────────────────────────────────
+        e = discord.Embed(
+            title="🌌 Ultimate Techniques — Level 20 Capstone",
+            description=(
+                "At level 20, the Heavenly Demon Heir unlocks three world-ending techniques. "
+                "Each can be used **once per long rest** and represents the absolute peak of Tao cultivation."
+            ),
+            color=0x8B0000,
+        )
+        ascend_locked = "✅" if level >= 20 else "🔒 Lv20"
+        cat_locked = "✅" if level >= 20 else "🔒 Lv20"
+        rain_locked = "✅" if level >= 20 else "🔒 Lv20"
+        e.add_field(
+            name=f"{ascend_locked} 🌌 Absolute Heavenly Demon State",
+            value=(
+                "**Duration:** 1 minute\n"
+                "**Cooldown:** 1/long rest\n\n"
+                "• All weapon attacks deal **+2d10** damage\n"
+                "• On hit: chain **5 additional attacks** per turn\n"
+                "• All Demonic Forms cost **-2 Tao** (min 1)\n"
+                "• Control **twice** the normal sword count\n"
+                "**After:** Tao drops to 0. DC 15 CON save or unconscious 1 minute."
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name=f"{cat_locked} ☠️ Forbidden Form: Heavenly Demon Catastrophe",
+            value=(
+                "**Cost:** 20 Tao\n"
+                "**Cooldown:** 1/long rest\n\n"
+                "• Every controlled sword strikes the target simultaneously\n"
+                "• Area blast: **50-ft radius**, CON Save DC 15\n"
+                "• Fail: full sword damage + **12d10 force** + Prone\n"
+                "• Pass: half area damage\n"
+                "**After:** Tao drops to 0. DC 15 CON save or unconscious 1 minute."
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name=f"{rain_locked} 🌧️ Sword Rain: Heavenly Demon Cataclysm",
+            value=(
+                "**Cost:** 30 Tao\n"
+                "**Cooldown:** 1/long rest\n\n"
+                "• **120-ft radius × 150-ft cylinder** of descending demonic swords\n"
+                "• Initial DEX Save: **20d10 slashing + 10d10 force** (half on pass)\n"
+                "• Field of Blades: difficult terrain, **6d10 slashing** per turn\n"
+                "**After:** Tao drops to 0. This is the ultimate Heavenly Demon technique."
+            ),
+            inline=False,
+        )
+        e.set_footer(text="Page 10/10 — Ultimate Techniques · Use /hd ascend, /hd catastrophe, /hd sword-rain")
+        pages.append(e)
+
+        # Send with paginated view
+        view = CodexView(pages, 0, char)
+        await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
+
+
+class CodexView(discord.ui.View):
+    """Paginated view for the 10-page HD Codex compendium."""
+    def __init__(self, pages: list[discord.Embed], page: int = 0, char: Character | None = None):
+        super().__init__(timeout=600)
+        self.pages = pages
+        self.page = page
+        self.char = char
+        self._update_buttons()
+
+    def _update_buttons(self):
+        self.prev_btn.disabled = self.page <= 0
+        self.next_btn.disabled = self.page >= len(self.pages) - 1
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != OWNER_ID:
+            return
+        self.page -= 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.pages[self.page], view=self)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != OWNER_ID:
+            return
+        self.page += 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.pages[self.page], view=self)
+
+    @discord.ui.button(label="🔢 Jump to Page", style=discord.ButtonStyle.secondary, row=1)
+    async def jump_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != OWNER_ID:
+            return
+        # Send a followup with page buttons
+        jump_view = CodexJumpView(self.pages, self, self.char)
+        await interaction.response.send_message(
+            "**Select a page:**",
+            view=jump_view,
+            ephemeral=True,
+        )
+
+
+class CodexJumpView(discord.ui.View):
+    """Row of 10 buttons to jump to any codex page."""
+    def __init__(self, pages: list[discord.Embed], parent_view: CodexView, char: Character | None):
+        super().__init__(timeout=120)
+        self.pages = pages
+        self.parent_view = parent_view
+        self.char = char
+        for i in range(len(pages)):
+            btn = discord.ui.Button(label=str(i + 1), style=discord.ButtonStyle.secondary, row=i // 5)
+            btn.callback = self._make_callback(i)
+            self.add_item(btn)
+
+    def _make_callback(self, page_idx: int):
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != OWNER_ID:
+                return
+            self.parent_view.page = page_idx
+            self.parent_view._update_buttons()
+            await interaction.response.edit_message(
+                content=None,
+                embed=self.pages[page_idx],
+                view=self.parent_view,
+            )
+        return callback
 
 
 async def setup(bot: commands.Bot):

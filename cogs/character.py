@@ -552,6 +552,69 @@ def build_sheet_embed(char: Character) -> discord.Embed:
         attack_lines = [weapon_line] + [f"• {a}" for a in attacks]
         embed.add_field(name="Loadout", value="\n".join(attack_lines), inline=False)
 
+    # ── Heavenly Demon Heir — Auto-integrated class data ──
+    if char.char_class == "Heavenly Demon Heir":
+        res = dict(char.class_resources or {})
+        from cogs.heavenly_demon import _tao_max, _SWORD_MAX_TABLE, _res, ELEMENT_EMOJI, TIER_EMOJI
+
+        hd_tao_max = _tao_max(char)
+        hd_tao_cur = res.get("tao_current", 0)
+        hd_path = res.get("hd_path") or "None"
+        hd_swords = res.get("controlled_swords", 0)
+        hd_max_swords = _SWORD_MAX_TABLE.get(char.level, 1)
+        hd_dual = res.get("hd_dual_wield", False)
+        hd_element = res.get("elemental_type")
+        hd_exhausted = res.get("tao_exhausted", False)
+
+        # Tao bar
+        bar_filled = round((hd_tao_cur / max(hd_tao_max, 1)) * 10)
+        tao_bar = "█" * bar_filled + "░" * (10 - bar_filled)
+        tao_status = f"`{tao_bar}` **{hd_tao_cur}/{hd_tao_max}**"
+        if hd_exhausted:
+            tao_status += " 💀 **EXHAUSTED**"
+
+        hd_lines = []
+        hd_lines.append(f"🌀 **Tao:** {tao_status}")
+        hd_lines.append(f"⚔️ **Path:** {hd_path}")
+        hd_lines.append(f"🗡️ **Swords:** {hd_swords}/{hd_max_swords}")
+        hd_lines.append(f"⚔️ **Dual Wield:** {'Active 🗡️🗡️' if hd_dual else 'Off'}")
+
+        if hd_element:
+            emoji = ELEMENT_EMOJI.get(hd_element, "🌪️")
+            hd_lines.append(f"{emoji} **Element:** {hd_element}")
+
+        # Key features by level
+        hd_features = []
+        if char.level >= 2:
+            hd_features.append("Sword Flight")
+        if char.level >= 4:
+            hd_features.append("Phantom Step")
+        if char.level >= 5:
+            hd_features.append("Extra Attack")
+        if char.level >= 7:
+            hd_features.append("Sword Control")
+        if char.level >= 10:
+            hd_features.append("Perfect Tao Circ.")
+        if char.level >= 15:
+            hd_features.append("Heavenly Demon Body")
+        if char.level >= 20:
+            hd_features.append("Ascension")
+        if hd_features:
+            hd_lines.append(f"✨ **Features:** {', '.join(hd_features)}")
+
+        # Cooldowns used this rest
+        hd_cooldowns = []
+        if res.get("absolute_state_used"):
+            hd_cooldowns.append("Absolute State")
+        if res.get("catastrophe_used"):
+            hd_cooldowns.append("Catastrophe")
+        if res.get("sword_rain_used"):
+            hd_cooldowns.append("Sword Rain")
+        if hd_cooldowns:
+            hd_lines.append(f"🔒 **Used:** {', '.join(hd_cooldowns)} (1/long rest)")
+
+        embed.add_field(name="🌌 Heavenly Demon Heir", value="\n".join(hd_lines), inline=False)
+
     if char.backstory:
         embed.add_field(name="Backstory", value=char.backstory[:500], inline=False)
 

@@ -207,6 +207,32 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     e.add_field(name="\n📖 Class Codex", value="**`/classes browse`** — browse all classes with full details (hit die, stats, attacks, level milestones, tips)", inline=False)
     e.add_field(name="🎓 Tutorial System (via DM)", value="After creating a character, you'll get a **multi-page class tutorial sent via DM** (skippable) covering resources, attacks, leveling, and gameplay tips.", inline=False)
     e.add_field(name="🎯 Level-Up Attack Unlock (via DM)", value="At each level-up, the bot sends you a **DM** to **unlock a new attack** from your class's remaining attacks — you only pick 2 at creation!", inline=False)
+    e.add_field(
+        name="🌌 Heavenly Demon Heir — Full HD Commands",
+        value=(
+            "**`/hd codex`** — 📖 Complete 10-page class compendium: all 24 forms, all 3 paths, "
+            "Tao system, Nano system, sword control, level progression, ultimate techniques.\n"
+            "**`/hd sheet`** — Full HD class sheet (Tao, path, swords, stance, forms, features)\n"
+            "**`/hd path`** — Choose subclass (Heavenly/Blood/Elemental Demon, Lv3+)\n"
+            "**`/hd elemental`** — Pick element (Fire/Lightning/Wind/Cold, Elemental Demon only)\n"
+            "**`/hd stance`** — Toggle Dual Wield stance\n"
+            "**`/hd flight`** — Sword Flight (Lv2)\n"
+            "**`/hd phantom`** — Phantom Step teleport (Lv4, 1 Tao)\n"
+            "**`/hd burst`** — Elemental Burst AoE (Lv6, 3 Tao)\n"
+            "**`/hd manifest`** — Heavenly Demon Manifestation (Lv17, 8 Tao)\n"
+            "**`/hd ascend`** — Absolute Heavenly Demon State (Lv20)\n"
+            "**`/hd catastrophe`** — Forbidden Form: Catastrophe (Lv20, 20 Tao)\n"
+            "**`/hd sword-rain`** — Sword Rain: Heavenly Demon Cataclysm (Lv20, 30 Tao)\n"
+            "**`/hd swords control/attack/dismiss`** — Telekinetic sword control (Lv7+)\n"
+            "**`/form list`** — View all 24 Demonic Sword Forms\n"
+            "**`/form use`** — Activate a Demonic Form (select from autocomplete)\n"
+            "**`/tao status`** — Current Tao, path, swords, features\n"
+            "**`/tao restore`** — Full restore (long rest)\n"
+            "**`/tao tick`** — Perfect Tao Circulation regen (Lv10+)\n"
+            "*HD data auto-shows on your character sheet via `/character sheet`*"
+        ),
+        inline=False,
+    )
     e.set_footer(text="Page 6 / 10  —  Character")
     pages.append(e)
 
