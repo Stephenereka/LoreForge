@@ -222,6 +222,7 @@ STARTER_WEAPONS: dict[str, str] = {
     "Barbarian": "greataxe",
     "Cleric":    "mace",
     "Warlock":   "unarmed",
+    "Heavenly Demon Heir": "longsword",
 }
 
 STARTER_ATTACKS: dict[str, list[dict]] = {
@@ -273,6 +274,14 @@ STARTER_ATTACKS: dict[str, list[dict]] = {
         {"name": "Darkness",      "flavor": "shrouds an area in magical darkness",           "stat": "cha", "is_special": True, "is_spell": True, "desc": "Create a 15-foot sphere of magical darkness. Enemies inside are Blinded, and you gain advantage on attacks against them."},
         {"name": "Armor of Agathys","flavor": "wraps themselves in frost",                   "stat": "cha", "is_defend": True, "is_spell": True, "desc": "Cover yourself in frosty armor. Gain +2 AC and deal 1d8 cold damage to any enemy that hits you in melee."},
     ],
+    "Heavenly Demon Heir": [
+        {"name": "Demonic Strike",  "flavor": "accelerates their blade into a second cut in the same motion",  "stat": "dex", "damage_bonus": 1, "desc": "After hitting, immediately make one additional attack against the same target. +1d6 damage. Costs 1 Tao."},
+        {"name": "Shadow Step",     "flavor": "explodes forward in a blur of motion",                          "stat": "dex", "damage_bonus": 0, "desc": "Release Tao beneath your feet to teleport up to 15 ft before striking. Costs 1 Tao."},
+        {"name": "Phantom Cut",     "flavor": "slips the blade through gaps in the enemy's guard",             "stat": "dex", "damage_bonus": 1, "desc": "Ignore half the target's AC. +1d6 damage. Costs 1 Tao."},
+        {"name": "Demonic Fang",    "flavor": "drives Tao directly into the blade's impact point",             "stat": "dex", "damage_bonus": 2, "desc": "A single devastating strike. +1d8 damage. Costs 2 Tao."},
+        {"name": "Sword Flight",    "flavor": "channels Tao into the blade and rides it through the air",      "stat": "dex", "is_defend": True, "desc": "Infuse a blade with Tao to gain flying speed equal to walking speed for 1 minute. Level 2+."},
+        {"name": "Demonic Ward",    "flavor": "circles the blade defensively in front of their body",          "stat": "dex", "is_defend": True, "desc": "Enter a defensive posture. Gain +2 AC until your next turn. Your Nano System anticipates incoming attacks."},
+    ],
 }
 
 # ── Player attack resolution ──────────────────────────────────────────────────
@@ -287,6 +296,7 @@ WEAPON_DAMAGE: dict[str, tuple[int, int]] = {
     "handaxe":    (1, 6),
     "mace":       (1, 6),
     "quarterstaff":(1, 6),
+    "demonic_gauntlet": (1, 10),
 }
 
 CLASS_ATTACK_STAT = {
@@ -296,6 +306,7 @@ CLASS_ATTACK_STAT = {
     "Cleric":    "wis",
     "Wizard":    "int",
     "Warlock":   "cha",
+    "Heavenly Demon Heir": "dex",
 }
 
 def _stat(combatant: Combatant, stat: str) -> int:

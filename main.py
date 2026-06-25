@@ -36,6 +36,7 @@ COGS = [
     "cogs.events",
     "cogs.dice",
     "cogs.embed_builder",
+    "cogs.heavenly_demon",
 ]
 
 async def _weather_task():

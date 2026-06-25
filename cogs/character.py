@@ -12,6 +12,9 @@ import math
 
 MAX_CHARACTERS = 3
 
+RESTRICTED_USER_ID = 849025341783408701
+RESTRICTED_CLASSES = ["Heavenly Demon Heir"]
+
 RACES = {
     "Human":     {"str": 1, "dex": 1, "con": 1, "int": 1, "wis": 1, "cha": 1},
     "Elf":       {"dex": 2, "wis": 1},
@@ -29,6 +32,7 @@ CLASSES = {
     "Wizard":    {"hit_die": 6,  "primary": "int", "saves": ["int", "wis"]},
     "Barbarian": {"hit_die": 12, "primary": "str", "saves": ["str", "con"]},
     "Warlock":   {"hit_die": 8,  "primary": "cha", "saves": ["wis", "cha"]},
+    "Heavenly Demon Heir": {"hit_die": 8, "primary": "dex", "saves": ["dex", "wis"]},
 }
 
 BACKGROUNDS = ["Acolyte", "Criminal", "Soldier", "Noble", "Sage", "Folk Hero"]
@@ -47,6 +51,7 @@ CLASS_STAT_ORDER = {
     "Wizard":    ["int", "dex", "con", "wis", "cha", "str"],
     "Barbarian": ["str", "con", "dex", "wis", "cha", "int"],
     "Warlock":   ["cha", "con", "dex", "wis", "int", "str"],
+    "Heavenly Demon Heir": ["dex", "wis", "con", "int", "str", "cha"],
 }
 
 CLASS_DESCRIPTIONS = {
@@ -56,6 +61,7 @@ CLASS_DESCRIPTIONS = {
     "Wizard":    "Spell caster — Spellbook & Arcane Recovery",
     "Barbarian": "Rage machine — Bonus damage & resistance",
     "Warlock":   "Pact caster — Eldritch Blast & short-rest slots",
+    "Heavenly Demon Heir": "Sword cultivator — Tao system & 24 Demonic Forms",
 }
 
 CLASS_INFO = {
@@ -180,9 +186,34 @@ CLASS_INFO = {
         ),
         "tips": (
             "• **Eldritch Blast is your bread and butter** — use it every turn. It scales with your level.\n"
-            "• **Hex then blast** — placing Hex on a target before attacking adds 1d6 necrotic to every hit.\n"
+            "• **Hex then blast** — placing Hex on a target before adding 1d6 necrotic to every hit.\n"
             "• **Short rest often** — your spell slots come back on a short rest. Don't hoard them.\n"
             "• **You're a glass cannon** — 1d8 hit die means you can take some hits, but not many. Stay at range."
+        ),
+    },
+    "Heavenly Demon Heir": {
+        "hit_die": 8,
+        "primary": "Dexterity",
+        "saves": "DEX & WIS",
+        "resource": "**Tao Points** — fuel the 24 Demonic Sword Forms, telekinetic sword control, and supernatural techniques. Regained on long rest. **Nano System** — advantage on initiative, reroll one attack per turn.",
+        "flavor": (
+            "The Heavenly Demon Heir is a martial cultivator who combines sword mastery, demonic martial arts, "
+            "and an internal Tao system that enhances every facet of combat. Through cultivation of Tao, you "
+            "unleash rapid sequences of attacks, manipulate blades through the air with your mind, and ascend "
+            "to supernatural dominance over the battlefield.\n\n"
+            "Your power comes from the 24 Demonic Sword Forms — forbidden techniques passed down through "
+            "generations. From the basic Demonic Strike to the apocalyptic Sword Rain: Heavenly Demon "
+            "Cataclysm, each form channels Tao into devastating chains of attacks. At your peak, you command "
+            "storms of flying blades as extensions of your will. The Heavenly Demon does not simply wield a "
+            "blade. The blade obeys the Heavenly Demon."
+        ),
+        "tips": (
+            "• **Tao is your fuel** — manage it carefully. Running out leaves you unconscious.\n"
+            "• **Choose your path at level 3** — Heavenly Demon (sword control), Blood Demon (form combos), or Elemental Demon (elemental damage).\n"
+            "• **Chain forms for maximum damage** — Blood Demon path lets you chain 10 forms in one turn.\n"
+            "• **Control flying swords for battlefield dominance** — each sword costs 2 Tao but attacks independently.\n"
+            "• **Save Absolute Heavenly Demon State and Forbidden Form for boss fights** — they are game-ending.\n"
+            "• **Your Nano System gives you advantage on initiative** — you almost always go first."
         ),
     },
 }
@@ -313,6 +344,29 @@ TUTORIALS = {
             {"name": "🏃 Don't Forget Mobility", "value": "You're fast. Use it to close gaps, chase runners, and reposition when needed."},
         ]},
     ],
+    "Heavenly Demon Heir": [
+        {"title": "Welcome, Heavenly Demon Heir!", "description": "You are a martial cultivator who commands sword mastery, demonic forms, and the mysterious power of Tao. The blade does not merely obey you — it fears you.", "fields": [
+            {"name": "⚔️ Your Role", "value": "You are a devastating melee combatant who chains rapid attacks using Tao. Your 24 Demonic Sword Forms let you stack damage through combo sequences, telekinetically control flying blades, and dominate the battlefield."},
+            {"name": "🎯 Class Fantasy", "value": "Through cultivation of internal Tao energy, you transcend normal swordsmanship. Each strike flows into the next — Demonic Strike into Bloody Sequence into Demonic Tempest — until your enemies have nowhere left to run. At your peak, you summon storms of flying swords and call down blade rain from the heavens."},
+        ]},
+        {"title": "Your Resources", "description": "Tao is everything.", "fields": [
+            {"name": "🌀 Tao Points", "value": "You start with **2 Tao** and gain more as you level. Tao fuels your 24 Demonic Sword Forms. If your Tao hits 0, your body collapses from exhaustion. Manage it carefully."},
+            {"name": "🤖 Nano System", "value": "Your internal combat AI gives you **advantage on initiative** and lets you **reroll one attack roll per turn**. You almost always strike first."},
+        ]},
+        {"title": "Your Attacks", "description": "The attacks you chose during creation.", "fields": []},
+        {"title": "Leveling Up", "description": "Your power grows with every level.", "fields": [
+            {"name": "Level 3 — Choose Your Path", "value": "**Path of the Heavenly Demon** (telekinetic sword master), **Path of the Blood Demon** (form combo specialist), or **Path of the Elemental Demon** (elemental devastation)."},
+            {"name": "Level 5 — Extra Attack + Intermediate Forms", "value": "Attack twice per turn. Unlock Intermediate Forms: Cross Slash, Demon Beast Strike, Demonic Dance, and more."},
+            {"name": "Level 15 — Supreme Forms", "value": "Unlock Supreme Forms: Absolute Demonic Destruction (12 attacks), Sword Rain, Hundred Blade Massacre, and Void Slash."},
+            {"name": "Level 20 — Heavenly Demon Ascension", "value": "Crit on 18-20, resistance to all damage, +300 ft movement. Enter **Absolute Heavenly Demon State** for an unstoppable 1-minute burst. Unleash **Sword Rain: Heavenly Demon Cataclysm** to devastate entire armies."},
+        ]},
+        {"title": "How to Play", "description": "Tips for mastering the Heavenly Demon arts.", "fields": [
+            {"name": "🌀 Manage Your Tao", "value": "Running out of Tao knocks you unconscious. Keep enough in reserve for emergencies. Perfect Tao Circulation (level 10) regenerates Tao every turn."},
+            {"name": "⚔️ Chain Your Forms", "value": "Each form flows into the next. Blood Demon path lets you chain 10 forms in a single turn — that's potentially 50+ attacks."},
+            {"name": "🗡️ Control Flying Swords", "value": "2 Tao per sword. They attack on your command and orbit you defensively. More swords = more damage."},
+            {"name": "💀 Save Your Ultimates", "value": "Heavenly Demon Catastrophe and Sword Rain are 1/long rest. Use them on bosses — they can end encounters instantly."},
+        ]},
+    ],
     "Warlock": [
         {"title": "Welcome, Warlock!", "description": "You made a pact with a being beyond mortal comprehension — and now you wield power that other spellcasters can only dream of.", "fields": [
             {"name": "🔮 Your Role", "value": "The Warlock is a magical marksman with limited but powerful spell slots. Your Eldritch Blast is the best damage cantrip in the game, and your short-rest recovery means you can keep fighting when other casters are spent."},
@@ -406,6 +460,13 @@ def _starting_resources(char_class: str) -> dict:
         "Cleric":    {"channel_divinity": 1},
         "Wizard":    {"spell_slots": 2, "arcane_recovery": 1},
         "Rogue":     {"sneak_attack_dice": 1},
+        "Heavenly Demon Heir": {
+            "tao_current": 2, "tao_max": 2, "nano_system": True,
+            "hd_path": None, "hd_dual_wield": False, "controlled_swords": 0,
+            "absolute_state_used": False, "catastrophe_used": False,
+            "sword_rain_used": False, "elemental_type": None,
+            "tao_exhausted": False,
+        },
     }.get(char_class, {})
 
 
@@ -888,6 +949,14 @@ async def _create_character(
     chosen_stats: dict | None = None,
     selected_attacks: list[str] | None = None,
 ):
+    # Restricted class check — only the authorized user can create this class
+    if char_class in RESTRICTED_CLASSES and interaction.user.id != RESTRICTED_USER_ID:
+        if interaction.response.is_done():
+            await interaction.followup.send("This class is not available to you.", ephemeral=True)
+        else:
+            await interaction.response.send_message("This class is not available to you.", ephemeral=True)
+        return
+
     async with get_db() as db:
         result = await db.execute(
             select(Character).where(
@@ -1070,7 +1139,10 @@ class RaceConfirmView(discord.ui.View):
 
     @discord.ui.button(label="Looks Good → Choose Class", style=discord.ButtonStyle.primary, emoji="⚔️")
     async def proceed(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(embed=step2_embed(self.race), view=ClassView(self.race, self.char_name))
+        await interaction.response.edit_message(
+            embed=step2_embed(self.race),
+            view=ClassView(self.race, self.char_name, user_id=interaction.user.id),
+        )
 
     @discord.ui.button(label="View Race Details 📖", style=discord.ButtonStyle.secondary)
     async def view_details(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1100,17 +1172,25 @@ class RaceView(discord.ui.View):
 
 
 class ClassSelect(discord.ui.Select):
-    def __init__(self, race: str, char_name: str):
+    def __init__(self, race: str, char_name: str, user_id: int = 0):
         self.race = race
         self.char_name = char_name
+        # Filter restricted classes — only shown to the authorized user
         options = [
             discord.SelectOption(label=cls, description=CLASS_DESCRIPTIONS[cls])
             for cls in CLASSES
+            if cls not in RESTRICTED_CLASSES or user_id == RESTRICTED_USER_ID
         ]
         super().__init__(placeholder="Choose your class...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         char_class = self.values[0]
+        # Double-check restricted class access
+        if char_class in RESTRICTED_CLASSES and interaction.user.id != RESTRICTED_USER_ID:
+            await interaction.response.send_message(
+                "This class is not available to you.", ephemeral=True
+            )
+            return
         # Show class details confirmation with View Full Details button
         info = CLASS_INFO[char_class]
         embed = discord.Embed(
@@ -1131,9 +1211,9 @@ class ClassSelect(discord.ui.Select):
 
 
 class ClassView(discord.ui.View):
-    def __init__(self, race: str, char_name: str):
+    def __init__(self, race: str, char_name: str, user_id: int = 0):
         super().__init__(timeout=600)
-        self.add_item(ClassSelect(race, char_name))
+        self.add_item(ClassSelect(race, char_name, user_id=user_id))
 
 
 # ── Stat Rolling Views ────────────────────────────────────────────────────────
