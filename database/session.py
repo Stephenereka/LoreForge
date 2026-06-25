@@ -33,8 +33,9 @@ async def init_db():
     from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Add new columns to existing tables without breaking live data
-        for stmt in [
+
+    # Run each migration in its own transaction — one failure won't crash the bot
+    _migrations = [
             "ALTER TABLE characters ADD COLUMN IF NOT EXISTS avatar_url TEXT",
             "ALTER TABLE characters ADD COLUMN IF NOT EXISTS proxy_open VARCHAR(10)",
             "ALTER TABLE characters ADD COLUMN IF NOT EXISTS proxy_close VARCHAR(10)",
@@ -105,5 +106,11 @@ async def init_db():
             "ALTER TABLE npcs ADD COLUMN IF NOT EXISTS proxy_mode VARCHAR(20) DEFAULT 'manual'",
             "ALTER TABLE npcs ADD COLUMN IF NOT EXISTS gm_user_id BIGINT",
             "ALTER TABLE npcs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
-        ]:
-            await conn.execute(text(stmt))
+    ]
+    from sqlalchemy import text
+    for stmt in _migrations:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(stmt))
+        except Exception as e:
+            print(f"[init_db] Migration skipped ({e.__class__.__name__}): {stmt[:80]}")
