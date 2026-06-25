@@ -230,16 +230,10 @@ async def cmd_map(ctx):
     ]
     player_loc_id = loc.id if loc else None
 
-    # Fetch base map: use custom URL if set, otherwise use cached/generated map
+    # Fetch base map: GuildMapCache bytes first (set via /world set-map or auto-seed),
+    # then fall back to Pollinations. Never re-download Discord CDN URLs (they expire).
     async with get_db() as db:
-        if config and config.world_map_url:
-            try:
-                with urllib.request.urlopen(config.world_map_url, timeout=20) as r:
-                    base_bytes = r.read()
-            except Exception:
-                base_bytes = await fetch_world_map_async(world_name, ctx.guild.id, db)
-        else:
-            base_bytes = await fetch_world_map_async(world_name, ctx.guild.id, db)
+        base_bytes = await fetch_world_map_async(world_name, ctx.guild.id, db)
 
         # Fetch annotations for overlay
         ann_result = await db.execute(
@@ -1084,24 +1078,32 @@ async def world_info(interaction: discord.Interaction):
 
 
 @world_group.command(name="set-map", description="[GM] Upload a custom world map image")
-@app_commands.describe(
-    image="Upload an image to use as the custom world map",
-)
+@app_commands.describe(image="Upload an image to use as the custom world map")
 async def world_set_map(interaction: discord.Interaction, image: discord.Attachment):
     if not await gm_only(interaction):
         return
+    await interaction.response.defer(ephemeral=True)
+    import base64
+    # Download bytes now — Discord CDN URLs expire and can't be fetched later
+    img_bytes = await image.read()
+    img_b64 = base64.b64encode(img_bytes).decode("ascii")
     async with get_db() as db:
-        result = await db.execute(
-            select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id)
-        )
-        config = result.scalar_one_or_none()
+        config_result = await db.execute(select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id))
+        config = config_result.scalar_one_or_none()
         if not config:
             config = GuildConfig(guild_id=interaction.guild_id)
             db.add(config)
         config.world_map_url = image.url
-    await interaction.response.send_message(
-        f"🗺️ Custom world map set! Use `/map` to see it.\n"
-        f"*Image URL: {image.url}*", ephemeral=True
+        # Store bytes in GuildMapCache so /map can use them directly
+        cache_result = await db.execute(select(GuildMapCache).where(GuildMapCache.guild_id == interaction.guild_id))
+        cache = cache_result.scalar_one_or_none()
+        if not cache:
+            cache = GuildMapCache(guild_id=interaction.guild_id)
+            db.add(cache)
+        cache.map_bytes_b64 = img_b64
+        cache.map_url = image.url
+    await interaction.followup.send(
+        f"🗺️ Custom world map set! Use `/map` to see it.", ephemeral=True
     )
 
 
@@ -1126,11 +1128,14 @@ async def world_clear_map(interaction: discord.Interaction):
 
 
 @world_group.command(name="load-template", description="[GM] Load a built-in world template (locations, NPCs, factions, quests, lore, bosses)")
-@app_commands.describe(template_name="Choose a world template")
+@app_commands.describe(
+    template_name="Choose a world template",
+    purge_stale="Delete locations/NPCs/factions NOT in the template (removes old placeholder data)",
+)
 @app_commands.choices(template_name=[
     app_commands.Choice(name="Murim / Magic World (The Merged Realms)", value="murim_magic"),
 ])
-async def world_load_template(interaction: discord.Interaction, template_name: str = "murim_magic"):
+async def world_load_template(interaction: discord.Interaction, template_name: str = "murim_magic", purge_stale: bool = False):
     if not await gm_only(interaction):
         return
     await interaction.response.defer(ephemeral=True)
@@ -1151,6 +1156,32 @@ async def world_load_template(interaction: discord.Interaction, template_name: s
 
     guild_id = interaction.guild_id
     bot_user_id = interaction.client.user.id
+
+    # ── Optional purge of stale data not in this template ─────────────────────
+    locs_purged = npcs_purged = factions_purged = 0
+    if purge_stale:
+        template_loc_names   = {l["name"] for l in data.get("locations", [])}
+        template_npc_names   = {n["name"] for n in data.get("npcs", [])}
+        template_faction_names = {f["name"] for f in data.get("factions", [])}
+        async with get_db() as db:
+            # Delete locations not in template
+            loc_result = await db.execute(select(Location).where(Location.guild_id == guild_id))
+            for loc in loc_result.scalars().all():
+                if loc.name not in template_loc_names:
+                    await db.delete(loc)
+                    locs_purged += 1
+            # Delete NPCs not in template
+            npc_result = await db.execute(select(NPC).where(NPC.guild_id == guild_id))
+            for npc in npc_result.scalars().all():
+                if npc.name not in template_npc_names:
+                    await db.delete(npc)
+                    npcs_purged += 1
+            # Delete factions not in template
+            fac_result = await db.execute(select(Faction).where(Faction.guild_id == guild_id))
+            for fac in fac_result.scalars().all():
+                if fac.name not in template_faction_names:
+                    await db.delete(fac)
+                    factions_purged += 1
 
     locs_created = locs_skipped = 0
     npc_created = npc_skipped = 0
@@ -1451,6 +1482,12 @@ async def world_load_template(interaction: discord.Interaction, template_name: s
         description=data.get("description", ""),
         color=0x22C55E,
     )
+    if purge_stale and (locs_purged or npcs_purged or factions_purged):
+        embed.add_field(
+            name="🗑️ Purged (stale)",
+            value=f"{locs_purged} locations, {npcs_purged} NPCs, {factions_purged} factions",
+            inline=False,
+        )
     embed.add_field(name="📍 Locations", value=f"+{locs_created} created, {locs_skipped} skipped", inline=True)
     embed.add_field(name="👤 NPCs", value=f"+{npc_created} created, {npc_skipped} skipped", inline=True)
     embed.add_field(name="⚔️ Factions", value=f"+{factions_created} created, {factions_skipped} skipped", inline=True)
