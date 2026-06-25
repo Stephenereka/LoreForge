@@ -41,5 +41,13 @@ async def init_db():
             "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS combat_active BOOLEAN DEFAULT FALSE",
             "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS combat_channel_id BIGINT",
             "ALTER TABLE characters ADD COLUMN IF NOT EXISTS balance INTEGER DEFAULT 0",
+            # Phase 4 — new class columns
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS ki_points INTEGER DEFAULT 0",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS ki_max INTEGER DEFAULT 0",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS bardic_inspiration_dice INTEGER DEFAULT 0",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS hunter_mark_target_id BIGINT",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS wild_shape_active BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS wild_shape_form VARCHAR(30)",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS wild_shape_hp INTEGER DEFAULT 0",
         ]:
             await conn.execute(text(stmt))
