@@ -202,7 +202,7 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     e.add_field(name="/character edit", value="Shows the split edit system info", inline=False)
     e.add_field(name="/character edit_cosmetic", value="Edit name, backstory, avatar, proxy — **instant**, no approval needed", inline=False)
     e.add_field(name="/character edit_stats <field> <value>", value="Request STR/DEX/CON/INT/WIS/CHA/Gold/XP/HP change — **GM approval required**", inline=False)
-    e.add_field(name="/character proxy / proxy_remove", value="Set or remove proxy brackets & avatar for roleplay", inline=False)
+    e.add_field(name="/character proxy / proxy_remove", value="Set or remove proxy brackets & avatar for roleplay\n• ❌ **React with ❌ on any proxy message to delete it** (you or a GM)", inline=False)
     e.add_field(name="/character delete", value="Permanently delete a character", inline=False)
     e.add_field(name="\n📖 Class Codex", value="**`/classes browse`** — browse all classes with full details (hit die, stats, attacks, level milestones, tips)", inline=False)
     e.add_field(name="🎓 Tutorial System (via DM)", value="After creating a character, you'll get a **multi-page class tutorial sent via DM** (skippable) covering resources, attacks, leveling, and gameplay tips.", inline=False)

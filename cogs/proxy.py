@@ -2,10 +2,15 @@ import discord
 from discord.ext import commands
 from sqlalchemy import select
 from database.session import get_db
-from database.models import Character
+from database.models import Character, GuildGM
 
 # Webhook cache: channel_id → discord.Webhook
 _webhook_cache: dict[int, discord.Webhook] = {}
+
+# Proxy message tracking for ❌ deletion: message_id → (user_id, channel_id)
+_proxy_msg_authors: dict[int, int] = {}  # message_id → user_id
+_proxy_msg_channels: dict[int, int] = {}  # message_id → channel_id
+_MAX_PROXY_TRACKED = 1000
 
 WEBHOOK_NAME = "LoreForge Proxy"
 
@@ -112,12 +117,20 @@ class ProxyCog(commands.Cog, name="Proxy"):
             return
 
         try:
-            await webhook.send(
+            msg = await webhook.send(
                 content=inner,
                 username=char.name,
                 avatar_url=avatar,
                 allowed_mentions=discord.AllowedMentions(everyone=False, roles=False),
+                wait=True,
             )
+            # Track the proxy message for ❌ deletion (LRU evict if full)
+            if len(_proxy_msg_authors) >= _MAX_PROXY_TRACKED:
+                oldest_id = next(iter(_proxy_msg_authors))
+                _proxy_msg_authors.pop(oldest_id, None)
+                _proxy_msg_channels.pop(oldest_id, None)
+            _proxy_msg_authors[msg.id] = message.author.id
+            _proxy_msg_channels[msg.id] = message.channel.id
         except discord.Forbidden:
             try:
                 await message.author.send(
@@ -127,6 +140,70 @@ class ProxyCog(commands.Cog, name="Proxy"):
                 pass
         except discord.HTTPException:
             pass
+
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        """Delete a proxy message when the author or a GM reacts with ❌."""
+        if payload.emoji.name != '❌':
+            return
+        if payload.user_id == self.bot.user.id:
+            return
+        if payload.message_id not in _proxy_msg_authors:
+            return
+
+        original_author_id = _proxy_msg_authors[payload.message_id]
+        channel_id = _proxy_msg_channels[payload.message_id]
+
+        # Reactor is the original author — OK
+        if payload.user_id == original_author_id:
+            await self._delete_proxy_message(payload.message_id, channel_id)
+            return
+
+        # Reactor is the server owner — OK
+        guild = self.bot.get_guild(payload.guild_id)
+        if guild and payload.user_id == guild.owner_id:
+            await self._delete_proxy_message(payload.message_id, channel_id)
+            return
+
+        # Reactor is a DB-registered GM — OK
+        async with get_db() as db:
+            gm_row = await db.execute(
+                select(GuildGM).where(
+                    GuildGM.guild_id == payload.guild_id,
+                    GuildGM.user_id == payload.user_id,
+                )
+            )
+            if gm_row.scalar_one_or_none():
+                await self._delete_proxy_message(payload.message_id, channel_id)
+                return
+
+    async def _delete_proxy_message(self, message_id: int, channel_id: int) -> None:
+        """Delete a tracked proxy webhook message and clean up tracking."""
+        # Remove from tracking immediately so duplicate reactions don't race
+        _proxy_msg_authors.pop(message_id, None)
+        _proxy_msg_channels.pop(message_id, None)
+
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            return
+
+        webhook = _webhook_cache.get(channel_id)
+        if webhook is None:
+            webhook = await _get_or_create_webhook(channel)
+        if webhook is None:
+            return
+
+        try:
+            await webhook.delete_message(message_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            pass
+
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
+        """Clean up tracking when a message is deleted by other means."""
+        _proxy_msg_authors.pop(payload.message_id, None)
+        _proxy_msg_channels.pop(payload.message_id, None)
 
 
 async def setup(bot):
