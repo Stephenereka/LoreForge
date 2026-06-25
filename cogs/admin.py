@@ -455,6 +455,53 @@ class AdminCog(commands.Cog, name="Admin"):
         view = HelpView(page=0)
         await interaction.response.send_message(embed=view.pages[0], view=view, ephemeral=True)
 
+    @commands.command(name="seed_world")
+    @commands.is_owner()
+    async def seed_world(self, ctx):
+        from database.session import get_db
+        from database.models import Location, LocationConnection
+        from sqlalchemy import select
+
+        LOCATIONS = [
+            dict(name="Ironhold", location_type="city",      description="The iron-walled capital of the realm — a sprawling city of forges, guilds, and ambition. Safe haven for all who enter.", short_description="A fortified capital city at the crossroads of the world.", biome="urban",      map_x=50.0, map_y=50.0, is_safe=True,  is_indoors=False, is_hidden=False, danger_level=1, resources={}),
+            dict(name="The Crimson Peaks", location_type="mountain",  description="Jagged peaks stained red by ancient ore veins and old blood. A treacherous highland claimed by rival clans.", short_description="Dangerous red-stone mountains north of Ironhold.", biome="mountain",   map_x=50.0, map_y=15.0, is_safe=False, is_indoors=False, is_hidden=False, danger_level=4, resources={"iron_ore": {"dc": 12, "max_qty": 3}, "bloodstone": {"dc": 18, "max_qty": 1}}),
+            dict(name="Thornveil Forest", location_type="forest",    description="An ancient forest where the canopy blocks all light. Strange spirits drift between the trees and few emerge unchanged.", short_description="A dark, enchanted forest to the west.", biome="forest",     map_x=20.0, map_y=50.0, is_safe=False, is_indoors=False, is_hidden=False, danger_level=3, resources={"wood": {"dc": 8, "max_qty": 5}, "rare_herbs": {"dc": 15, "max_qty": 2}}),
+            dict(name="Ashgate Ruins", location_type="ruins",     description="The crumbled remains of a forgotten empire. Dungeon entrances descend into darkness below the rubble.", short_description="Ancient ruins hiding deep dungeon systems to the east.", biome="underground", map_x=80.0, map_y=55.0, is_safe=False, is_indoors=False, is_hidden=False, danger_level=5, resources={"ancient_relics": {"dc": 20, "max_qty": 1}}),
+            dict(name="Silverport", location_type="port",      description="A bustling port town where merchants, sailors, and smugglers trade under the silver moon. Coin flows freely here.", short_description="A wealthy southern port and trade hub.", biome="coastal",    map_x=50.0, map_y=85.0, is_safe=True,  is_indoors=False, is_hidden=False, danger_level=2, resources={"fish": {"dc": 8, "max_qty": 4}, "sea_salt": {"dc": 10, "max_qty": 3}}),
+        ]
+
+        CONNECTIONS = [
+            ("Ironhold", "The Crimson Peaks", "north", "south", 60),
+            ("Ironhold", "Thornveil Forest",  "west",  "east",  45),
+            ("Ironhold", "Ashgate Ruins",     "east",  "west",  90),
+            ("Ironhold", "Silverport",        "south", "north", 75),
+        ]
+
+        async with get_db() as db:
+            created = {}
+            for loc_data in LOCATIONS:
+                existing = await db.execute(select(Location).where(Location.name == loc_data["name"], Location.guild_id == ctx.guild.id))
+                if existing.scalar_one_or_none():
+                    continue
+                loc = Location(guild_id=ctx.guild.id, created_by=ctx.author.id, **loc_data)
+                db.add(loc)
+                await db.flush()
+                created[loc.name] = loc.id
+
+        async with get_db() as db:
+            all_locs = await db.execute(select(Location).where(Location.guild_id == ctx.guild.id))
+            loc_map = {l.name: l.id for l in all_locs.scalars().all()}
+            for from_name, to_name, fwd_dir, rev_dir, travel_time in CONNECTIONS:
+                if from_name not in loc_map or to_name not in loc_map:
+                    continue
+                for f, t, d in [(loc_map[from_name], loc_map[to_name], fwd_dir), (loc_map[to_name], loc_map[from_name], rev_dir)]:
+                    ex = await db.execute(select(LocationConnection).where(LocationConnection.from_location_id == f, LocationConnection.to_location_id == t, LocationConnection.guild_id == ctx.guild.id))
+                    if not ex.scalar_one_or_none():
+                        db.add(LocationConnection(guild_id=ctx.guild.id, from_location_id=f, to_location_id=t, direction=d, label=None, is_locked=False, is_secret=False, travel_time_minutes=travel_time, search_dc=15))
+
+        names = ", ".join(f"**{n}**" for n in loc_map.keys())
+        await ctx.send(f"✅ World seeded!\n🗺️ Locations: {names}\n🔗 All connected to Ironhold (N/S/E/W)")
+
 
 async def setup(bot):
     await bot.add_cog(AdminCog(bot))
