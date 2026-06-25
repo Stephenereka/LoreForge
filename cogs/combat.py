@@ -107,6 +107,7 @@ class CombatSession:
         self.pending_action: dict | None = None
         self.pending_target: Combatant | None = None
         self.lobby_message: discord.Message | None = None
+        self._new_round: bool = False
 
     @property
     def current_combatant(self) -> Combatant:
@@ -126,17 +127,13 @@ class CombatSession:
             self.current_idx = (self.current_idx + 1) % len(self.turn_order)
             if self.current_idx == 0:
                 self.round += 1
-                self._new_round = True  # flag for boss lair action check
+                self._new_round = True
             else:
                 self._new_round = False
             c = self.turn_order[self.current_idx]
             if c.is_dead:
                 continue
             break
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._new_round = False
 
     def user_id_for(self, combatant: Combatant) -> int | None:
         try:
