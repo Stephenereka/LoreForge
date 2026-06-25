@@ -1,5 +1,9 @@
 import random
-import math
+import os
+import aiohttp
+
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE = "https://api.deepseek.com/v1"
 
 DIFFICULTY_CONFIGS = {
     "easy": {
@@ -35,20 +39,18 @@ def roll_dice_simple(count: int, sides: int, bonus: int = 0) -> tuple[int, list[
     return total, rolls
 
 
-def generate_dummy_action(difficulty: str, dummy_state: dict, player_state: dict, round_num: int) -> dict:
+async def generate_dummy_action(difficulty: str, dummy_state: dict, player_state: dict, round_num: int) -> dict:
     """
-    Generate the dummy's action for a training round.
-    Uses DEEPSEEK-style strategic logic without API calls.
-    Returns dict with action description and mechanics.
+    Generate the training dummy's action for a round.
+    Uses rule-based logic for mechanics and DeepSeek for flavor text.
     """
     config = DIFFICULTY_CONFIGS.get(difficulty, DIFFICULTY_CONFIGS["medium"])
     dummy_hp_pct = dummy_state["hp_current"] / max(1, dummy_state["hp_max"])
     player_hp_pct = player_state["hp_current"] / max(1, player_state["hp_max"])
 
-    # Determine intent based on difficulty and situation
     actions = {
         "basic_attack": {
-            "flavor": f"{config['flavor_prefix']} at {player_state['name']}.",
+            "flavor": f"{config['flavor_prefix']} at {player_state.get('name', 'you')}.",
             "damage_bonus": config["damage_bonus"],
         },
         "heavy_attack": {
@@ -57,7 +59,7 @@ def generate_dummy_action(difficulty: str, dummy_state: dict, player_state: dict
             "hit_penalty": -2,
         },
         "defensive": {
-            "flavor": f"The training dummy shifts into a defensive stance, ready to counter.",
+            "flavor": "The training dummy shifts into a defensive stance, ready to counter.",
             "defense_bonus": 2,
             "no_damage": True,
         },
@@ -65,12 +67,10 @@ def generate_dummy_action(difficulty: str, dummy_state: dict, player_state: dict
 
     # Difficulty-based AI logic
     if difficulty == "easy":
-        # Makes mistakes — sometimes just misses entirely
         if round_num % 3 == 0:
             return {"action": "miss", "flavor": "The dummy swings wildly and misses completely!", "damage": 0, "hit_chance": 0}
         action = "basic_attack"
     elif difficulty == "medium":
-        # Basic tactics — mixes attacks and defense
         if dummy_hp_pct < 0.3 and round_num > 2:
             action = "defensive"
         elif player_hp_pct < 0.3:
@@ -78,7 +78,6 @@ def generate_dummy_action(difficulty: str, dummy_state: dict, player_state: dict
         else:
             action = "basic_attack"
     elif difficulty == "hard":
-        # Strategic — counters and uses conditions
         if player_state.get("conditions"):
             action = "heavy_attack"
         elif dummy_hp_pct < 0.5:
@@ -88,7 +87,6 @@ def generate_dummy_action(difficulty: str, dummy_state: dict, player_state: dict
         else:
             action = "heavy_attack"
     else:  # impossible
-        # Near-perfect counterplay
         if player_state.get("conditions"):
             action = "heavy_attack"
         elif player_state.get("last_action") == "attack":
@@ -101,7 +99,6 @@ def generate_dummy_action(difficulty: str, dummy_state: dict, player_state: dict
     action_data = actions.get(action, actions["basic_attack"])
     damage_total = 0
     if not action_data.get("no_damage"):
-        # Parse damage dice
         dice_str = config["damage_dice"]
         if "+" in dice_str:
             parts = dice_str.split("+")
@@ -117,10 +114,10 @@ def generate_dummy_action(difficulty: str, dummy_state: dict, player_state: dict
             count = int(parts[0]) if parts[0] else 1
             sides = int(parts[1]) if parts[1] else 6
 
-        total_damage, rolls = roll_dice_simple(count, sides, config["damage_bonus"] + extra_bonus)
+        total_damage, _ = roll_dice_simple(count, sides, config["damage_bonus"] + extra_bonus)
         damage_total = max(1, total_damage)
 
-    return {
+    base_result = {
         "action": action,
         "flavor": action_data["flavor"],
         "damage": damage_total,
@@ -128,6 +125,45 @@ def generate_dummy_action(difficulty: str, dummy_state: dict, player_state: dict
         "defense_bonus": action_data.get("defense_bonus", 0),
         "personality": config["personality"],
     }
+
+    # DeepSeek flavor text
+    try:
+        system_prompt = (
+            f"You are a sentient training dummy in a dark fantasy RPG. "
+            f"You are {difficulty} difficulty with this personality: {config['personality']}. "
+            f"Describe your next attack action in exactly ONE vivid sentence (max 20 words). "
+            f"No quotation marks. Stay in character. Be dramatic and menacing."
+        )
+        user_prompt = (
+            f"Round {round_num}. You chose to: {action}. "
+            f"Your HP: {dummy_state['hp_current']}/{dummy_state['hp_max']}. "
+            f"Opponent HP: {player_state['hp_current']}/{player_state['hp_max']}."
+        )
+        async with aiohttp.ClientSession() as http:
+            resp = await http.post(
+                f"{DEEPSEEK_BASE}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "max_tokens": 50,
+                    "temperature": 0.9,
+                },
+                timeout=aiohttp.ClientTimeout(total=4),
+            )
+            data = await resp.json()
+            ai_flavor = data["choices"][0]["message"]["content"].strip().strip('"')
+            base_result["flavor"] = ai_flavor
+    except Exception:
+        pass  # Fall back to static flavor already set
+
+    return base_result
 
 
 # ── Taunt lines per difficulty ────────────────────────────────────────────────
@@ -148,7 +184,6 @@ DEATH_LINES = {
 
 
 def get_taunt(difficulty: str, round_num: int) -> str | None:
-    """Return a taunt line if the dummy should taunt. None otherwise."""
     if difficulty == "impossible" and round_num % 2 == 0:
         return random.choice(TAUNT_LINES["impossible"])
     if difficulty == "hard" and round_num % 3 == 0:
@@ -161,7 +196,6 @@ def get_death_line(difficulty: str) -> str:
 
 
 def get_xp_reward(difficulty: str) -> int:
-    """Calculate XP reward for winning a training session at a given difficulty."""
     base_xp = {
         "easy": 25,
         "medium": 50,

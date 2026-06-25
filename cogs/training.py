@@ -5,14 +5,23 @@ from sqlalchemy import select
 from database.session import get_db
 from database.models import Character, TrainingSession
 from services.combat_engine import (
-    roll, modifier, Combatant, player_attack, has_condition, apply_condition,
+    roll, modifier, Combatant, player_attack, apply_condition,
     tick_conditions, CONDITIONS,
 )
 from services.training_service import generate_dummy_action, DIFFICULTY_CONFIGS
-from services.leveling import check_level_up, xp_bar
+from services.leveling import check_level_up
 import datetime
 
 active_training = {}
+
+_DUMMY_AVATAR = "https://i.imgur.com/8ZQ1Z2B.png"  # fallback; webhook still works without avatar
+
+_DIFFICULTY_LABEL = {
+    "easy": "Training Dummy 🟢",
+    "medium": "Training Dummy 🟡",
+    "hard": "Training Dummy 🟠",
+    "impossible": "Training Dummy 💀",
+}
 
 
 class TrainingDummy:
@@ -24,8 +33,8 @@ class TrainingDummy:
         self.hp_current = config["hp"]
         self.ac = config["ac"]
         self.attack_bonus = config["attack_bonus"]
-        self.damage_dice = config["damage"]
-        self.damage_bonus = 0
+        self.damage_dice = config["damage_dice"]  # fixed: was config["damage"]
+        self.damage_bonus = config["damage_bonus"]
         self.conditions = []
         self.is_alive = True
         self.is_dead = False
@@ -50,6 +59,79 @@ class TrainingDummy:
             bonus = int(match.group(3)) if match.group(3) else 0
             return sum(roll(sides) for _ in range(count)) + bonus
         return 2
+
+
+class TrainingSessionData:
+    def __init__(self, channel_id, user_id, guild_id, character_id, difficulty, player, dummy):
+        self.channel_id = channel_id
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.character_id = character_id
+        self.difficulty = difficulty
+        self.player = player
+        self.dummy = dummy
+        self.round = 1
+        self.log: list[str] = []
+        self.state = "active"
+        self.damage_dealt = 0
+        self.damage_taken = 0
+        self.last_player_action = ""
+        self.webhook: discord.Webhook | None = None
+
+    def add_log(self, line: str):
+        self.log.append(line)
+
+    def arena_embed(self) -> discord.Embed:
+        player_pct = max(0, self.player.hp_current / self.player.hp_max) if self.player.hp_max > 0 else 0
+        dummy_pct = max(0, self.dummy.hp_current / self.dummy.hp_max) if self.dummy.hp_max > 0 else 0
+        player_bar = "█" * round(player_pct * 10) + "░" * (10 - round(player_pct * 10))
+        dummy_bar = "█" * round(dummy_pct * 10) + "░" * (10 - round(dummy_pct * 10))
+
+        embed = discord.Embed(
+            title=f"⚔️ Training Arena — {self.difficulty.title()}",
+            color=0xF59E0B,
+        )
+        embed.add_field(
+            name=f"🎯 {self.player.name} (Lv{self.player.level} {self.player.char_class})",
+            value=f"❤️ {self.player.hp_current}/{self.player.hp_max} {player_bar}\n🛡️ AC {self.player.armor_class}",
+            inline=True,
+        )
+        embed.add_field(
+            name="🎯 Training Dummy",
+            value=f"❤️ {self.dummy.hp_current}/{self.dummy.hp_max} {dummy_bar}\n🛡️ AC {self.dummy.ac}",
+            inline=True,
+        )
+        embed.add_field(name="Round", value=f"**{self.round}**", inline=True)
+        if self.log:
+            embed.add_field(name="📜 Recent Actions", value="\n".join(self.log[-5:]), inline=False)
+        return embed
+
+
+async def _dummy_send(session: TrainingSessionData, channel: discord.TextChannel, content: str = "", embed: discord.Embed | None = None):
+    """Send a message as the training dummy via webhook if available, else plain channel send."""
+    label = _DIFFICULTY_LABEL.get(session.difficulty, "Training Dummy")
+    if session.webhook:
+        try:
+            await session.webhook.send(
+                content=content or None,
+                embed=embed,
+                username=label,
+                wait=False,
+            )
+            return
+        except Exception:
+            pass
+    # Fallback to plain channel message
+    await channel.send(content=content or "", embed=embed)
+
+
+async def _cleanup_webhook(session: TrainingSessionData):
+    if session.webhook:
+        try:
+            await session.webhook.delete(reason="Training session ended")
+        except Exception:
+            pass
+        session.webhook = None
 
 
 class TrainingDifficultyView(discord.ui.View):
@@ -83,6 +165,9 @@ class TrainingDifficultyView(discord.ui.View):
             await interaction.response.send_message("You need an active living character.", ephemeral=True)
             return
 
+        # Defer so we have time to create the webhook
+        await interaction.response.defer_update()
+
         dummy = TrainingDummy(difficulty)
 
         player_combatant = Combatant(
@@ -114,10 +199,20 @@ class TrainingDifficultyView(discord.ui.View):
             player=player_combatant,
             dummy=dummy,
         )
+
+        # Create webhook so dummy speaks with its own identity
+        try:
+            session.webhook = await interaction.channel.create_webhook(
+                name=_DIFFICULTY_LABEL.get(difficulty, "Training Dummy"),
+                reason="LoreForge training dummy",
+            )
+        except Exception as e:
+            print(f"[Training] Webhook creation failed: {e}")
+
         active_training[interaction.channel_id] = session
 
         embed = session.arena_embed()
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             content=f"⚔️ **Training: {difficulty.title()}** — Type your actions in chat!",
             embed=embed,
             view=None,
@@ -137,48 +232,6 @@ async def get_active_char(user_id: int, guild_id: int):
         return result.scalar_one_or_none()
 
 
-class TrainingSessionData:
-    def __init__(self, channel_id, user_id, guild_id, character_id, difficulty, player, dummy):
-        self.channel_id = channel_id
-        self.user_id = user_id
-        self.guild_id = guild_id
-        self.character_id = character_id
-        self.difficulty = difficulty
-        self.player = player
-        self.dummy = dummy
-        self.round = 1
-        self.log = []
-        self.state = "active"
-        self.damage_dealt = 0
-        self.damage_taken = 0
-        self.last_action_desc = ""
-
-    def arena_embed(self) -> discord.Embed:
-        player_pct = max(0, self.player.hp_current / self.player.hp_max) if self.player.hp_max > 0 else 0
-        dummy_pct = max(0, self.dummy.hp_current / self.dummy.hp_max) if self.dummy.hp_max > 0 else 0
-        player_bar = "█" * round(player_pct * 10) + "░" * (10 - round(player_pct * 10))
-        dummy_bar = "█" * round(dummy_pct * 10) + "░" * (10 - round(dummy_pct * 10))
-
-        embed = discord.Embed(
-            title=f"⚔️ Training Arena — {self.difficulty.title()}",
-            color=0xF59E0B,
-        )
-        embed.add_field(
-            name=f"🎯 {self.player.name} (Lv{self.player.level} {self.player.char_class})",
-            value=f"❤️ {self.player.hp_current}/{self.player.hp_max} {player_bar}\n🛡️ AC {self.player.armor_class}",
-            inline=True,
-        )
-        embed.add_field(
-            name=f"🎯 Training Dummy",
-            value=f"❤️ {self.dummy.hp_current}/{self.dummy.hp_max} {dummy_bar}\n🛡️ AC {self.dummy.ac}",
-            inline=True,
-        )
-        embed.add_field(name="Round", value=f"**{self.round}**", inline=True)
-        if self.log:
-            embed.add_field(name="📜 Recent Actions", value="\n".join(self.log[-5:]), inline=False)
-        return embed
-
-
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 training_group = app_commands.Group(name="training", description="Training dummy commands")
@@ -188,11 +241,13 @@ training_group = app_commands.Group(name="training", description="Training dummy
 async def training_start(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🎯 Training Dummy",
-        description="Choose your difficulty:\n\n"
-        "**Easy 😊** — A slow, clumsy dummy. Perfect for beginners.\n"
-        "**Medium 🤔** — A competent fighter with basic tactics.\n"
-        "**Hard 😤** — Aggressive, uses conditions strategically.\n"
-        "**Impossible 💀** — Near-perfect counter-play. Taunts you.",
+        description=(
+            "Choose your difficulty:\n\n"
+            "**Easy 😊** — A slow, clumsy dummy. Perfect for beginners.\n"
+            "**Medium 🤔** — A competent fighter with basic tactics.\n"
+            "**Hard 😤** — Aggressive, uses conditions strategically.\n"
+            "**Impossible 💀** — Near-perfect counter-play. Taunts you."
+        ),
         color=0x8B5CF6,
     )
     await interaction.response.send_message(embed=embed, view=TrainingDifficultyView(interaction.client))
@@ -205,8 +260,8 @@ async def training_stop(interaction: discord.Interaction):
         await interaction.response.send_message("No active training session for you here.", ephemeral=True)
         return
 
+    await interaction.response.defer(ephemeral=True)
     await _end_training(interaction, session, "forfeit")
-    await interaction.response.send_message("🏳️ Training ended.")
 
 
 # ── Message Handler ───────────────────────────────────────────────────────────
@@ -220,10 +275,7 @@ async def _handle_training_message(bot, message: discord.Message):
     if message.author.bot or message.content.startswith("/"):
         return
 
-    # Process player action
     content_lower = message.content.lower()
-    
-    # Detect action from message
     attack_keywords = ["attack", "strike", "hit", "slash", "punch", "kick", "swing", "cut"]
     defend_keywords = ["defend", "block", "guard", "shield", "brace"]
     flee_keywords = ["flee", "run", "escape", "retreat"]
@@ -238,20 +290,19 @@ async def _handle_training_message(bot, message: discord.Message):
     dummy = session.dummy
 
     if is_attack:
-        # Player attacks dummy
         result = player_attack(player, weapon=player.weapon)
-        dummy_before_hp = dummy.hp_current
         if result["attack_roll"] >= dummy.ac and not result["is_miss"]:
             if result["is_crit"]:
                 dummy.take_damage(result["damage"] * 2)
                 session.add_log(f"⚔️ **CRIT!** You deal {result['damage'] * 2} damage!")
-                session.damage_dealt += result['damage'] * 2
+                session.damage_dealt += result["damage"] * 2
             else:
                 dummy.take_damage(result["damage"])
                 session.add_log(f"⚔️ You hit the dummy for {result['damage']} damage.")
-                session.damage_dealt += result['damage']
+                session.damage_dealt += result["damage"]
         else:
             session.add_log(f"🛡️ Your attack misses (rolled {result['attack_roll']} vs AC {dummy.ac}).")
+        session.last_player_action = "attack"
 
         if not dummy.is_alive:
             await _end_training_via_msg(message.channel, session, "win")
@@ -260,12 +311,15 @@ async def _handle_training_message(bot, message: discord.Message):
     elif is_defend:
         player.hp_temp = max(player.hp_temp, 5)
         session.add_log("🛡️ You brace for impact — gaining 5 temp HP!")
+        session.last_player_action = "defend"
 
     elif is_item:
         healed = player.heal(roll(4) + 2)
         session.add_log(f"🧪 You drink a potion — healed **{healed} HP**!")
+        session.last_player_action = "item"
 
     elif is_flee:
+        session.last_player_action = "flee"
         if roll(20) + modifier(player.dexterity) >= 12:
             await _end_training_via_msg(message.channel, session, "fled")
             return
@@ -274,70 +328,76 @@ async def _handle_training_message(bot, message: discord.Message):
 
     else:
         session.add_log(f"📜 {message.content[:80]}")
-        # Default: basic attack
         result = player_attack(player)
         if result["attack_roll"] >= dummy.ac and not result["is_miss"]:
             dummy.take_damage(result["damage"])
             session.damage_dealt += result["damage"]
             session.add_log(f"⚔️ Your action deals {result['damage']} damage.")
+        session.last_player_action = "attack"
 
-    # Dummy's turn — use DeepSeek for flavor, but calculate damage here
+    # Dummy's turn
     dummy_state = {
-        "hp": dummy.hp_current,
+        "hp_current": dummy.hp_current,
         "hp_max": dummy.hp_max,
         "ac": dummy.ac,
         "conditions": [c.get("name", "") for c in dummy.conditions],
     }
     player_state = {
-        "hp": player.hp_current,
+        "hp_current": player.hp_current,
         "hp_max": player.hp_max,
+        "name": player.name,
         "ac": player.armor_class,
         "conditions": [c.get("name", "") for c in (player.conditions or [])],
+        "last_action": session.last_player_action,
     }
 
+    deepseek_result = {}
     try:
-        deepseek_action = await generate_dummy_action(
+        deepseek_result = await generate_dummy_action(
             session.difficulty, dummy_state, player_state, session.round
         )
-        dummy_attack_desc = deepseek_action.get("action_description", "The training dummy lunges at you!")
+        dummy_attack_desc = deepseek_result.get("flavor", "The training dummy lunges at you!")
     except Exception:
         dummy_attack_desc = "The training dummy swings at you!"
 
-    # Dummy attacks player
     dummy_roll = dummy.attack()
-    player_before_hp = player.hp_current
     if dummy_roll["attack_roll"] >= player.armor_class:
         player.take_damage(dummy_roll["damage"])
         session.damage_taken += dummy_roll["damage"]
-        session.add_log(f"💥 {dummy_attack_desc} — **{dummy_roll['damage']} damage**!")
+        dummy_msg = f"{dummy_attack_desc} — **{dummy_roll['damage']} damage**!"
     else:
-        session.add_log(f"🛡️ {dummy_attack_desc} — It misses you!")
+        dummy_msg = f"{dummy_attack_desc} — *It misses!*"
 
-    # Apply conditions from DeepSeek
-    if deepseek_action.get("condition_apply"):
-        apply_condition(player, deepseek_action["condition_apply"], 2)
-        icon = CONDITIONS.get(deepseek_action["condition_apply"], {}).get("icon", "⚡")
-        session.add_log(f"{icon} You're now **{deepseek_action['condition_apply']}**!")
+    # Conditions
+    if deepseek_result.get("condition_apply"):
+        apply_condition(player, deepseek_result["condition_apply"], 2)
+        icon = CONDITIONS.get(deepseek_result["condition_apply"], {}).get("icon", "⚡")
+        session.add_log(f"{icon} You're now **{deepseek_result['condition_apply']}**!")
 
-    # Tick conditions
     for line in tick_conditions(player):
         session.add_log(line)
 
     if player.hp_current <= 0:
         player.is_unconscious = True
+        # Post dummy's final blow via webhook before ending
+        await _dummy_send(session, message.channel, content=dummy_msg)
         await _end_training_via_msg(message.channel, session, "lose")
         return
 
     session.round += 1
     embed = session.arena_embed()
+
     try:
         await message.delete()
     except Exception:
         pass
+
+    # Dummy speaks via webhook, then post the arena embed
+    await _dummy_send(session, message.channel, content=dummy_msg)
     await message.channel.send(f"**Round {session.round}**", embed=embed)
 
 
-async def _end_training_via_msg(channel, session, result: str):
+async def _end_training_via_msg(channel: discord.TextChannel, session: TrainingSessionData, result: str):
     session.state = "over"
     active_training.pop(session.channel_id, None)
 
@@ -351,7 +411,6 @@ async def _end_training_via_msg(channel, session, result: str):
         embed.add_field(name="Damage Taken", value=str(session.damage_taken), inline=True)
         embed.add_field(name="XP Earned", value=f"**{xp_reward}** ✨", inline=False)
 
-        # Save
         async with get_db() as db:
             db.add(TrainingSession(
                 user_id=session.user_id,
@@ -364,9 +423,7 @@ async def _end_training_via_msg(channel, session, result: str):
                 result="win",
                 end_time=datetime.datetime.utcnow(),
             ))
-            char = await db.execute(
-                select(Character).where(Character.id == session.character_id)
-            )
+            char = await db.execute(select(Character).where(Character.id == session.character_id))
             char_obj = char.scalar_one_or_none()
             if char_obj:
                 char_obj.xp = (char_obj.xp or 0) + xp_reward
@@ -407,15 +464,17 @@ async def _end_training_via_msg(channel, session, result: str):
             ))
 
     await channel.send(embed=embed)
+    await _cleanup_webhook(session)
 
 
-async def _end_training(interaction, session, result):
+async def _end_training(interaction: discord.Interaction, session: TrainingSessionData, result: str):
     session.state = "over"
     active_training.pop(session.channel_id, None)
     embed = discord.Embed(title="🏁 Training Ended", color=0xF59E0B)
     embed.add_field(name="Rounds", value=str(session.round), inline=True)
     embed.add_field(name="Damage Dealt/Taken", value=f"{session.damage_dealt}/{session.damage_taken}", inline=True)
-    await interaction.followup.send(embed=embed)
+    await interaction.followup.send(embed=embed, ephemeral=True)
+    await _cleanup_webhook(session)
 
 
 class TrainingCog(commands.Cog, name="Training"):
