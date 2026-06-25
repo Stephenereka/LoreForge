@@ -31,9 +31,7 @@ async def on_ready():
         guild = discord.Object(id=1519154137017614427)
         bot.tree.copy_global_to(guild=guild)
         synced = await bot.tree.sync(guild=guild)
-        bot.tree.clear_commands(guild=None)
-        await bot.tree.sync()
-        print(f"Synced {len(synced)} slash commands")
+        print(f"Synced {len(synced)} slash commands to guild")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
     await bot.change_presence(
