@@ -4,7 +4,7 @@ from discord.ext import commands
 
 # ── /help pages ───────────────────────────────────────────────────────────────
 
-def _help_pages() -> list[discord.Embed]:
+def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     pages = []
 
     # Page 1 — Overview
@@ -282,84 +282,95 @@ def _help_pages() -> list[discord.Embed]:
     e.set_footer(text="Page 9 / 10  —  Rest, Shop & Inventory")
     pages.append(e)
 
-    # Page 6 — GM + Server Setup + Coming Soon
-    e = discord.Embed(title="🛡️ GM Commands  ·  ⚙️ Server Setup", color=0x4F46E5)
-    e.add_field(
-        name="Server Setup *(Manage Server required)*",
-        value=(
-            "`/server setup <world_name> <gm_role>` — Configure LoreForge\n"
-            "`/combat config log-channel <#ch>` — Set audit log channel"
-        ),
-        inline=False,
-    )
-    e.add_field(
-        name="📦 Embed Builder (GM only)",
-        value=(
-            "`/embed create` — Open the full embed builder with modals and live preview\n"
-            "`/embed template <type>` — Start from a template: announcement, quest, lore, npc, event, news\n"
-            "*All embeds show live preview as you build. Post to current channel or pick a target channel.*"
-        ),
-        inline=False,
-    )
-    e.add_field(
-        name="GM — Roster *(server owner only)*",
-        value=(
-            "`/gm add @user` — Grant GM status\n"
-            "`/gm remove @user` — Revoke GM status\n"
-            "`/gm list` — List all GMs in this server"
-        ),
-        inline=False,
-    )
-    e.add_field(
-        name="GM — Characters",
-        value=(
-            "`/gm edit [@user]` — **NEW!** Full GM edit panel (Level, Class, Race, Background, "
-            "all 6 stats, HP Max, HP Current, Gold, AC in one modal) — instant, no approval queue\n"
-            "`/gm sheet view [@user]` — View any player's character sheet(s)\n"
-            "`/gm sheet edit @user` — Edit stats via split modal system (instant, no approval)\n"
-            "`/gm revive <name>` — Revive a dead character at 1 HP\n"
-            "`/gm xp @user <amount>` — Award XP manually (triggers level-up if threshold reached)"
-        ),
-        inline=False,
-    )
-    e.add_field(
-        name="GM — Approval Queue",
-        value=(
-            "`/gm pending` — View all pending stat change requests\n"
-            "`/gm approve <id>` — Approve a pending request (applies the change)\n"
-            "`/gm deny <id> [reason]` — Deny a pending request"
-        ),
-        inline=False,
-    )
-    e.add_field(
-        name="GM — World Tools",
-        value=(
-            "`/gm dashboard` — **World overview** (locations, NPCs, quests, factions, weather, time)\n"
-            "`/world generate / map / load_template / export / import` — World building\n"
-            "`/location create/edit/connect/hide/reveal/lock/unlock` — Manage locations\n"
-            "`/npc create/edit/move/kill/revive/speak/act` — Manage NPCs\n"
-            "`/quest create` — Build quests with objectives and rewards\n"
-            "`/gm quest approve/deny` — Approve or deny quest completions\n"
-            "`/faction create/edit/delete` — Manage factions\n"
-            "`/gm faction award` — Award faction reputation\n"
-            "`/lore add/edit/delete` — Create and manage lore events\n"
-            "`/weather set <type>` — Override weather\n"
-            "`/time advance <amount> <unit>` — Advance world time\n"
-            "`/announce <message>` — Post world announcement"
-        ),
-        inline=False,
-    )
-    e.set_footer(text="Page 10 / 10  —  GM & Server")
-    pages.append(e)
+    # Page 6 — GM + Server Setup + Coming Soon (only shown to GMs)
+    if not show_gm:
+        # Skip GM page for non-GM users
+        pass
+    else:
+        e = discord.Embed(title="🛡️ GM Commands  ·  ⚙️ Server Setup", description="🔒 **This page is only visible to GMs and server administrators.**", color=0x4F46E5)
+        e.add_field(
+            name="Server Setup *(Manage Server required)*",
+            value=(
+                "`/server setup <world_name> <gm_role>` — Configure LoreForge\n"
+                "`/combat config log-channel <#ch>` — Set audit log channel"
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name="📦 Embed Builder (GM only)",
+            value=(
+                "`/embed create` — Open the full embed builder with modals and live preview\n"
+                "`/embed template <type>` — Start from a template: announcement, quest, lore, npc, event, news\n"
+                "*All embeds show live preview as you build. Post to current channel or pick a target channel.*"
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name="GM — Roster *(server owner only)*",
+            value=(
+                "`/gm add @user` — Grant GM status\n"
+                "`/gm remove @user` — Revoke GM status\n"
+                "`/gm list` — List all GMs in this server"
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name="GM — Characters",
+            value=(
+                "`/gm edit [@user]` — **NEW!** Full GM edit panel (Level, Class, Race, Background, "
+                "all 6 stats, HP Max, HP Current, Gold, AC in one modal) — instant, no approval queue\n"
+                "`/gm sheet view [@user]` — View any player's character sheet(s)\n"
+                "`/gm sheet edit @user` — Edit stats via split modal system (instant, no approval)\n"
+                "`/gm revive <name>` — Revive a dead character at 1 HP\n"
+                "`/gm xp @user <amount>` — Award XP manually (triggers level-up if threshold reached)"
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name="GM — Approval Queue",
+            value=(
+                "`/gm pending` — View all pending stat change requests\n"
+                "`/gm approve <id>` — Approve a pending request (applies the change)\n"
+                "`/gm deny <id> [reason]` — Deny a pending request"
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name="GM — World Tools",
+            value=(
+                "`/gm dashboard` — **World overview** (locations, NPCs, quests, factions, weather, time)\n"
+                "`/world generate / map / load_template / export / import` — World building\n"
+                "`/location create/edit/connect/hide/reveal/lock/unlock` — Manage locations\n"
+                "`/npc create/edit/move/kill/revive/speak/act` — Manage NPCs\n"
+                "`/quest create` — Build quests with objectives and rewards\n"
+                "`/gm quest approve/deny` — Approve or deny quest completions\n"
+                "`/faction create/edit/delete` — Manage factions\n"
+                "`/gm faction award` — Award faction reputation\n"
+                "`/lore add/edit/delete` — Create and manage lore events\n"
+                "`/weather set <type>` — Override weather\n"
+                "`/time advance <amount> <unit>` — Advance world time\n"
+                "`/announce <message>` — Post world announcement"
+            ),
+            inline=False,
+        )
+        e.set_footer(text="Page 10 / 10  —  GM & Server")
+        pages.append(e)
+
+    # Update all footers dynamically so page count is always accurate
+    for i, embed in enumerate(pages):
+        footer = embed.footer.text or ""
+        parts = footer.split(" — ", 1)
+        section_name = parts[1].strip() if len(parts) > 1 else ""
+        embed.set_footer(text=f"Page {i+1} / {len(pages)} — {section_name}")
 
     return pages
 
 
 class HelpView(discord.ui.View):
-    def __init__(self, page: int = 0):
+    def __init__(self, pages: list[discord.Embed], page: int = 0):
         super().__init__(timeout=600)
         self.page = page
-        self.pages = _help_pages()
+        self.pages = pages
         self._update_buttons()
 
     def _update_buttons(self):
@@ -452,8 +463,11 @@ class AdminCog(commands.Cog, name="Admin"):
 
     @app_commands.command(name="help", description="Show all LoreForge commands")
     async def help(self, interaction: discord.Interaction):
-        view = HelpView(page=0)
-        await interaction.response.send_message(embed=view.pages[0], view=view, ephemeral=True)
+        from services.utils import is_gm
+        gm = await is_gm(interaction)
+        pages = _help_pages(show_gm=gm)
+        view = HelpView(pages=pages, page=0)
+        await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
 
     @commands.command(name="seed_world")
     @commands.is_owner()
