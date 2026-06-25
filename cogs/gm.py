@@ -7,6 +7,7 @@ from datetime import datetime
 from database.session import get_db
 from database.models import Character, GuildConfig, GuildGM, PendingApproval
 from services.utils import gm_only, owner_only, is_gm
+from cogs.character import _offer_attack_unlock
 from services.leveling import check_level_up, hp_gain_on_level, xp_bar
 
 # ---------------------------------------------------------------------------
@@ -792,8 +793,244 @@ async def gm_xp(interaction: discord.Interaction, user: discord.Member, amount: 
             inline=False,
         )
         embed.color = 0xF59E0B
+        # Offer attack unlock via DM
+        char_to_unlock = None
+        async with get_db() as db_check:
+            r = await db_check.execute(select(Character).where(
+                Character.guild_id == interaction.guild_id,
+                Character.user_id == user.id,
+                Character.is_active == True,
+            ))
+            char_to_unlock = r.scalar_one_or_none()
+        if char_to_unlock:
+            await _offer_attack_unlock(interaction.client, char_to_unlock, new_level)
 
     await interaction.response.send_message(embed=embed)
+
+
+# ---------------------------------------------------------------------------
+# /gm edit — GM Edit Panel (full character edit, instant, no approval)
+# ---------------------------------------------------------------------------
+
+class GMEditModal(discord.ui.Modal, title="GM Edit Character"):
+    level = discord.ui.TextInput(label="Level", required=False)
+    char_class = discord.ui.TextInput(label="Class", required=False)
+    race = discord.ui.TextInput(label="Race", required=False)
+    background = discord.ui.TextInput(label="Background", required=False)
+    strength = discord.ui.TextInput(label="Strength", required=False)
+    dexterity = discord.ui.TextInput(label="Dexterity", required=False)
+    constitution = discord.ui.TextInput(label="Constitution", required=False)
+    intelligence = discord.ui.TextInput(label="Intelligence", required=False)
+    wisdom = discord.ui.TextInput(label="Wisdom", required=False)
+    charisma = discord.ui.TextInput(label="Charisma", required=False)
+    hp_max = discord.ui.TextInput(label="HP Max", required=False)
+    hp_current = discord.ui.TextInput(label="HP Current", required=False)
+    gold = discord.ui.TextInput(label="Gold", required=False)
+    armor_class = discord.ui.TextInput(label="Armor Class", required=False)
+
+    def __init__(self, char: Character, editor: discord.Member):
+        super().__init__(title=f"GM Edit — {char.name}")
+        self.char = char
+        self.editor = editor
+        # Pre-fill with current values
+        self.level.default = str(char.level)
+        self.char_class.default = char.char_class
+        self.race.default = char.race
+        self.background.default = char.background or ""
+        self.strength.default = str(char.strength)
+        self.dexterity.default = str(char.dexterity)
+        self.constitution.default = str(char.constitution)
+        self.intelligence.default = str(char.intelligence)
+        self.wisdom.default = str(char.wisdom)
+        self.charisma.default = str(char.charisma)
+        self.hp_max.default = str(char.hp_max)
+        self.hp_current.default = str(char.hp_current)
+        self.gold.default = str(char.gold)
+        self.armor_class.default = str(char.armor_class)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        changes = []
+        async with get_db() as db:
+            result = await db.execute(select(Character).where(Character.id == self.char.id))
+            char = result.scalar_one_or_none()
+            if not char:
+                await interaction.response.send_message("Character not found.", ephemeral=True)
+                return
+
+            field_map = {
+                "level": self.level.value.strip(),
+                "char_class": self.char_class.value.strip(),
+                "race": self.race.value.strip(),
+                "background": self.background.value.strip(),
+                "strength": self.strength.value.strip(),
+                "dexterity": self.dexterity.value.strip(),
+                "constitution": self.constitution.value.strip(),
+                "intelligence": self.intelligence.value.strip(),
+                "wisdom": self.wisdom.value.strip(),
+                "charisma": self.charisma.value.strip(),
+                "hp_max": self.hp_max.value.strip(),
+                "hp_current": self.hp_current.value.strip(),
+                "gold": self.gold.value.strip(),
+                "armor_class": self.armor_class.value.strip(),
+            }
+
+            for attr, raw in field_map.items():
+                if not raw:
+                    continue
+                try:
+                    if attr in ("char_class", "race", "background"):
+                        new_val = raw
+                    else:
+                        new_val = int(raw)
+                except ValueError:
+                    await interaction.response.send_message(
+                        f"Invalid value for **{attr}**: `{raw}`.", ephemeral=True
+                    )
+                    return
+                old_val = getattr(char, attr)
+                if str(old_val) != str(new_val):
+                    changes.append((attr, old_val, new_val))
+                    setattr(char, attr, new_val)
+
+        if not changes:
+            await interaction.response.send_message("No changes were made.", ephemeral=True)
+            return
+
+        change_lines = "\n".join(f"• **{f}**: {o} → {n}" for f, o, n in changes)
+        embed = discord.Embed(
+            title="✅ Character Edited",
+            description=f"**{char.name}** was updated by GM {self.editor.display_name}.",
+            color=0x22C55E,
+        )
+        embed.add_field(name="Changes", value=change_lines, inline=False)
+        embed.set_footer(text="LoreForge GM Edit")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # Audit log
+        audit = discord.Embed(
+            title="GM Edit Audit Log",
+            description=f"**{char.name}** edited by {self.editor.display_name}\n{change_lines}",
+            color=0x22C55E,
+        )
+        await _post_audit_log(interaction.client, interaction.guild_id, audit)
+
+
+class GMEditCharSelect(discord.ui.Select):
+    def __init__(self, chars: list[Character], editor: discord.Member):
+        self._chars = chars
+        self._editor = editor
+        options = [
+            discord.SelectOption(
+                label=c.name,
+                value=str(c.id),
+                description=f"Lv{c.level} {c.race} {c.char_class}",
+            )
+            for c in chars
+        ]
+        super().__init__(placeholder="Choose a character to edit...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        char_id = int(self.values[0])
+        char = next((c for c in self._chars if c.id == char_id), None)
+        if not char:
+            await interaction.response.send_message("Character not found.", ephemeral=True)
+            return
+        await interaction.response.send_modal(GMEditModal(char, self._editor))
+
+
+class GMEditCharView(discord.ui.View):
+    def __init__(self, chars: list[Character], editor: discord.Member):
+        super().__init__(timeout=120)
+        self.add_item(GMEditCharSelect(chars, editor))
+
+
+@gm_group.command(name="edit", description="Open a full GM edit panel for a character (GM only)")
+@app_commands.describe(user="The player whose character to edit (omit for char picker)")
+async def gm_edit(interaction: discord.Interaction, user: discord.Member | None = None):
+    if not await gm_only(interaction):
+        return
+
+    target = user or interaction.user
+    async with get_db() as db:
+        result = await db.execute(
+            select(Character).where(
+                Character.guild_id == interaction.guild_id,
+                Character.user_id == target.id,
+                Character.is_dead == False,
+            ).order_by(Character.is_active.desc(), Character.id)
+        )
+        chars = list(result.scalars().all())
+
+    if not chars:
+        await interaction.response.send_message(
+            f"{target.mention} has no living characters in this server.", ephemeral=True
+        )
+        return
+
+    if len(chars) == 1:
+        await interaction.response.send_modal(GMEditModal(chars[0], interaction.user))
+    else:
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="Select a Character to Edit",
+                description=f"Choose which character of {target.display_name}'s to edit.",
+                color=0x6366F1,
+            ),
+            view=GMEditCharView(chars, interaction.user),
+            ephemeral=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# /gm dashboard — World stats overview
+# ---------------------------------------------------------------------------
+
+@gm_group.command(name="dashboard", description="View world overview stats (GM only)")
+async def gm_dashboard(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
+
+    from database.models import Location, NPC, Quest, Faction, WorldTime, WeatherState, CharacterLocation, Character
+    from services.weather_service import get_weather
+    from services.time_service import get_world_time
+
+    async with get_db() as db:
+        loc_count = (await db.execute(select(Location).where(Location.guild_id == interaction.guild_id))).scalars().all()
+        locs = len(loc_count)
+
+        npc_count = (await db.execute(select(NPC).where(NPC.guild_id == interaction.guild_id, NPC.is_dead == False))).scalars().all()
+        npcs = len(npc_count)
+
+        quest_count = (await db.execute(select(Quest).where(Quest.guild_id == interaction.guild_id, Quest.is_active == True))).scalars().all()
+        quests = len(quest_count)
+
+        faction_count = (await db.execute(select(Faction).where(Faction.guild_id == interaction.guild_id))).scalars().all()
+        factions = len(faction_count)
+
+        player_count = (await db.execute(select(Character).where(Character.guild_id == interaction.guild_id, Character.is_dead == False, Character.is_active == True))).scalars().all()
+        players = len(player_count)
+
+        active_locations = (await db.execute(select(CharacterLocation).where(CharacterLocation.guild_id == interaction.guild_id))).scalars().all()
+        active_locs = len(active_locations)
+
+    time_info = await get_world_time(interaction.guild_id)
+    weather_info = await get_weather(interaction.guild_id)
+
+    embed = discord.Embed(
+        title="\U0001f5fa\ufe0f World Dashboard",
+        description=f"Overview for **{interaction.guild.name}**",
+        color=0x6366F1,
+    )
+    embed.add_field(name="\U0001f5fa\ufe0f Locations", value=str(locs), inline=True)
+    embed.add_field(name="\U0001f464 NPCs", value=str(npcs), inline=True)
+    embed.add_field(name="\U0001f4dc Quests", value=str(quests), inline=True)
+    embed.add_field(name="\U0001f3db\ufe0f Factions", value=str(factions), inline=True)
+    embed.add_field(name="\U0001f9d1\u200d\u2695\ufe0f Players", value=str(players), inline=True)
+    embed.add_field(name="Active Locations", value=str(active_locs), inline=True)
+    embed.add_field(name="\u23f0 Time", value=f"{time_info['emoji']} {time_info['time_of_day']} (Day {time_info['day']}, {time_info['season']})", inline=False)
+    embed.add_field(name="\u2601\ufe0f Weather", value=f"{weather_info['icon']} {weather_info['weather_type'].title()} ({weather_info['temperature']})", inline=False)
+    embed.set_footer(text="LoreForge World Dashboard")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # ---------------------------------------------------------------------------
@@ -840,6 +1077,9 @@ async def gm_revive(interaction: discord.Interaction, character_name: str):
     embed.add_field(name="Status", value="Alive", inline=True)
     embed.set_footer(text="LoreForge")
     await interaction.response.send_message(embed=embed)
+
+
+
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,437 @@
+import discord
+from discord import app_commands
+from discord.ext import commands
+from sqlalchemy import select
+from database.session import get_db
+from database.models import Character, TrainingSession
+from services.combat_engine import (
+    roll, modifier, Combatant, player_attack, has_condition, apply_condition,
+    tick_conditions, CONDITIONS,
+)
+from services.training_service import generate_dummy_action, DIFFICULTY_CONFIGS
+from services.leveling import check_level_up, xp_bar
+import datetime
+
+active_training = {}
+
+
+class TrainingDummy:
+    def __init__(self, difficulty: str):
+        config = DIFFICULTY_CONFIGS[difficulty]
+        self.name = f"Training Dummy ({difficulty.title()})"
+        self.difficulty = difficulty
+        self.hp_max = config["hp"]
+        self.hp_current = config["hp"]
+        self.ac = config["ac"]
+        self.attack_bonus = config["attack_bonus"]
+        self.damage_dice = config["damage"]
+        self.damage_bonus = 0
+        self.conditions = []
+        self.is_alive = True
+        self.is_dead = False
+        self.is_unconscious = False
+
+    def take_damage(self, amount: int):
+        self.hp_current = max(0, self.hp_current - amount)
+        if self.hp_current <= 0:
+            self.is_alive = False
+            self.is_dead = True
+
+    def attack(self):
+        atk_roll = roll(20) + self.attack_bonus
+        dmg = self._roll_damage()
+        return {"attack_roll": atk_roll, "damage": dmg, "is_miss": atk_roll == 1}
+
+    def _roll_damage(self):
+        import re
+        match = re.match(r"(\d+)d(\d+)(?:\+(\d+))?", self.damage_dice)
+        if match:
+            count, sides = int(match.group(1)), int(match.group(2))
+            bonus = int(match.group(3)) if match.group(3) else 0
+            return sum(roll(sides) for _ in range(count)) + bonus
+        return 2
+
+
+class TrainingDifficultyView(discord.ui.View):
+    def __init__(self, bot):
+        super().__init__(timeout=300)
+        self.bot = bot
+
+    @discord.ui.button(label="Easy 😊", style=discord.ButtonStyle.success, emoji="🟢")
+    async def easy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._start_training(interaction, "easy")
+
+    @discord.ui.button(label="Medium 🤔", style=discord.ButtonStyle.primary, emoji="🟡")
+    async def medium_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._start_training(interaction, "medium")
+
+    @discord.ui.button(label="Hard 😤", style=discord.ButtonStyle.danger, emoji="🟠")
+    async def hard_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._start_training(interaction, "hard")
+
+    @discord.ui.button(label="Impossible 💀", style=discord.ButtonStyle.danger, emoji="🔴")
+    async def impossible_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._start_training(interaction, "impossible")
+
+    async def _start_training(self, interaction: discord.Interaction, difficulty: str):
+        if interaction.channel_id in active_training:
+            await interaction.response.send_message("Training is already active in this channel.", ephemeral=True)
+            return
+
+        char = await get_active_char(interaction.user.id, interaction.guild_id)
+        if not char:
+            await interaction.response.send_message("You need an active living character.", ephemeral=True)
+            return
+
+        dummy = TrainingDummy(difficulty)
+
+        player_combatant = Combatant(
+            id=str(interaction.user.id),
+            name=char.name,
+            is_player=True,
+            level=char.level,
+            char_class=char.char_class,
+            hp_max=char.hp_max,
+            hp_current=char.hp_current,
+            hp_temp=char.hp_temp,
+            strength=char.strength, dexterity=char.dexterity,
+            constitution=char.constitution, intelligence=char.intelligence,
+            wisdom=char.wisdom, charisma=char.charisma,
+            armor_class=char.armor_class,
+            is_dead=False, is_unconscious=False,
+            death_saves_success=0, death_saves_failure=0,
+            conditions=[],
+            class_resources=dict(char.class_resources or {}),
+            weapon="unarmed",
+        )
+
+        session = TrainingSessionData(
+            channel_id=interaction.channel_id,
+            user_id=interaction.user.id,
+            guild_id=interaction.guild_id,
+            character_id=char.id,
+            difficulty=difficulty,
+            player=player_combatant,
+            dummy=dummy,
+        )
+        active_training[interaction.channel_id] = session
+
+        embed = session.arena_embed()
+        await interaction.response.edit_message(
+            content=f"⚔️ **Training: {difficulty.title()}** — Type your actions in chat!",
+            embed=embed,
+            view=None,
+        )
+
+
+async def get_active_char(user_id: int, guild_id: int):
+    async with get_db() as db:
+        result = await db.execute(
+            select(Character).where(
+                Character.user_id == user_id,
+                Character.guild_id == guild_id,
+                Character.is_active == True,
+                Character.is_dead == False,
+            )
+        )
+        return result.scalar_one_or_none()
+
+
+class TrainingSessionData:
+    def __init__(self, channel_id, user_id, guild_id, character_id, difficulty, player, dummy):
+        self.channel_id = channel_id
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.character_id = character_id
+        self.difficulty = difficulty
+        self.player = player
+        self.dummy = dummy
+        self.round = 1
+        self.log = []
+        self.state = "active"
+        self.damage_dealt = 0
+        self.damage_taken = 0
+        self.last_action_desc = ""
+
+    def arena_embed(self) -> discord.Embed:
+        player_pct = max(0, self.player.hp_current / self.player.hp_max) if self.player.hp_max > 0 else 0
+        dummy_pct = max(0, self.dummy.hp_current / self.dummy.hp_max) if self.dummy.hp_max > 0 else 0
+        player_bar = "█" * round(player_pct * 10) + "░" * (10 - round(player_pct * 10))
+        dummy_bar = "█" * round(dummy_pct * 10) + "░" * (10 - round(dummy_pct * 10))
+
+        embed = discord.Embed(
+            title=f"⚔️ Training Arena — {self.difficulty.title()}",
+            color=0xF59E0B,
+        )
+        embed.add_field(
+            name=f"🎯 {self.player.name} (Lv{self.player.level} {self.player.char_class})",
+            value=f"❤️ {self.player.hp_current}/{self.player.hp_max} {player_bar}\n🛡️ AC {self.player.armor_class}",
+            inline=True,
+        )
+        embed.add_field(
+            name=f"🎯 Training Dummy",
+            value=f"❤️ {self.dummy.hp_current}/{self.dummy.hp_max} {dummy_bar}\n🛡️ AC {self.dummy.ac}",
+            inline=True,
+        )
+        embed.add_field(name="Round", value=f"**{self.round}**", inline=True)
+        if self.log:
+            embed.add_field(name="📜 Recent Actions", value="\n".join(self.log[-5:]), inline=False)
+        return embed
+
+
+# ── Commands ──────────────────────────────────────────────────────────────────
+
+training_group = app_commands.Group(name="training", description="Training dummy commands")
+
+
+@training_group.command(name="start", description="Start training against an AI dummy")
+async def training_start(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🎯 Training Dummy",
+        description="Choose your difficulty:\n\n"
+        "**Easy 😊** — A slow, clumsy dummy. Perfect for beginners.\n"
+        "**Medium 🤔** — A competent fighter with basic tactics.\n"
+        "**Hard 😤** — Aggressive, uses conditions strategically.\n"
+        "**Impossible 💀** — Near-perfect counter-play. Taunts you.",
+        color=0x8B5CF6,
+    )
+    await interaction.response.send_message(embed=embed, view=TrainingDifficultyView(interaction.client))
+
+
+@training_group.command(name="stop", description="End your training session early")
+async def training_stop(interaction: discord.Interaction):
+    session = active_training.get(interaction.channel_id)
+    if not session or session.user_id != interaction.user.id:
+        await interaction.response.send_message("No active training session for you here.", ephemeral=True)
+        return
+
+    await _end_training(interaction, session, "forfeit")
+    await interaction.response.send_message("🏳️ Training ended.")
+
+
+# ── Message Handler ───────────────────────────────────────────────────────────
+
+async def _handle_training_message(bot, message: discord.Message):
+    session = active_training.get(message.channel.id)
+    if not session or session.state != "active":
+        return
+    if message.author.id != session.user_id:
+        return
+    if message.author.bot or message.content.startswith("/"):
+        return
+
+    # Process player action
+    content_lower = message.content.lower()
+    
+    # Detect action from message
+    attack_keywords = ["attack", "strike", "hit", "slash", "punch", "kick", "swing", "cut"]
+    defend_keywords = ["defend", "block", "guard", "shield", "brace"]
+    flee_keywords = ["flee", "run", "escape", "retreat"]
+    item_keywords = ["potion", "drink", "heal", "item", "use"]
+
+    is_attack = any(kw in content_lower for kw in attack_keywords)
+    is_defend = any(kw in content_lower for kw in defend_keywords)
+    is_flee = any(kw in content_lower for kw in flee_keywords)
+    is_item = any(kw in content_lower for kw in item_keywords)
+
+    player = session.player
+    dummy = session.dummy
+
+    if is_attack:
+        # Player attacks dummy
+        result = player_attack(player, weapon=player.weapon)
+        dummy_before_hp = dummy.hp_current
+        if result["attack_roll"] >= dummy.ac and not result["is_miss"]:
+            if result["is_crit"]:
+                dummy.take_damage(result["damage"] * 2)
+                session.add_log(f"⚔️ **CRIT!** You deal {result['damage'] * 2} damage!")
+                session.damage_dealt += result['damage'] * 2
+            else:
+                dummy.take_damage(result["damage"])
+                session.add_log(f"⚔️ You hit the dummy for {result['damage']} damage.")
+                session.damage_dealt += result['damage']
+        else:
+            session.add_log(f"🛡️ Your attack misses (rolled {result['attack_roll']} vs AC {dummy.ac}).")
+
+        if not dummy.is_alive:
+            await _end_training_via_msg(message.channel, session, "win")
+            return
+
+    elif is_defend:
+        player.hp_temp = max(player.hp_temp, 5)
+        session.add_log("🛡️ You brace for impact — gaining 5 temp HP!")
+
+    elif is_item:
+        healed = player.heal(roll(4) + 2)
+        session.add_log(f"🧪 You drink a potion — healed **{healed} HP**!")
+
+    elif is_flee:
+        if roll(20) + modifier(player.dexterity) >= 12:
+            await _end_training_via_msg(message.channel, session, "fled")
+            return
+        else:
+            session.add_log("💨 You try to flee but fail — the dummy presses its advantage!")
+
+    else:
+        session.add_log(f"📜 {message.content[:80]}")
+        # Default: basic attack
+        result = player_attack(player)
+        if result["attack_roll"] >= dummy.ac and not result["is_miss"]:
+            dummy.take_damage(result["damage"])
+            session.damage_dealt += result["damage"]
+            session.add_log(f"⚔️ Your action deals {result['damage']} damage.")
+
+    # Dummy's turn — use DeepSeek for flavor, but calculate damage here
+    dummy_state = {
+        "hp": dummy.hp_current,
+        "hp_max": dummy.hp_max,
+        "ac": dummy.ac,
+        "conditions": [c.get("name", "") for c in dummy.conditions],
+    }
+    player_state = {
+        "hp": player.hp_current,
+        "hp_max": player.hp_max,
+        "ac": player.armor_class,
+        "conditions": [c.get("name", "") for c in (player.conditions or [])],
+    }
+
+    try:
+        deepseek_action = await generate_dummy_action(
+            session.difficulty, dummy_state, player_state, session.round
+        )
+        dummy_attack_desc = deepseek_action.get("action_description", "The training dummy lunges at you!")
+    except Exception:
+        dummy_attack_desc = "The training dummy swings at you!"
+
+    # Dummy attacks player
+    dummy_roll = dummy.attack()
+    player_before_hp = player.hp_current
+    if dummy_roll["attack_roll"] >= player.armor_class:
+        player.take_damage(dummy_roll["damage"])
+        session.damage_taken += dummy_roll["damage"]
+        session.add_log(f"💥 {dummy_attack_desc} — **{dummy_roll['damage']} damage**!")
+    else:
+        session.add_log(f"🛡️ {dummy_attack_desc} — It misses you!")
+
+    # Apply conditions from DeepSeek
+    if deepseek_action.get("condition_apply"):
+        apply_condition(player, deepseek_action["condition_apply"], 2)
+        icon = CONDITIONS.get(deepseek_action["condition_apply"], {}).get("icon", "⚡")
+        session.add_log(f"{icon} You're now **{deepseek_action['condition_apply']}**!")
+
+    # Tick conditions
+    for line in tick_conditions(player):
+        session.add_log(line)
+
+    if player.hp_current <= 0:
+        player.is_unconscious = True
+        await _end_training_via_msg(message.channel, session, "lose")
+        return
+
+    session.round += 1
+    embed = session.arena_embed()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    await message.channel.send(f"**Round {session.round}**", embed=embed)
+
+
+async def _end_training_via_msg(channel, session, result: str):
+    session.state = "over"
+    active_training.pop(session.channel_id, None)
+
+    embed = discord.Embed(title="🏁 Training Complete!", color=0x8B5CF6)
+    if result == "win":
+        config = DIFFICULTY_CONFIGS[session.difficulty]
+        xp_reward = int(100 * config["xp_mult"])
+        embed.description = f"🎉 **You defeated the {session.difficulty.title()} dummy!**"
+        embed.add_field(name="Rounds", value=str(session.round), inline=True)
+        embed.add_field(name="Damage Dealt", value=str(session.damage_dealt), inline=True)
+        embed.add_field(name="Damage Taken", value=str(session.damage_taken), inline=True)
+        embed.add_field(name="XP Earned", value=f"**{xp_reward}** ✨", inline=False)
+
+        # Save
+        async with get_db() as db:
+            db.add(TrainingSession(
+                user_id=session.user_id,
+                guild_id=session.guild_id,
+                character_id=session.character_id,
+                difficulty=session.difficulty,
+                rounds_survived=session.round,
+                damage_dealt=session.damage_dealt,
+                damage_taken=session.damage_taken,
+                result="win",
+                end_time=datetime.datetime.utcnow(),
+            ))
+            char = await db.execute(
+                select(Character).where(Character.id == session.character_id)
+            )
+            char_obj = char.scalar_one_or_none()
+            if char_obj:
+                char_obj.xp = (char_obj.xp or 0) + xp_reward
+                new_level = check_level_up(char_obj.xp, char_obj.level)
+                if new_level:
+                    char_obj.level = new_level
+                    embed.add_field(name="🎉 Level Up!", value=f"Reached **Level {new_level}**!", inline=False)
+
+    elif result == "lose":
+        embed.description = "💀 **The training dummy defeats you.**"
+        embed.add_field(name="Rounds", value=str(session.round), inline=True)
+        embed.add_field(name="Damage Dealt", value=str(session.damage_dealt), inline=True)
+        async with get_db() as db:
+            db.add(TrainingSession(
+                user_id=session.user_id,
+                guild_id=session.guild_id,
+                character_id=session.character_id,
+                difficulty=session.difficulty,
+                rounds_survived=session.round,
+                damage_dealt=session.damage_dealt,
+                damage_taken=session.damage_taken,
+                result="lose",
+                end_time=datetime.datetime.utcnow(),
+            ))
+    else:
+        embed.description = f"🏳️ Training ended (Round {session.round})."
+        async with get_db() as db:
+            db.add(TrainingSession(
+                user_id=session.user_id,
+                guild_id=session.guild_id,
+                character_id=session.character_id,
+                difficulty=session.difficulty,
+                rounds_survived=session.round,
+                damage_dealt=session.damage_dealt,
+                damage_taken=session.damage_taken,
+                result=result,
+                end_time=datetime.datetime.utcnow(),
+            ))
+
+    await channel.send(embed=embed)
+
+
+async def _end_training(interaction, session, result):
+    session.state = "over"
+    active_training.pop(session.channel_id, None)
+    embed = discord.Embed(title="🏁 Training Ended", color=0xF59E0B)
+    embed.add_field(name="Rounds", value=str(session.round), inline=True)
+    embed.add_field(name="Damage Dealt/Taken", value=f"{session.damage_dealt}/{session.damage_taken}", inline=True)
+    await interaction.followup.send(embed=embed)
+
+
+class TrainingCog(commands.Cog, name="Training"):
+    def __init__(self, bot):
+        self.bot = bot
+        bot.tree.add_command(training_group)
+
+    async def cog_unload(self):
+        self.bot.tree.remove_command("training")
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if not message.guild or message.author.bot:
+            return
+        await _handle_training_message(self.bot, message)
+
+
+async def setup(bot):
+    await bot.add_cog(TrainingCog(bot))

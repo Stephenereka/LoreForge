@@ -1,0 +1,12 @@
+{
+  "templates": [
+    {
+      "name": "Murim/Magic",
+      "description": "A world of martial arts masters, hidden sects, and ancient magic — based on Murim lore. Features the Amberhaven continent with five great sects, ancient ruins, and a world scarred by the Cataclysm of Shattered Veils.",
+      "filename": "murim_magic.json",
+      "author": "LoreForge",
+      "version": "1.0.0",
+      "created_at": "2026-07-14T00:00:00Z"
+    }
+  ]
+}

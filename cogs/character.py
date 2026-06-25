@@ -4,7 +4,7 @@ from discord.ext import commands
 from sqlalchemy import select
 from database.session import get_db
 from database.models import Character, PendingApproval, GuildConfig
-from services.combat_engine import STARTER_WEAPONS, STARTER_ATTACKS, WEAPON_DAMAGE
+from services.combat_engine import STARTER_WEAPONS, STARTER_ATTACKS, WEAPON_DAMAGE, roll as dice_roll
 from services.leveling import xp_bar, xp_for_next_level, check_level_up
 import math
 
@@ -58,6 +58,286 @@ CLASS_DESCRIPTIONS = {
     "Warlock":   "Pact caster — Eldritch Blast & short-rest slots",
 }
 
+CLASS_INFO = {
+    "Fighter": {
+        "hit_die": 10,
+        "primary": "Strength",
+        "saves": "STR & CON",
+        "resource": "**Action Surge** (1/rest) — take one extra action on your turn. **Second Wind** (1/rest) — bonus action to heal 1d10+level HP.",
+        "flavor": (
+            "The Fighter is the unyielding anchor of any party — a master of arms who wields every weapon "
+            "with equal skill. You don't need magic or tricks; you have discipline, steel, and the will to "
+            "stand your ground when others flee. In combat, you control the frontline, trading blows with "
+            "enemies while your allies maneuver into position.\n\n"
+            "Whether you charge in with a greatsword, hold the line with sword and board, or rain arrows "
+            "from a distance, the Fighter is adaptable to any situation. Your Action Surge can turn the "
+            "tide of a losing battle, and your Second Wind keeps you fighting long after others have fallen."
+        ),
+        "tips": (
+            "• **Position yourself between enemies and your squishy allies** — you're the wall they hide behind.\n"
+            "• **Save Action Surge for clutch moments** — an extra attack when the enemy is low can finish the fight.\n"
+            "• **Use Parry when you expect a big hit** — +2 AC can mean the difference between standing and falling.\n"
+            "• **Upgrade your weapon and armor first** — Fighters live and die by their gear."
+        ),
+    },
+    "Rogue": {
+        "hit_die": 8,
+        "primary": "Dexterity",
+        "saves": "DEX & INT",
+        "resource": "**Sneak Attack** (+1d6 per 2 levels) — extra damage when you have advantage or an ally is adjacent to the target.",
+        "flavor": (
+            "The Rogue dances through combat like a shadow given form — striking where it hurts most and "
+            "vanishing before the enemy can react. You're not built for a stand-up fight; you excel at creating "
+            "opportunities, exploiting weaknesses, and making sure every hit counts.\n\n"
+            "Your Sneak Attack rewards clever positioning and teamwork. Flank with your Fighter, hide in shadows "
+            "for advantage, or use your Smoke Feint to blind enemies before delivering the killing blow. The "
+            "Rogue is a problem-solver who can pick locks, pockets, and fights with equal finesse."
+        ),
+        "tips": (
+            "• **Always try to get advantage** — Sneak Attack only triggers with advantage or an adjacent ally.\n"
+            "• **Use Cunning Action to reposition** — Dash, Disengage, or Hide as a bonus action keeps you mobile.\n"
+            "• **Shadow Step is your best friend** — gain Hidden and make your next attack devastating.\n"
+            "• **Don't stand still** — a Rogue who isn't moving is a Rogue who's about to get hit."
+        ),
+    },
+    "Cleric": {
+        "hit_die": 8,
+        "primary": "Wisdom",
+        "saves": "WIS & CHA",
+        "resource": "**Channel Divinity** (1/rest, 2 at level 6) — Turn Undead or use your domain's special power. **Spellcasting** — prepare spells from the full Cleric list.",
+        "flavor": (
+            "The Cleric is the living conduit between the mortal world and the divine — a figure who channels "
+            "the power of the gods to heal the wounded, smite the wicked, and protect the faithful. You're not "
+            "just a healer; you're a spiritual warrior who can wade into battle with a mace in one hand and "
+            "holy light in the other.\n\n"
+            "Your kit is balanced — you can heal, deal radiant damage, control undead, and buff your allies. "
+            "A good Cleric reads the battlefield and chooses the right tool: Smite for damage, Heal for "
+            "survival, Turn Undead when facing necromantic horrors."
+        ),
+        "tips": (
+            "• **Heal proactively, not reactively** — keeping allies above half HP is better than panic-healing.\n"
+            "• **Smite is excellent against undead** — bonus radiant damage makes you the bane of necromancers.\n"
+            "• **Turn Undead can break an encounter** — facing a horde of skeletons? One Channel Divinity can end it.\n"
+            "• **Don't forget you can fight** — you have good armor and a mace. You're not a squishy backliner."
+        ),
+    },
+    "Wizard": {
+        "hit_die": 6,
+        "primary": "Intelligence",
+        "saves": "INT & WIS",
+        "resource": "**Spell Slots** (2 at level 1, more as you level). **Arcane Recovery** (1/day) — regain half your Wizard level in spell slots (rounded up) on a short rest.",
+        "flavor": (
+            "The Wizard is the ultimate wielder of arcane power — a student of forbidden knowledge who commands "
+            "the forces of reality itself. You are fragile, yes, but you can reshape the battlefield from a "
+            "distance. Fire, frost, force, and lightning answer your call.\n\n"
+            "Your strength lies in versatility. Magic Missile never misses. Fire Bolt burns from range. Ray of "
+            "Frost slows approaching enemies. Shield makes you briefly untouchable. A clever Wizard controls "
+            "the fight before it even reaches melee range. Stay behind your Fighter, conserve your spell slots, "
+            "and let the cantrips do the work."
+        ),
+        "tips": (
+            "• **Cantrips are free — use them liberally** — Fire Bolt and Ray of Frost cost nothing to cast.\n"
+            "• **Save spell slots for important moments** — a well-placed Thunderclap or Shield can save the day.\n"
+            "• **Positioning is everything** — you have the lowest HP. Stay behind your party's front line.\n"
+            "• **Arcane Recovery on every short rest** — it's free spell slots. Don't waste it."
+        ),
+    },
+    "Barbarian": {
+        "hit_die": 12,
+        "primary": "Strength",
+        "saves": "STR & CON",
+        "resource": "**Rage** (2/rest) — +2 melee damage, resistance to bludgeoning/piercing/slashing damage, advantage on STR checks. Lasts 1 minute.",
+        "flavor": (
+            "The Barbarian is pure, untamed fury made flesh — a warrior who abandons the discipline of the "
+            "Fighter for the raw, primal power of anger. When you Rage, pain becomes meaningless. Arrows bounce "
+            "off your hide. Swords that would fell a normal warrior barely scratch you.\n\n"
+            "Your playstyle is aggressive and relentless. Charge in first, hit the biggest enemy, and trust your "
+            "massive HP pool and damage resistance to keep you standing. Reckless Swing gives you advantage "
+            "at the cost of defense, and Rage Charge can flatten enemies. You are the hammer, and every problem "
+            "is a nail."
+        ),
+        "tips": (
+            "• **Rage at the start of combat** — damage resistance is your main survival tool.\n"
+            "• **Reckless Swing is a gamble** — advantage to hit is great, but enemies get advantage against you too.\n"
+            "• **You have the highest HP in the game** — use it. Take risks. You can survive hits that kill others.\n"
+            "• **Intimidate is your out-of-combat tool** — your terrifying presence can avoid fights entirely."
+        ),
+    },
+    "Warlock": {
+        "hit_die": 8,
+        "primary": "Charisma",
+        "saves": "WIS & CHA",
+        "resource": "**Pact Magic** (1 slot at level 1, recovered on short rest). **Eldritch Blast** — your signature cantrip, deals 1d10+CHA force damage. **Invocations** at level 2.",
+        "flavor": (
+            "The Warlock made a deal with a being of immense power — a fiend, a fey, or an ancient horror — "
+            "and now wields forbidden magic that no traditional spellcaster can match. Your spell slots are "
+            "few but always at maximum power, and your Eldritch Blast is the most reliable damage cantrip "
+            "in the game.\n\n"
+            "You combine dark magic with eldritch resilience. Hex your enemies to amplify all your damage. "
+            "Drain life from your foes to sustain yourself. Hellish Rebuke punishes anyone who dares strike "
+            "you. And when you need defense, Armor of Agathys makes you a frozen nightmare. Short rests are "
+            "your best friend — they restore all your pact magic."
+        ),
+        "tips": (
+            "• **Eldritch Blast is your bread and butter** — use it every turn. It scales with your level.\n"
+            "• **Hex then blast** — placing Hex on a target before attacking adds 1d6 necrotic to every hit.\n"
+            "• **Short rest often** — your spell slots come back on a short rest. Don't hoard them.\n"
+            "• **You're a glass cannon** — 1d8 hit die means you can take some hits, but not many. Stay at range."
+        ),
+    },
+}
+
+RACE_INFO = {
+    "Human":     {"lore": "The most adaptable of all peoples, Humans thrive everywhere. Their ambition and versatility make them natural leaders and innovators.", "bonus_detail": "+1 to ALL six ability scores — a jack of all trades, master of none."},
+    "Elf":       {"lore": "Graceful and long-lived, Elves possess an innate connection to nature and magic. Their keen eyes miss nothing.", "bonus_detail": "+2 DEX and +1 WIS — perfect for nimble rogues and wise rangers."},
+    "Dwarf":     {"lore": "Stout and resilient, Dwarves are masters of stone and metal. Their constitution is legendary, as is their stubbornness.", "bonus_detail": "+2 CON and +1 WIS — ideal for durable frontliners and stalwart clerics."},
+    "Halfling":  {"lore": "Small but brave, Halflings rely on luck and charm to survive in a big world. Their cheerful demeanor hides a fierce survival instinct.", "bonus_detail": "+2 DEX and +1 CHA — perfect for rogues and warlocks who need a lucky break."},
+    "Half-Orc":  {"lore": "Born of two worlds, Half-Orcs combine human cunning with orcish ferocity. Their intimidating presence is matched only by their endurance.", "bonus_detail": "+2 STR and +1 CON — built for barbarians and fighters who want raw power."},
+    "Dragonborn":{"lore": "Descended from dragons, these proud beings carry draconic blood in their veins. Their breath weapon and natural resilience set them apart.", "bonus_detail": "+2 STR and +1 CHA — excellent for paladins, fighters, and sorcerers with draconic heritage."},
+    "Tiefling":  {"lore": "Bearing the mark of infernal ancestry, Tieflings command dark magic and innate charm. Their horns and tails mark them as otherworldly.", "bonus_detail": "+1 INT and +2 CHA — natural warlocks, sorcerers, and bards with a dark edge."},
+}
+
+TUTORIALS = {
+    "Fighter": [
+        {"title": "Welcome, Fighter!", "description": "You are the blade and the bulwark — the one who stands between your allies and certain death.", "fields": [
+            {"name": "⚔️ Your Role", "value": "As a Fighter, you control the ebb and flow of battle. Your high HP and AC let you stay on the front lines, trading blows with the enemy while your allies do their jobs."},
+            {"name": "🎯 Class Fantasy", "value": "You're not a magical warrior or a divine champion — you're just really, really good at fighting. Every weapon is an extension of your will, and no enemy can match your endurance."},
+        ]},
+        {"title": "Your Resources", "description": "Here's what your class brings to every fight.", "fields": [
+            {"name": "⚡ Action Surge", "value": "Once per rest, take **one extra action** on your turn. That could be an extra attack, a second use of Second Wind, or anything else an action can do. Use it at the perfect moment."},
+            {"name": "💚 Second Wind", "value": "Once per rest, use a bonus action to heal **1d10 + your Fighter level** HP. A lifesaver when you're low and the Cleric is busy."},
+        ]},
+        {"title": "Your Attacks", "description": "The attacks you chose during creation.", "fields": []},
+        {"title": "Leveling Up", "description": "What to look forward to as you grow.", "fields": [
+            {"name": "Level 3 — Martial Archetype", "value": "Choose a path: **Champion** (improved crit range), **Battle Master** (maneuvers and superiority dice), or **Eldritch Knight** (spellcasting)."},
+            {"name": "Level 5 — Extra Attack", "value": "Attack **twice** per turn instead of once. This doubles your damage output."},
+            {"name": "Level 11 — Triple Attack", "value": "Attack three times per turn. You're a whirlwind of destruction."},
+            {"name": "Level 20 — Legendary Warrior", "value": "Attack four times per turn and gain an extra Action Surge. You are a one-man army."},
+        ]},
+        {"title": "How to Play", "description": "Tips for being an effective Fighter.", "fields": [
+            {"name": "🛡️ Hold the Line", "value": "Your job is to keep enemies away from your squishy allies. Use your high HP and AC to absorb hits."},
+            {"name": "⚡ Save Action Surge", "value": "Don't waste Action Surge on the first goblin you see. Save it for the boss, the clutch moment, or when you need to turn the tide."},
+            {"name": "🗡️ Gear Matters", "value": "As a Fighter, your weapon is everything. Upgrade whenever possible. A +1 longsword is a massive power spike."},
+            {"name": "🔄 Be Flexible", "value": "You can switch between sword-and-board (defense) and two-handed (damage) as the situation demands. Adapt!"},
+        ]},
+    ],
+    "Rogue": [
+        {"title": "Welcome, Rogue!", "description": "You are the shadow in the corner, the whisper in the dark — a master of precision and opportunity.", "fields": [
+            {"name": "🗡️ Your Role", "value": "The Rogue is a tactical striker who deals devastating single-target damage when conditions are right. You're also the party's skill monkey — locks, traps, and stealth are your domain."},
+            {"name": "🎯 Class Fantasy", "value": "You don't win by standing still and trading blows. You win by being where the enemy least expects you, striking when they're vulnerable, and vanishing before they can retaliate."},
+        ]},
+        {"title": "Your Resources", "description": "What makes a Rogue shine.", "fields": [
+            {"name": "🎲 Sneak Attack", "value": "Once per turn, when you have **advantage** or an **ally adjacent** to the target, deal **+1d6 damage** (increases every 2 levels). This is your main source of damage."},
+            {"name": "💨 Cunning Action", "value": "At level 2, you can Dash, Disengage, or Hide as a **bonus action**. This makes you incredibly mobile and hard to pin down."},
+        ]},
+        {"title": "Your Attacks", "description": "The attacks you chose during creation.", "fields": []},
+        {"title": "Leveling Up", "description": "What to look forward to as you grow.", "fields": [
+            {"name": "Level 3 — Roguish Archetype", "value": "Choose **Thief** (climbing, fast hands), **Arcane Trickster** (spells), or more paths later."},
+            {"name": "Level 5 — Uncanny Dodge", "value": "Use your reaction to **halve damage** from one attack per round. Enormous survivability boost."},
+            {"name": "Level 7 — Evasion", "value": "AoE effects like fireballs? You take **zero damage** on a successful DEX save, half on a failure."},
+            {"name": "Level 11 — Reliable Talent", "value": "Any d20 roll below 10 on a proficient skill check becomes a 10. You literally cannot fail easy tasks."},
+        ]},
+        {"title": "How to Play", "description": "Tips for being an effective Rogue.", "fields": [
+            {"name": "🎯 Always Seek Advantage", "value": "Sneak Attack requires advantage or an adjacent ally. Use Shadow Step, Hide, or flank with your Fighter."},
+            {"name": "🏃 Keep Moving", "value": "Never end your turn in the same place you started. Mobility is your defense."},
+            {"name": "🔑 You're the Utility Expert", "value": "Picking locks, disarming traps, scouting ahead — these are YOUR jobs. The party depends on you."},
+            {"name": "⚡ Don't Trade Blows", "value": "You have a d8 hit die and light armor. If you're taking hits, you're doing it wrong."},
+        ]},
+    ],
+    "Cleric": [
+        {"title": "Welcome, Cleric!", "description": "You carry the light of the divine into a dark world — healer, protector, and holy warrior rolled into one.", "fields": [
+            {"name": "✝️ Your Role", "value": "The Cleric is the party's lifeline. You keep everyone alive with healing, turn the tide with buffs, and smite evil with radiant fury. You're not just a healer — you're a force of nature."},
+            {"name": "🎯 Class Fantasy", "value": "You speak for the gods. Miracles flow through your hands. When you raise your holy symbol, even the undead tremble. You are the reason your party survives the night."},
+        ]},
+        {"title": "Your Resources", "description": "Divine tools at your disposal.", "fields": [
+            {"name": "⚡ Channel Divinity", "value": "Once per rest, you can use **Turn Undead** (frighten undead) or your domain's special power. At level 6, you get a second use per rest."},
+            {"name": "📖 Spellcasting", "value": "You prepare spells from the full Cleric list each day. Your primary stat is WIS — it determines your spell save DC and healing power."},
+        ]},
+        {"title": "Your Attacks", "description": "The attacks you chose during creation.", "fields": []},
+        {"title": "Leveling Up", "description": "What to look forward to as you grow.", "fields": [
+            {"name": "Level 1 — Divine Domain", "value": "Choose your domain (Life, Light, War, etc.). This grants bonus spells and unique abilities."},
+            {"name": "Level 5 — Destroy Undead", "value": "Your Turn Undead becomes **Destroy Undead** — weak undead are instantly annihilated on a failed save."},
+            {"name": "Level 10 — Divine Intervention", "value": "Once per week, call upon your deity for a miracle. It always succeeds."},
+            {"name": "Level 17 — Supreme Healing", "value": "Your healing spells automatically **max out** their dice rolls. You never roll for healing again."},
+        ]},
+        {"title": "How to Play", "description": "Tips for being an effective Cleric.", "fields": [
+            {"name": "💚 Heal Smart", "value": "Keep allies above half HP rather than panic-healing. A Cleric who pre-heals wins fights before they start."},
+            {"name": "⚔️ You Can Fight", "value": "You have good armor and a mace. Don't just stand in the back — wade in and Smite. You're tougher than you look."},
+            {"name": "✝️ Turn Undead is Game-Changing", "value": "Against undead hordes, one Channel Divinity can break the encounter entirely."},
+            {"name": "🛡️ Position Matters", "value": "You're a middle-line combatant — behind the Fighter, ahead of the Wizard. Read the battlefield and adjust."},
+        ]},
+    ],
+    "Wizard": [
+        {"title": "Welcome, Wizard!", "description": "You are a master of the arcane — a weaver of spells who commands forces beyond mortal comprehension.", "fields": [
+            {"name": "🔮 Your Role", "value": "The Wizard is a ranged arcane powerhouse who controls the battlefield with versatile spells. You're fragile, but your Cantrips never run out and your spell slots can change the course of any fight."},
+            {"name": "🎯 Class Fantasy", "value": "You've spent years hunched over ancient tomes, learning the secret names of reality. Now you speak those names aloud — and the world obeys. Fire, frost, force, and lightning answer your call."},
+        ]},
+        {"title": "Your Resources", "description": "Arcane tools at your disposal.", "fields": [
+            {"name": "📖 Spell Slots", "value": "You start with 2 first-level spell slots. Each day, you prepare a list of spells from your spellbook and cast them using these slots."},
+            {"name": "🔋 Arcane Recovery", "value": "Once per day on a short rest, regain spell slots totaling **half your Wizard level** (rounded up). A level 2 Wizard can recover 1 first-level slot."},
+        ]},
+        {"title": "Your Attacks", "description": "The attacks you chose during creation.", "fields": []},
+        {"title": "Leveling Up", "description": "What to look forward to as you grow.", "fields": [
+            {"name": "Level 2 — Arcane Tradition", "value": "Choose your school: **Evocation** (big damage), **Abjuration** (shields/wards), or **Necromancy** (undead minions)."},
+            {"name": "Level 5 — 3rd-Level Spells", "value": "Fireball. Counterspell. Haste. This is where Wizard power truly explodes."},
+            {"name": "Level 11 — Empowered Cantrips", "value": "Your cantrips deal an extra damage die. Fire Bolt becomes 3d10, Ray of Frost becomes 3d8."},
+            {"name": "Level 18 — Spell Mastery", "value": "Choose a 1st and 2nd level spell — you can cast them **at will**, no slots required. Shield every turn? Yes."},
+        ]},
+        {"title": "How to Play", "description": "Tips for being an effective Wizard.", "fields": [
+            {"name": "🎯 Stay Behind the Tank", "value": "You have 6 HP per level and no armor. If enemies reach you, something has gone wrong."},
+            {"name": "⚡ Cantrips Are Free", "value": "Fire Bolt and Ray of Frost cost nothing. Use them every turn. Save spell slots for when it matters."},
+            {"name": "📖 Prepare the Right Spells", "value": "You can swap your prepared spells each day. Facing undead? Bring radiant. Facing a crowd? Fireball."},
+            {"name": "🔄 Short Rest = Arcane Recovery", "value": "Never skip a short rest without using Arcane Recovery. Free spell slots are free spell slots."},
+        ]},
+    ],
+    "Barbarian": [
+        {"title": "Welcome, Barbarian!", "description": "You are fury incarnate — a primal warrior who laughs in the face of death and hits back twice as hard.", "fields": [
+            {"name": "💢 Your Role", "value": "The Barbarian is the ultimate frontliner. You have the highest HP in the game, damage resistance while Raging, and the ability to hit like a freight train. You go where the fight is thickest and make it yours."},
+            {"name": "🎯 Class Fantasy", "value": "You don't wear heavy plate or study ancient techniques. You get angry. Really, really angry. And when you're angry, swords bounce off your skin and you can punch through stone walls."},
+        ]},
+        {"title": "Your Resources", "description": "Rage fuels your power.", "fields": [
+            {"name": "💢 Rage (2/rest)", "value": "Enter a rage as a bonus action. Gain **+2 melee damage**, **resistance** to physical damage (bludgeoning/piercing/slashing), and advantage on STR checks. Lasts 1 minute."},
+            {"name": "🔄 Rage Tactics", "value": "While raging, you can't cast or concentrate on spells. But who needs spells when you can headbutt a dragon?"},
+        ]},
+        {"title": "Your Attacks", "description": "The attacks you chose during creation.", "fields": []},
+        {"title": "Leveling Up", "description": "What to look forward to as you grow.", "fields": [
+            {"name": "Level 3 — Primal Path", "value": "Choose **Berserker** (extra attacks while raging), **Totem Warrior** (spirit animal buffs), or **Zealot** (divine fury)."},
+            {"name": "Level 5 — Extra Attack + Fast Movement", "value": "Attack twice per turn and gain +10ft movement speed."},
+            {"name": "Level 11 — Relentless Rage", "value": "If you drop to 0 HP while raging, make a CON save to stay at 1 HP instead."},
+            {"name": "Level 20 — Primal Champion", "value": "+4 to STR and CON (max 24). Infinite rages. You are a demigod of war."},
+        ]},
+        {"title": "How to Play", "description": "Tips for being an effective Barbarian.", "fields": [
+            {"name": "💢 Rage Early, Rage Often", "value": "You have 2 rages per rest. Use them. Damage resistance makes you incredibly tanky."},
+            {"name": "⚔️ Use Reckless Swing", "value": "Advantage on attacks is huge. Yes, enemies get advantage on you. Your HP can take it."},
+            {"name": "🛡️ You ARE the Front Line", "value": "Stand between enemies and your allies. With your HP pool and resistance, you can take hits that would kill anyone else."},
+            {"name": "🏃 Don't Forget Mobility", "value": "You're fast. Use it to close gaps, chase runners, and reposition when needed."},
+        ]},
+    ],
+    "Warlock": [
+        {"title": "Welcome, Warlock!", "description": "You made a pact with a being beyond mortal comprehension — and now you wield power that other spellcasters can only dream of.", "fields": [
+            {"name": "🔮 Your Role", "value": "The Warlock is a magical marksman with limited but powerful spell slots. Your Eldritch Blast is the best damage cantrip in the game, and your short-rest recovery means you can keep fighting when other casters are spent."},
+            {"name": "🎯 Class Fantasy", "value": "Your power isn't studied or gifted — it's **earned**. You struck a deal with a fiend, a fey, or an ancient horror, and now their power flows through your veins. Every spell you cast is a reminder of that bargain."},
+        ]},
+        {"title": "Your Resources", "description": "Pact-fueled power.", "fields": [
+            {"name": "📖 Pact Magic (1 slot)", "value": "You have 1 spell slot at level 1 — but it's always cast at **maximum level**. And here's the best part: **all your slots recover on a short rest**."},
+            {"name": "🔮 Eldritch Blast", "value": "Your signature cantrip. Deals **1d10 + CHA modifier** force damage. At higher levels, it fires multiple beams. This is your main action in combat."},
+        ]},
+        {"title": "Your Attacks", "description": "The attacks you chose during creation.", "fields": []},
+        {"title": "Leveling Up", "description": "What to look forward to as you grow.", "fields": [
+            {"name": "Level 2 — Eldritch Invocations", "value": "Choose two invocations. **Agonizing Blast** (CHA to Eldritch Blast damage) is mandatory. **Repelling Blast** (pushes enemies) is incredible."},
+            {"name": "Level 3 — Pact Boon", "value": "Choose your pact: **Chain** (invisible familiar), **Tome** (extra cantrips), or **Blade** (summon a magic weapon)."},
+            {"name": "Level 5 — 3rd-Level Slots", "value": "Your single slot now casts 3rd-level spells. Your Mystic Arcanum gives you a one-per-day 6th-level spell at level 11."},
+            {"name": "Level 11 — Mystic Arcanum", "value": "Cast a 7th, 8th, and 9th-level spell once per day each (at levels 11, 13, and 17). These don't use your pact slots."},
+        ]},
+        {"title": "How to Play", "description": "Tips for being an effective Warlock.", "fields": [
+            {"name": "🔮 Hex + Eldritch Blast = Your Rotation", "value": "Round 1: Hex. Round 2+: Eldritch Blast. That's 1d10+CHA force + 1d6 necrotic per beam. Every turn. Reliable."},
+            {"name": "🔄 Short Rest After Every Fight", "value": "Your spell slots recover on short rests. If the party wants to push forward without resting, ask them to wait 1 hour."},
+            {"name": "🛡️ You're a Glass Cannon", "value": "d8 hit die and light armor means you can take a hit or two but no more. Stay at range."},
+            {"name": "🎯 Save Spells for Big Moments", "value": "With only one slot per short rest, you can't spam spells. Use Eldritch Blast for regular damage, and save your slot for Hex, Drain, or Hellish Rebuke."},
+        ]},
+    ],
+}
+
 BACKGROUND_DESCRIPTIONS = {
     "Acolyte":   "Temple servant — Religion & Insight",
     "Criminal":  "Life outside the law — Stealth & Deception",
@@ -89,6 +369,20 @@ def assign_stats(char_class: str, race: str) -> dict:
 
 def proficiency_bonus(level: int) -> int:
     return math.ceil(level / 4) + 1
+
+def roll_4d6_drop_lowest() -> int:
+    """Roll 4d6, drop the lowest die, return the sum of the remaining 3."""
+    dice = [dice_roll(6) for _ in range(4)]
+    dice.sort(reverse=True)
+    return sum(dice[:3])
+
+def roll_stat_set(race: str, char_class: str) -> dict:
+    """Generate a full set of 6 stats using 4d6-drop-lowest, mapped to class stat order."""
+    order = CLASS_STAT_ORDER[char_class]
+    raw_scores = [roll_4d6_drop_lowest() for _ in range(6)]
+    raw_scores.sort(reverse=True)
+    base = dict(zip(order, raw_scores))
+    return {stat: base[stat] + RACES[race].get(stat, 0) for stat in base}
 
 async def _is_valid_image_url(url: str) -> bool:
     if not url:
@@ -218,7 +512,7 @@ def step1_embed(char_name: str) -> discord.Embed:
     )
     lines = [f"**{race}** — {', '.join(f'+{v} {k.upper()}' for k, v in bonuses.items())}" for race, bonuses in RACES.items()]
     embed.add_field(name="Available Races", value="\n".join(lines), inline=False)
-    embed.set_footer(text="Step 1 of 5 — Race")
+    embed.set_footer(text="Step 1 of 6 — Race")
     return embed
 
 def step2_embed(race: str) -> discord.Embed:
@@ -229,7 +523,7 @@ def step2_embed(race: str) -> discord.Embed:
     )
     lines = [f"**{cls}** — {desc}" for cls, desc in CLASS_DESCRIPTIONS.items()]
     embed.add_field(name="Available Classes", value="\n".join(lines), inline=False)
-    embed.set_footer(text="Step 2 of 5 — Class")
+    embed.set_footer(text="Step 2 of 6 — Class")
     return embed
 
 def step3_embed(race: str, char_class: str) -> discord.Embed:
@@ -245,20 +539,28 @@ def step3_embed(race: str, char_class: str) -> discord.Embed:
     embed.set_footer(text="Step 3 of 5 — Background")
     return embed
 
-def step4_embed(char_name: str, race: str, char_class: str, background: str) -> discord.Embed:
-    stats = assign_stats(char_class, race)
+def step4_embed(char_name: str, race: str, char_class: str, background: str,
+                chosen_stats: dict | None = None, selected_attacks: list[str] | None = None) -> discord.Embed:
+    if chosen_stats:
+        stats = chosen_stats
+    else:
+        stats = assign_stats(char_class, race)
     stat_preview = "  ".join(f"**{k.upper()}** {v}" for k, v in stats.items())
     hp = calc_hp(char_class, stats["con"])
     ac = calc_ac(stats["dex"])
 
     weapon_key = STARTER_WEAPONS.get(char_class, "unarmed")
-    attacks = STARTER_ATTACKS.get(char_class, [])
+    all_attacks = STARTER_ATTACKS.get(char_class, [])
+    if selected_attacks:
+        shown_attacks = [a["name"] for a in all_attacks if a["name"] in selected_attacks]
+    else:
+        shown_attacks = [a["name"] for a in all_attacks[:2]]
     dice = WEAPON_DAMAGE.get(weapon_key, (1, 4))
     weapon_label = f"{weapon_key.replace('_', ' ').title()} ({dice[0]}d{dice[1]})"
-    attack_list = "  •  ".join(a["name"] for a in attacks)
+    attack_list = "  •  ".join(shown_attacks)
 
     embed = discord.Embed(
-        title="⚔️ Character Creation — Step 5 of 5",
+        title="⚔️ Character Creation — Step 5 of 6",
         description=(
             f"Almost done, **{char_name}**! Here's everything you chose.\n"
             "Add a backstory, avatar, and proxy below — or skip and set them later."
@@ -274,20 +576,25 @@ def step4_embed(char_name: str, race: str, char_class: str, background: str) -> 
     embed.add_field(name="HP / AC", value=f"❤️ {hp}  🛡️ {ac}", inline=True)
     embed.add_field(name="Starting Weapon", value=f"🗡️ {weapon_label}", inline=True)
     embed.add_field(name="Attacks", value=attack_list, inline=False)
-    embed.set_footer(text="Step 5 of 5 — Details & Proxy")
+    embed.set_footer(text="Step 5 of 6 — Details & Proxy")
     return embed
 
 # ── Starting Kit step (between Background and Details) ───────────────────────
 
-def step_kit_embed(char_name: str, race: str, char_class: str, background: str) -> discord.Embed:
+def step_kit_embed(char_name: str, race: str, char_class: str, background: str,
+                    chosen_stats: dict | None = None, selected_attacks: list[str] | None = None) -> discord.Embed:
     weapon_key = STARTER_WEAPONS.get(char_class, "unarmed")
-    attacks = STARTER_ATTACKS.get(char_class, [])
+    all_attacks = STARTER_ATTACKS.get(char_class, [])
+    if selected_attacks:
+        chosen_attacks = [a for a in all_attacks if a["name"] in selected_attacks]
+    else:
+        chosen_attacks = all_attacks[:2]
 
     embed = discord.Embed(
-        title="⚔️ Character Creation — Step 4 of 5",
+        title="⚔️ Character Creation — Step 4 of 6",
         description=(
             f"Race: **{race}** ✓  Class: **{char_class}** ✓  Background: **{background}** ✓\n\n"
-            "Here's your starting loadout."
+            "Here's your starting loadout. Locked and loaded!"
         ),
         color=0x8B5CF6,
     )
@@ -299,8 +606,13 @@ def step_kit_embed(char_name: str, race: str, char_class: str, background: str) 
         inline=False,
     )
 
+    if chosen_stats:
+        hp = calc_hp(char_class, chosen_stats["con"])
+        ac = calc_ac(chosen_stats["dex"])
+        embed.add_field(name="HP / AC", value=f"❤️ {hp}  🛡️ {ac}", inline=True)
+
     lines = []
-    for atk in attacks:
+    for atk in chosen_attacks:
         tags = []
         if atk.get("is_spell"):
             tags.append("spell")
@@ -309,29 +621,41 @@ def step_kit_embed(char_name: str, race: str, char_class: str, background: str) 
         if atk.get("is_heal"):
             tags.append("heal")
         tag_str = f" *[{', '.join(tags)}]*" if tags else ""
-        lines.append(f"**{atk['name']}**{tag_str}\n*{atk['flavor']}*")
+        lines.append(f"**{atk['name']}**{tag_str}\n*{atk.get('desc', atk['flavor'])}*")
     embed.add_field(name="Starting Attacks", value="\n\n".join(lines), inline=False)
 
-    embed.set_footer(text="Step 4 of 5 — Starting Loadout  •  Unlock more through quests and the shop.")
+    embed.set_footer(text="Step 4 of 6 — Starting Loadout  •  Unlock more through quests and the shop.")
     return embed
 
 
 class StarterKitView(discord.ui.View):
-    def __init__(self, char_name: str, race: str, char_class: str, background: str):
+    def __init__(self, char_name: str, race: str, char_class: str, background: str,
+                 chosen_stats: dict | None = None, selected_attacks: list[str] | None = None):
         super().__init__(timeout=600)
         self.char_name = char_name
         self.race = race
         self.char_class = char_class
         self.background = background
+        self.chosen_stats = chosen_stats
+        self.selected_attacks = selected_attacks or []
 
     @discord.ui.button(label="Looks Good →", style=discord.ButtonStyle.primary, emoji="⚔️")
     async def proceed(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
-            embed=step4_embed(self.char_name, self.race, self.char_class, self.background),
-            view=Step4View(self.char_name, self.race, self.char_class, self.background),
+            embed=step4_embed(self.char_name, self.race, self.char_class, self.background,
+                             self.chosen_stats, self.selected_attacks),
+            view=Step4View(self.char_name, self.race, self.char_class, self.background,
+                          self.chosen_stats, self.selected_attacks),
         )
 
-    @discord.ui.button(label="Start Over", style=discord.ButtonStyle.danger, emoji="↩️")
+    @discord.ui.button(label="← Back to Attacks", style=discord.ButtonStyle.secondary, emoji="⚔️")
+    async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=attack_select_embed(self.char_name, self.race, self.char_class, self.background, self.chosen_stats or {}),
+            view=AttackSelectView(self.char_name, self.race, self.char_class, self.background, self.chosen_stats or {}),
+        )
+
+    @discord.ui.button(label="Start Over", style=discord.ButtonStyle.danger, emoji="↩️", row=1)
     async def restart(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
             embed=step1_embed(self.char_name),
@@ -373,7 +697,7 @@ class CharacterPickSelect(discord.ui.Select):
         action = self._action
 
         if action == "sheet":
-            await interaction.response.edit_message(embed=build_sheet_embed(char), view=None)
+            await interaction.response.edit_message(embed=build_sheet_embed(char), view=SheetView(char))
 
         elif action == "show":
             embed = build_sheet_embed(char)
@@ -459,12 +783,15 @@ class DetailsModal(discord.ui.Modal, title="Character Details"):
         max_length=10,
     )
 
-    def __init__(self, char_name: str, race: str, char_class: str, background: str):
+    def __init__(self, char_name: str, race: str, char_class: str, background: str,
+                 chosen_stats: dict | None = None, selected_attacks: list[str] | None = None):
         super().__init__()
         self.char_name = char_name
         self.race = race
         self.char_class = char_class
         self.background = background
+        self.chosen_stats = chosen_stats
+        self.selected_attacks = selected_attacks or []
 
     async def on_submit(self, interaction: discord.Interaction):
         raw_url = self.avatar_url.value.strip() or None
@@ -502,21 +829,27 @@ class DetailsModal(discord.ui.Modal, title="Character Details"):
             avatar_url=self.avatar_url.value.strip() or None,
             proxy_open=new_open,
             proxy_close=self.proxy_close.value.strip() or None,
+            chosen_stats=self.chosen_stats,
+            selected_attacks=self.selected_attacks,
         )
 
 
 class Step4View(discord.ui.View):
-    def __init__(self, char_name: str, race: str, char_class: str, background: str):
+    def __init__(self, char_name: str, race: str, char_class: str, background: str,
+                 chosen_stats: dict | None = None, selected_attacks: list[str] | None = None):
         super().__init__(timeout=600)
         self.char_name = char_name
         self.race = race
         self.char_class = char_class
         self.background = background
+        self.chosen_stats = chosen_stats
+        self.selected_attacks = selected_attacks or []
 
     @discord.ui.button(label="Add Backstory & Proxy →", style=discord.ButtonStyle.primary, emoji="📖")
     async def add_details(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(
-            DetailsModal(self.char_name, self.race, self.char_class, self.background)
+            DetailsModal(self.char_name, self.race, self.char_class, self.background,
+                        self.chosen_stats, self.selected_attacks)
         )
 
     @discord.ui.button(label="Skip & Create", style=discord.ButtonStyle.secondary, emoji="⚔️")
@@ -528,6 +861,8 @@ class Step4View(discord.ui.View):
             race=self.race,
             char_class=self.char_class,
             background=self.background,
+            chosen_stats=self.chosen_stats,
+            selected_attacks=self.selected_attacks,
         )
 
     @discord.ui.button(label="Start Over", style=discord.ButtonStyle.danger, emoji="↩️", row=1)
@@ -550,6 +885,8 @@ async def _create_character(
     proxy_open: str | None = None,
     proxy_close: str | None = None,
     is_custom: bool = False,
+    chosen_stats: dict | None = None,
+    selected_attacks: list[str] | None = None,
 ):
     async with get_db() as db:
         result = await db.execute(
@@ -606,7 +943,10 @@ async def _create_character(
                 is_active=is_first,
             )
         else:
-            stats = assign_stats(char_class, race)
+            if chosen_stats:
+                stats = chosen_stats
+            else:
+                stats = assign_stats(char_class, race)
 
             weapon_key = STARTER_WEAPONS.get(char_class, "unarmed")
             starting_inventory = (
@@ -615,7 +955,10 @@ async def _create_character(
             )
 
             resources = _starting_resources(char_class)
-            resources["attacks"] = [atk["name"] for atk in STARTER_ATTACKS.get(char_class, [])]
+            if selected_attacks:
+                resources["attacks"] = selected_attacks
+            else:
+                resources["attacks"] = [atk["name"] for atk in (STARTER_ATTACKS.get(char_class) or [])[:2]]
 
             char = Character(
                 user_id=interaction.user.id,
@@ -666,6 +1009,23 @@ async def _create_character(
     else:
         await interaction.edit_original_response(embed=embed, view=None)
 
+    # Send class tutorial via DM
+    if not is_custom and char.char_class in TUTORIALS:
+        tutorial_view = TutorialView(char.char_class, page=0)
+        tutorial_embed = tutorial_view._build_embed()
+        try:
+            dm_channel = await interaction.user.create_dm()
+            msg = await dm_channel.send(
+                embed=tutorial_embed,
+                view=tutorial_view,
+            )
+            tutorial_view.message = msg
+        except discord.Forbidden:
+            # User has DMs disabled — silently skip
+            pass
+        except Exception:
+            pass
+
 # ── Steps 1-3: Race → Class → Background ─────────────────────────────────────
 
 class RaceSelect(discord.ui.Select):
@@ -682,7 +1042,55 @@ class RaceSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         race = self.values[0]
-        await interaction.response.edit_message(embed=step2_embed(race), view=ClassView(race, self.char_name))
+        info = RACE_INFO[race]
+        bonuses = RACES[race]
+        bonus_str = ", ".join(f"+{v} {k.upper()}" for k, v in bonuses.items())
+        embed = discord.Embed(
+            title=f"🧬 {race} Selected",
+            description=(
+                f"**{race}**\n\n"
+                f"{info['lore']}\n\n"
+                f"**Racial Bonuses:** {bonus_str}\n"
+                f"*{info['bonus_detail']}*"
+            ),
+            color=0x8B5CF6,
+        )
+        await interaction.response.edit_message(
+            embed=embed,
+            view=RaceConfirmView(self.char_name, race),
+        )
+
+
+class RaceConfirmView(discord.ui.View):
+    """Confirm race selection and proceed to class, or go back."""
+    def __init__(self, char_name: str, race: str):
+        super().__init__(timeout=600)
+        self.char_name = char_name
+        self.race = race
+
+    @discord.ui.button(label="Looks Good → Choose Class", style=discord.ButtonStyle.primary, emoji="⚔️")
+    async def proceed(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(embed=step2_embed(self.race), view=ClassView(self.race, self.char_name))
+
+    @discord.ui.button(label="View Race Details 📖", style=discord.ButtonStyle.secondary)
+    async def view_details(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show full RACE_INFO ephemerally before choosing."""
+        info = RACE_INFO[self.race]
+        bonuses = RACES[self.race]
+        bonus_str = ", ".join(f"+{v} {k.upper()}" for k, v in bonuses.items())
+        embed = discord.Embed(
+            title=f"📖 {self.race} — Full Details",
+            description=info["lore"],
+            color=0x6366F1,
+        )
+        embed.add_field(name="Racial Bonuses", value=bonus_str, inline=False)
+        embed.add_field(name="Recommended For", value=info["bonus_detail"], inline=False)
+        embed.set_footer(text=f"Step 1 of 6 — {self.race}")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="← Back to All Races", style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(embed=step1_embed(self.char_name), view=RaceView(self.char_name))
 
 
 class RaceView(discord.ui.View):
@@ -703,9 +1111,22 @@ class ClassSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         char_class = self.values[0]
+        # Show class details confirmation with View Full Details button
+        info = CLASS_INFO[char_class]
+        embed = discord.Embed(
+            title=f"⚔️ {char_class} Selected",
+            description=(
+                f"Race: **{self.race}** ✓\n\n"
+                f"**{char_class}** — {CLASS_DESCRIPTIONS[char_class]}\n"
+                f"🎲 Hit Die: d{info['hit_die']}  |  ⭐ Primary: {info['primary']}  |  🛡️ Saves: {info['saves']}\n\n"
+                "Before we continue, you'll get to **roll for stats** and pick your **starting attacks**."
+            ),
+            color=0x8B5CF6,
+        )
+        embed.add_field(name="Class Resource", value=info["resource"], inline=False)
         await interaction.response.edit_message(
-            embed=step3_embed(self.race, char_class),
-            view=BackgroundView(self.char_name, self.race, char_class),
+            embed=embed,
+            view=StatOrDetailsView(self.char_name, self.race, char_class),
         )
 
 
@@ -715,11 +1136,130 @@ class ClassView(discord.ui.View):
         self.add_item(ClassSelect(race, char_name))
 
 
-class BackgroundSelect(discord.ui.Select):
-    def __init__(self, char_name: str, race: str, char_class: str):
+# ── Stat Rolling Views ────────────────────────────────────────────────────────
+
+def _stat_set_embed(race: str, char_class: str, stats: dict, label: str) -> discord.Embed:
+    """Build an embed for one stat set."""
+    hp = calc_hp(char_class, stats["con"])
+    ac = calc_ac(stats["dex"])
+    stat_lines = []
+    for abbr, label_name in STAT_LABELS.items():
+        score = stats[abbr]
+        racial = RACES[race].get(abbr, 0)
+        racial_str = f" (incl. +{racial})" if racial else ""
+        stat_lines.append(f"**{label_name[:3].upper()}** {score}{racial_str} ({mod_str(score)})")
+    embed = discord.Embed(
+        title=f"🎲 Stat Set {label}",
+        description=f"4d6-drop-lowest + racial bonuses applied\n\n" + "\n".join(stat_lines),
+        color=0x6366F1,
+    )
+    embed.add_field(name="❤️ HP", value=str(hp), inline=True)
+    embed.add_field(name="🛡️ AC", value=str(ac), inline=True)
+    return embed
+
+
+class StatRollView(discord.ui.View):
+    def __init__(self, char_name: str, race: str, char_class: str, set_a: dict, set_b: dict):
+        super().__init__(timeout=300)
         self.char_name = char_name
         self.race = race
         self.char_class = char_class
+        self.set_a = set_a
+        self.set_b = set_b
+
+    @discord.ui.button(label="Choose Set A", style=discord.ButtonStyle.primary, emoji="🔷")
+    async def choose_a(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._choose(interaction, self.set_a)
+
+    @discord.ui.button(label="Choose Set B", style=discord.ButtonStyle.success, emoji="🔶")
+    async def choose_b(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._choose(interaction, self.set_b)
+
+    async def _choose(self, interaction: discord.Interaction, chosen: dict):
+        embed = discord.Embed(
+            title="✅ Stats Chosen!",
+            description=f"Race: **{self.race}** ✓  Class: **{self.char_class}** ✓\n\nNow choose your **background**.",
+            color=0x22C55E,
+        )
+        stat_preview = "  ".join(f"**{k.upper()}** {v}" for k, v in chosen.items())
+        embed.add_field(name="Your Stats", value=stat_preview, inline=False)
+        embed.add_field(name="Starting HP / AC", value=f"❤️ {calc_hp(self.char_class, chosen['con'])}  🛡️ {calc_ac(chosen['dex'])}", inline=False)
+        embed.set_footer(text="Step 3 of 6 — Background")
+        await interaction.response.edit_message(
+            embed=embed,
+            view=BackgroundView(self.char_name, self.race, self.char_class, chosen),
+        )
+
+
+# ── Class Details & Stat Roll gate ────────────────────────────────────────────
+
+class StatOrDetailsView(discord.ui.View):
+    def __init__(self, char_name: str, race: str, char_class: str):
+        super().__init__(timeout=600)
+        self.char_name = char_name
+        self.race = race
+        self.char_class = char_class
+
+    @discord.ui.button(label="View Full Details 📖", style=discord.ButtonStyle.secondary)
+    async def view_details(self, interaction: discord.Interaction, button: discord.ui.Button):
+        info = CLASS_INFO[self.char_class]
+        embed = discord.Embed(
+            title=f"📖 {self.char_class} — Full Breakdown",
+            description=info["flavor"],
+            color=0x8B5CF6,
+        )
+        embed.add_field(name="🎲 Hit Die", value=f"d{info['hit_die']}", inline=True)
+        embed.add_field(name="⭐ Primary Stat", value=info["primary"], inline=True)
+        embed.add_field(name="🛡️ Saving Throws", value=info["saves"], inline=True)
+        embed.add_field(name="⚡ Class Resource", value=info["resource"], inline=False)
+        embed.add_field(name="💡 How to Play", value=info["tips"], inline=False)
+        embed.set_footer(text="Close this and click 'Roll Stats →' when ready!")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="Roll Stats →", style=discord.ButtonStyle.primary, emoji="🎲")
+    async def roll_stats(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Roll two stat sets
+        set_a = roll_stat_set(self.race, self.char_class)
+        set_b = roll_stat_set(self.race, self.char_class)
+        # Ensure they're different (reroll if identical)
+        attempts = 0
+        while set_a == set_b and attempts < 5:
+            set_b = roll_stat_set(self.race, self.char_class)
+            attempts += 1
+
+        embed = discord.Embed(
+            title="🎲 Roll Your Stats!",
+            description=(
+                f"Race: **{self.race}** ✓  Class: **{self.char_class}** ✓\n\n"
+                "Two stat sets were rolled using **4d6-drop-lowest**.\n"
+                "Racial bonuses have been applied to both.\n\n"
+                "**Choose the set you want!**"
+            ),
+            color=0x6366F1,
+        )
+        embed.set_footer(text="Step 2.5 of 6 — Stat Rolling")
+
+        embed_a = _stat_set_embed(self.race, self.char_class, set_a, "A 🟦")
+        embed_b = _stat_set_embed(self.race, self.char_class, set_b, "B 🟧")
+
+        # Send the choice embed + the two stat sets as followup
+        await interaction.response.edit_message(embed=embed, view=None)
+        await interaction.followup.send(embed=embed_a, ephemeral=True)
+        await interaction.followup.send(
+            embed=embed_b,
+            view=StatRollView(self.char_name, self.race, self.char_class, set_a, set_b),
+            ephemeral=True,
+        )
+
+
+# ── Background Selection (now stores chosen stats) ────────────────────────────
+
+class BackgroundSelect(discord.ui.Select):
+    def __init__(self, char_name: str, race: str, char_class: str, chosen_stats: dict):
+        self.char_name = char_name
+        self.race = race
+        self.char_class = char_class
+        self.chosen_stats = chosen_stats
         options = [
             discord.SelectOption(label=bg, description=BACKGROUND_DESCRIPTIONS[bg])
             for bg in BACKGROUNDS
@@ -728,16 +1268,272 @@ class BackgroundSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         background = self.values[0]
+        # Show attack selection next
         await interaction.response.edit_message(
-            embed=step_kit_embed(self.char_name, self.race, self.char_class, background),
-            view=StarterKitView(self.char_name, self.race, self.char_class, background),
+            embed=attack_select_embed(self.char_name, self.race, self.char_class, background, self.chosen_stats),
+            view=AttackSelectView(self.char_name, self.race, self.char_class, background, self.chosen_stats),
         )
 
 
 class BackgroundView(discord.ui.View):
-    def __init__(self, char_name: str, race: str, char_class: str):
+    def __init__(self, char_name: str, race: str, char_class: str, chosen_stats: dict):
         super().__init__(timeout=600)
-        self.add_item(BackgroundSelect(char_name, race, char_class))
+        self.add_item(BackgroundSelect(char_name, race, char_class, chosen_stats))
+
+# ── Attack Selection ──────────────────────────────────────────────────────────
+
+def attack_select_embed(char_name: str, race: str, char_class: str, background: str, chosen_stats: dict) -> discord.Embed:
+    attacks = STARTER_ATTACKS.get(char_class, [])
+    embed = discord.Embed(
+        title="⚔️ Character Creation — Choose Attacks",
+        description=(
+            f"Race: **{race}** ✓  Class: **{char_class}** ✓  Background: **{background}** ✓\n\n"
+            f"Pick **2 attacks** from your class's available options to start with.\n"
+            f"You can unlock more through leveling up and quests."
+        ),
+        color=0x8B5CF6,
+    )
+    for atk in attacks:
+        tags = []
+        if atk.get("is_spell"):
+            tags.append("✨ spell")
+        if atk.get("is_defend"):
+            tags.append("🛡️ def")
+        if atk.get("is_heal"):
+            tags.append("💚 heal")
+        if atk.get("is_special"):
+            tags.append("⚡ special")
+        tag_str = f"  *[{', '.join(tags)}]*" if tags else ""
+        embed.add_field(
+            name=f"• {atk['name']}{tag_str}",
+            value=f"{atk.get('desc', atk['flavor'])}",
+            inline=False,
+        )
+    embed.set_footer(text="Select 2 attacks from the dropdown below")
+    return embed
+
+
+class AttackSelect(discord.ui.Select):
+    def __init__(self, char_name: str, race: str, char_class: str, background: str, chosen_stats: dict):
+        self.char_name = char_name
+        self.race = race
+        self.char_class = char_class
+        self.background = background
+        self.chosen_stats = chosen_stats
+        attacks = STARTER_ATTACKS.get(char_class, [])
+        options = [
+            discord.SelectOption(
+                label=atk["name"],
+                value=atk["name"],
+                description=atk["flavor"][:100],
+            )
+            for atk in attacks
+        ]
+        super().__init__(
+            placeholder="Select up to 2 attacks...",
+            options=options,
+            max_values=min(2, len(options)),
+            min_values=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        selected = self.values
+        embed = step_kit_embed(
+            self.char_name, self.race, self.char_class, self.background,
+            chosen_stats=self.chosen_stats, selected_attacks=selected,
+        )
+        await interaction.response.edit_message(
+            embed=embed,
+            view=StarterKitView(self.char_name, self.race, self.char_class, self.background,
+                               chosen_stats=self.chosen_stats, selected_attacks=selected),
+        )
+
+
+class AttackSelectView(discord.ui.View):
+    def __init__(self, char_name: str, race: str, char_class: str, background: str, chosen_stats: dict):
+        super().__init__(timeout=600)
+        self.add_item(AttackSelect(char_name, race, char_class, background, chosen_stats))
+
+    @discord.ui.button(label="← Back to Background", style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        stats = self.children[0].chosen_stats if isinstance(self.children[0], AttackSelect) else {}
+        embed = discord.Embed(
+            title="⚔️ Character Creation — Step 3 of 6",
+            description=f"Race: **{self.children[0].race}** ✓  Class: **{self.children[0].char_class}** ✓\n\nChoose your **background**.",
+            color=0x8B5CF6,
+        )
+        stat_preview = "  ".join(f"**{k.upper()}** {v}" for k, v in stats.items())
+        embed.add_field(name="Your Stats", value=stat_preview, inline=False)
+        hp = calc_hp(self.children[0].char_class, stats.get("con", 10))
+        ac = calc_ac(stats.get("dex", 10))
+        embed.add_field(name="Starting HP / AC", value=f"❤️ {hp}  🛡️ {ac}", inline=False)
+        embed.set_footer(text="Step 3 of 6 — Background")
+        await interaction.response.edit_message(
+            embed=embed,
+            view=BackgroundView(
+                self.children[0].char_name if isinstance(self.children[0], AttackSelect) else self.char_name,
+                self.children[0].race if isinstance(self.children[0], AttackSelect) else self.race,
+                self.children[0].char_class if isinstance(self.children[0], AttackSelect) else self.char_class,
+                stats,
+            ),
+        )
+
+
+# ── Tutorial System ───────────────────────────────────────────────────────────
+
+class TutorialView(discord.ui.View):
+    def __init__(self, char_class: str, page: int = 0):
+        super().__init__(timeout=300)
+        self.char_class = char_class
+        self.page = page
+        self.pages = TUTORIALS.get(char_class, [])
+        self._update_buttons()
+
+    def _update_buttons(self):
+        self.prev_btn.disabled = self.page <= 0
+        self.next_btn.disabled = self.page >= len(self.pages) - 1
+
+    def _build_embed(self) -> discord.Embed:
+        page_data = self.pages[self.page]
+        embed = discord.Embed(
+            title=page_data["title"],
+            description=page_data["description"],
+            color=0x6366F1,
+        )
+        for field in page_data.get("fields", []):
+            if field["name"] == "Your Attacks" and self.char_class:
+                # Dynamically populate with character's actual attacks
+                attacks = STARTER_ATTACKS.get(self.char_class, [])
+                if attacks:
+                    atk_lines = "\n\n".join(
+                        f"**{a['name']}** — {a.get('desc', a['flavor'])}" for a in attacks[:2]
+                    )
+                    embed.add_field(name="Your Starting Attacks", value=atk_lines, inline=False)
+                    if len(attacks) > 2:
+                        more = "\n".join(f"• {a['name']} — {a.get('desc', a['flavor'])[:50]}..." for a in attacks[2:])
+                        embed.add_field(name="More Available (unlock later)", value=more, inline=False)
+                else:
+                    embed.add_field(name="Starting Attacks", value="No attacks data available.", inline=False)
+            else:
+                embed.add_field(name=field["name"], value=field["value"], inline=False)
+        embed.set_footer(text=f"Page {self.page + 1}/{len(self.pages)}  •  Tutorial")
+        return embed
+
+    @discord.ui.button(label="← Back", style=discord.ButtonStyle.secondary)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page -= 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
+    @discord.ui.button(label="Next →", style=discord.ButtonStyle.primary)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page += 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
+    @discord.ui.button(label="Skip Tutorial", style=discord.ButtonStyle.danger, emoji="⏭️", row=1)
+    async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Tutorial skipped — happy adventuring! ⚔️", embed=None, view=None)
+
+    async def on_timeout(self):
+        try:
+            await self.message.edit(content="Tutorial timed out.", embed=None, view=None)
+        except Exception:
+            pass
+
+
+# ── Sheet Buttons View ────────────────────────────────────────────────────────
+
+class SheetView(discord.ui.View):
+    def __init__(self, char: "Character"):
+        super().__init__(timeout=None)
+        self.char = char
+
+    @discord.ui.button(label="Explain My Class 📖", style=discord.ButtonStyle.secondary)
+    async def explain_class(self, interaction: discord.Interaction, button: discord.ui.Button):
+        char = self.char
+        class_name = char.char_class
+        if class_name not in TUTORIALS:
+            await interaction.response.send_message("No tutorial available for this class.", ephemeral=True)
+            return
+        view = TutorialView(class_name, page=0)
+        embed = view._build_embed()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    @discord.ui.button(label="Edit Cosmetics ✏️", style=discord.ButtonStyle.secondary)
+    async def edit_cosmetics(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from database.session import get_db
+        from sqlalchemy import select
+        async with get_db() as db:
+            result = await db.execute(select(Character).where(Character.id == self.char.id))
+            char = result.scalar_one_or_none()
+            if not char:
+                await interaction.response.send_message("Character not found.", ephemeral=True)
+                return
+            await interaction.response.send_modal(CosmeticEditModal(char.id))
+
+
+class CosmeticEditModal(discord.ui.Modal, title="Edit Cosmetics"):
+    char_name = discord.ui.TextInput(
+        label="Name",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=32,
+    )
+    backstory = discord.ui.TextInput(
+        label="Backstory",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=1000,
+    )
+    avatar_url = discord.ui.TextInput(
+        label="Avatar URL",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=500,
+    )
+    proxy_open = discord.ui.TextInput(
+        label="Proxy Opening",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=10,
+    )
+    proxy_close = discord.ui.TextInput(
+        label="Proxy Closing",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=10,
+    )
+
+    def __init__(self, char_id: int):
+        super().__init__()
+        self.char_id = char_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        from database.session import get_db
+        from sqlalchemy import select
+        async with get_db() as db:
+            result = await db.execute(select(Character).where(Character.id == self.char_id))
+            char = result.scalar_one_or_none()
+            if not char:
+                await interaction.response.send_message("Character not found.", ephemeral=True)
+                return
+            if self.char_name.value.strip():
+                char.name = self.char_name.value.strip()
+            if self.backstory.value.strip():
+                char.backstory = self.backstory.value.strip()
+            raw_url = self.avatar_url.value.strip()
+            if raw_url:
+                if not await _is_valid_image_url(raw_url):
+                    await interaction.response.send_message("Invalid image URL.", ephemeral=True)
+                    return
+                char.avatar_url = raw_url
+            if self.proxy_open.value.strip():
+                char.proxy_open = self.proxy_open.value.strip()
+            if self.proxy_close.value.strip():
+                char.proxy_close = self.proxy_close.value.strip()
+        await interaction.response.send_message("✅ Cosmetics updated!", ephemeral=True)
+
 
 # ── Delete confirm ────────────────────────────────────────────────────────────
 
@@ -938,7 +1734,7 @@ async def character_create(interaction: discord.Interaction, name: str):
         description=(
             f"**{name}**\n\n"
             "What kind of character do you want to create?\n\n"
-            "**DnD Character** — Standard races, classes, and stat system (5-step wizard)\n"
+            "**DnD Character** — Race → Class → Roll Stats → Background → Pick Attacks → Details (6-step wizard)\n"
             "**Custom Character** — Completely free-form: any race, class, and background you imagine"
         ),
         color=0x8B5CF6,
@@ -1015,7 +1811,8 @@ async def character_sheet(interaction: discord.Interaction):
         await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
         return
     if char:
-        await interaction.response.send_message(embed=build_sheet_embed(char), ephemeral=True)
+        view = SheetView(char)
+        await interaction.response.send_message(embed=build_sheet_embed(char), view=view, ephemeral=True)
     else:
         await interaction.response.send_message(
             embed=pick_embed("view sheet for"), view=CharacterPickView(chars, "sheet"), ephemeral=True
@@ -1153,7 +1950,132 @@ async def character_proxy_remove(interaction: discord.Interaction):
         )
 
 
-@character_group.command(name="edit", description="Request a stat change (requires GM approval)")
+@character_group.command(name="edit", description="Edit your character (cosmetic changes are instant; stats need GM approval)")
+async def character_edit(interaction: discord.Interaction):
+    """Legacy command — shows info about the split edit system."""
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    embed = discord.Embed(
+        title="✏️ Character Editing",
+        description=(
+            "Editing has been split into two commands:\n\n"
+            "**`/character edit_cosmetic`** — Change your name, backstory, avatar, or proxy. **Instant**, no approval needed.\n\n"
+            "**`/character edit_stats`** — Request a stat, Gold, XP, or HP Max change. Goes through **GM approval queue**."
+        ),
+        color=0x8B5CF6,
+    )
+    embed.set_footer(text="LoreForge  •  GMs can use /gm edit for instant changes")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# ── /classes Browse Command ───────────────────────────────────────────────────
+
+classes_group = app_commands.Group(name="classes", description="Browse all available classes like a codex")
+
+
+class ClassBrowseSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label=cls, description=CLASS_DESCRIPTIONS[cls])
+            for cls in CLASSES
+        ]
+        super().__init__(placeholder="Choose a class to inspect...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        cls = self.values[0]
+        info = CLASS_INFO[cls]
+        class_data = CLASSES[cls]
+
+        embed = discord.Embed(
+            title=f"📖 {cls} — Class Codex",
+            description=info["flavor"],
+            color=0x8B5CF6,
+        )
+        embed.add_field(name="🎲 Hit Die", value=f"d{class_data['hit_die']}", inline=True)
+        embed.add_field(name="⭐ Primary Stat", value=info["primary"], inline=True)
+        embed.add_field(name="🛡️ Saving Throws", value=info["saves"], inline=True)
+        embed.add_field(name="🏹 Starting Weapons", value=f"**{STARTER_WEAPONS.get(cls, 'unarmed').replace('_', ' ').title()}**", inline=True)
+        embed.add_field(name="⚡ Resource", value=info["resource"], inline=False)
+
+        # Starting attacks
+        attacks = STARTER_ATTACKS.get(cls, [])
+        atk_lines = "\n".join(f"• **{a['name']}** — {a.get('desc', a['flavor'])}" for a in attacks[:3])
+        if len(attacks) > 3:
+            atk_lines += f"\n*...and {len(attacks) - 3} more*"
+        embed.add_field(name="Starting Attacks", value=atk_lines, inline=False)
+
+        # Level milestones
+        milestones = []
+        from services.leveling import CLASS_FEATURES
+        features = CLASS_FEATURES.get(cls, {})
+        for lvl in [1, 3, 5, 10, 20]:
+            if lvl in features:
+                milestones.append(f"**Level {lvl}** — {features[lvl]}")
+        embed.add_field(name="📈 Level Milestones", value="\n".join(milestones), inline=False)
+
+        embed.add_field(name="💡 How to Play", value=info["tips"], inline=False)
+
+        embed.set_footer(text="LoreForge  •  Click 'Create Character' below to start playing!")
+        await interaction.response.edit_message(embed=embed, view=ClassBrowseView(cls))
+
+
+class ClassBrowseView(discord.ui.View):
+    def __init__(self, selected_class: str | None = None):
+        super().__init__(timeout=300)
+        self.selected_class = selected_class
+        self.add_item(ClassBrowseSelect())
+        if selected_class:
+            self.create_btn.disabled = False
+
+    @discord.ui.button(label="Create a Character with this Class →", style=discord.ButtonStyle.success, emoji="⚔️", row=1)
+    async def create_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.selected_class:
+            await interaction.response.send_message("Select a class first!", ephemeral=True)
+            return
+        # Launch character creation
+        name_embed = discord.Embed(
+            title="⚔️ Create a New Character",
+            description=f"Class: **{self.selected_class}**\n\nStart by giving your character a name!",
+            color=0x8B5CF6,
+        )
+        # We can't easily link into the create flow without a name, so just tell user to use /character create
+        await interaction.response.send_message(
+            f"Use `/character create YourName` to start and **{self.selected_class}** is ready to be chosen!",
+            ephemeral=True,
+        )
+
+
+@classes_group.command(name="browse", description="Browse all available classes like a codex")
+async def classes_browse(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="📖 Class Codex",
+        description="Select a class from the dropdown below to see its full details.\n\n"
+                    + "\n".join(f"**{cls}** — {desc}" for cls, desc in CLASS_DESCRIPTIONS.items()),
+        color=0x8B5CF6,
+    )
+    embed.set_footer(text="LoreForge Class Codex")
+    await interaction.response.send_message(embed=embed, view=ClassBrowseView(), ephemeral=True)
+
+
+# ── Split /character edit into cosmetic and stats ────────────────────────────
+
+@character_group.command(name="edit_cosmetic", description="Edit your character's name, backstory, avatar, or proxy (instant)")
+async def character_edit_cosmetic(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not chars:
+        await interaction.response.send_message("No character found. Use `/character create`.", ephemeral=True)
+        return
+    if not char:
+        await interaction.response.send_message("Set an active character with `/character use` first.", ephemeral=True)
+        return
+    await interaction.response.send_modal(CosmeticEditModal(char.id))
+
+
+@character_group.command(name="edit_stats", description="Request a stat/Gold/XP/HP change (requires GM approval)")
 @app_commands.describe(field="Which stat to change", value="New value for the stat")
 @app_commands.choices(field=[
     app_commands.Choice(name="Strength", value="strength"),
@@ -1166,11 +2088,10 @@ async def character_proxy_remove(interaction: discord.Interaction):
     app_commands.Choice(name="XP", value="xp"),
     app_commands.Choice(name="HP Max", value="hp_max"),
 ])
-async def character_edit(interaction: discord.Interaction, field: app_commands.Choice[str], value: str):
+async def character_edit_stats(interaction: discord.Interaction, field: app_commands.Choice[str], value: str):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
-
     # Validate value is a positive integer
     try:
         new_value_int = int(value)
@@ -1189,7 +2110,7 @@ async def character_edit(interaction: discord.Interaction, field: app_commands.C
         return
     if not char:
         await interaction.response.send_message(
-            "You have multiple characters — use `/character use` to set an active one first.",
+            "You have multiple characters with no active one — use `/character use` first.",
             ephemeral=True,
         )
         return
@@ -1249,15 +2170,148 @@ async def character_edit(interaction: discord.Interaction, field: app_commands.C
     )
 
 
+# ── Level-Up Attack Unlock ────────────────────────────────────────────────────
+
+def _locked_attacks(char_class: str, unlocked: list[str]) -> list[dict]:
+    """Return attacks the character has NOT yet unlocked."""
+    all_attacks = STARTER_ATTACKS.get(char_class, [])
+    return [a for a in all_attacks if a["name"] not in unlocked]
+
+
+async def _offer_attack_unlock(bot: commands.Bot, char: Character, new_level: int):
+    """
+    Send a DM to the character's owner offering to unlock a new attack.
+    Called when a character levels up. Only works for standard DnD classes.
+    """
+    char_class = char.char_class
+    if char_class not in STARTER_ATTACKS:
+        return
+
+    unlocked = (char.class_resources or {}).get("attacks", [])
+    locked = _locked_attacks(char_class, unlocked)
+    if not locked:
+        # All attacks already unlocked — nothing to offer
+        return
+
+    user = bot.get_user(char.user_id)
+    if not user:
+        try:
+            user = await bot.fetch_user(char.user_id)
+        except Exception:
+            return
+
+    # Only offer one attack per level-up
+    view = LevelUpAttackView(char_class, char.id, unlocked, locked)
+    embed = discord.Embed(
+        title=f"🎉 Level {new_level} — New Ability Unlock!",
+        description=(
+            f"**{char.name}** has reached **Level {new_level}** and can unlock a new ability.\n\n"
+            f"Pick **one** attack from the list below to add to your arsenal.\n"
+            f"You currently have {len(unlocked)}/{len(unlocked) + len(locked)} attacks unlocked."
+        ),
+        color=0xA855F7,
+    )
+    for atk in locked:
+        tags = []
+        if atk.get("is_spell"):
+            tags.append("✨ spell")
+        if atk.get("is_defend"):
+            tags.append("🛡️ def")
+        if atk.get("is_heal"):
+            tags.append("💚 heal")
+        if atk.get("is_special"):
+            tags.append("⚡ special")
+        tag_str = f"  *[{', '.join(tags)}]*" if tags else ""
+        embed.add_field(
+            name=f"• {atk['name']}{tag_str}",
+            value=atk.get("desc", atk["flavor"]),
+            inline=False,
+        )
+    embed.set_footer(text="You'll unlock more abilities at future levels too!")
+
+    try:
+        dm = await user.create_dm()
+        await dm.send(embed=embed, view=view)
+    except discord.Forbidden:
+        pass
+
+
+class LevelUpAttackSelect(discord.ui.Select):
+    def __init__(self, char_class: str, char_id: int, unlocked: list[str], locked: list[dict]):
+        self.char_class = char_class
+        self.char_id = char_id
+        self.unlocked = unlocked
+        self.locked = locked
+        options = [
+            discord.SelectOption(
+                label=atk["name"],
+                value=atk["name"],
+                description=atk["flavor"][:100],
+            )
+            for atk in locked
+        ]
+        super().__init__(placeholder="Choose an ability to unlock...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        chosen = self.values[0]
+        # Update character's class_resources
+        async with get_db() as db:
+            result = await db.execute(select(Character).where(Character.id == self.char_id))
+            char = result.scalar_one_or_none()
+            if not char:
+                await interaction.response.send_message("Character not found.", ephemeral=True)
+                return
+            resources = dict(char.class_resources or {})
+            attacks = list(resources.get("attacks", []))
+            if chosen not in attacks:
+                attacks.append(chosen)
+            resources["attacks"] = attacks
+            char.class_resources = resources
+
+        embed = discord.Embed(
+            title="✅ Ability Unlocked!",
+            description=f"**{chosen}** has been added to **{interaction.user.display_name}**'s arsenal!",
+            color=0x22C55E,
+        )
+        # Updated attack count
+        new_unlocked = self.unlocked + [chosen]
+        remaining = len(self.locked) - 1
+        if remaining > 0:
+            embed.set_footer(text=f"{remaining} more ability/ies to unlock at future levels!")
+        else:
+            embed.set_footer(text="All abilities unlocked! 🎉")
+
+        await interaction.response.edit_message(embed=embed, view=None)
+        self.view.stop()
+
+
+class LevelUpAttackView(discord.ui.View):
+    def __init__(self, char_class: str, char_id: int, unlocked: list[str], locked: list[dict]):
+        super().__init__(timeout=86400)  # 24h timeout
+        self.add_item(LevelUpAttackSelect(char_class, char_id, unlocked, locked))
+
+    @discord.ui.button(label="Skip for now", style=discord.ButtonStyle.secondary, emoji="⏭️", row=1)
+    async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="⏭️ Skipped",
+            description="You can unlock abilities later through other means.",
+            color=0x6B7280,
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+        self.stop()
+
+
 # ── Cog ───────────────────────────────────────────────────────────────────────
 
 class CharacterCog(commands.Cog, name="Character"):
     def __init__(self, bot):
         self.bot = bot
         bot.tree.add_command(character_group)
+        bot.tree.add_command(classes_group)
 
     async def cog_unload(self):
         self.bot.tree.remove_command("character")
+        self.bot.tree.remove_command("classes")
 
 
 async def setup(bot):

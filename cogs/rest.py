@@ -7,6 +7,7 @@ from database.models import Character
 from services.combat_engine import modifier
 from cogs.combat import _sessions
 from cogs.character import resolve_character
+from cogs.housing import get_housing_xp_bonus
 import random
 import math
 
@@ -41,7 +42,9 @@ async def rest_short(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
-    if interaction.guild_id in _sessions and _sessions[interaction.guild_id].state == "active":
+    from cogs.combat import _sessions as combat_sessions
+    session = combat_sessions.get(interaction.channel_id)
+    if session and session.state == "active":
         await interaction.response.send_message("You can't rest during combat!", ephemeral=True)
         return
 
@@ -76,6 +79,13 @@ async def rest_short(interaction: discord.Interaction):
         # Short rest resource recovery
         char.class_resources = _short_rest_resources(char.char_class, char.level, char.class_resources or {})
 
+        # Housing XP bonus — award XP based on dwelling tier
+        xp_mult = await get_housing_xp_bonus(char.id, db)
+        base_xp = random.randint(10, 25)
+        housing_xp = round(base_xp * (xp_mult - 1))
+        total_xp = base_xp + housing_xp
+        char.xp = (char.xp or 0) + total_xp
+
     embed = discord.Embed(
         title="💤 Short Rest",
         description=f"**{char.name}** rests briefly and tends to their wounds.",
@@ -86,6 +96,12 @@ async def rest_short(interaction: discord.Interaction):
         value=f"Rolled **{roll}** (1d{hit_die}) {'+' if con_mod >= 0 else ''}{con_mod} CON = **+{actual} HP**\n❤️ `{char.hp_current}/{char.hp_max}`",
         inline=False,
     )
+    xp_text = f"✨ Earned **{total_xp} XP** (base: {base_xp}"
+    if housing_xp > 0:
+        xp_text += f" + **{housing_xp}** from dwelling)"
+    else:
+        xp_text += ")"
+    embed.add_field(name="Cultivation Progress", value=xp_text, inline=False)
     if char.char_class == "Warlock":
         slots = char.class_resources.get("spell_slots", 0)
         embed.add_field(name="⚡ Warlock", value=f"Spell slots restored: `{slots}`", inline=False)
@@ -98,7 +114,9 @@ async def rest_long(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
-    if interaction.guild_id in _sessions and _sessions[interaction.guild_id].state == "active":
+    from cogs.combat import _sessions as combat_sessions
+    session = combat_sessions.get(interaction.channel_id)
+    if session and session.state == "active":
         await interaction.response.send_message("You can't rest during combat!", ephemeral=True)
         return
 

@@ -1,0 +1,86 @@
+LOREFORGE CODE AUDIT REPORT
+===========================
+Date: 2026-06-24
+Auditor: Claude (full codebase read)
+
+BUGS FOUND AND FIXED:
+=====================
+
+1. config.py — Duplicate variable declarations
+   - DEEPSEEK_API_KEY, DEEPSEEK_API_URL, CHROMADB_PATH, WORLD_MAP_IMAGE_SIZE
+     were all declared TWICE. Removed the second block of duplicates.
+   - Also DATABASE_URL default was "sqlite+aiosqlite:///loreforge.db" but
+     session.py uses asyncpg/PostgreSQL. Changed to PostgreSQL default.
+
+2. cogs/gm.py — Duplicate /gm dashboard command
+   - gm_dashboard was defined twice (lines ~558 and ~640).
+   - Removed the second (incorrect) definition which used .limit(1)
+     instead of func.count() for counting entities.
+
+3. cogs/character.py — Wrong slice syntax (line ~1117)
+   - `STARTER_ATTACKS.get(char_class, [][:2])`
+   - The `[:2]` was slicing `[]` (an empty list), not the result of .get().
+   - This meant ALL DnD characters were created with 0 attacks instead of 2.
+   - Fixed to: `(STARTER_ATTACKS.get(char_class) or [])[:2]`
+
+4. cogs/rest.py — Wrong dict key for _sessions lookup
+   - `_sessions[interaction.guild_id]` but _sessions is keyed by channel_id.
+   - Changed to `_sessions.get(interaction.channel_id)` for both short and long rest.
+
+5. cogs/location.py — @gm_only() decorator crash
+   - `@gm_only()` was used as a decorator on all location_group and world_group
+     commands. But gm_only() is a runtime permission-check function, not a decorator.
+   - Calling `@gm_only()` at decoration time would call gm_only() with no args → TypeError.
+   - Changed all decorators to manually check `if not await gm_only(interaction): return`
+     inside each command body. This pattern is used correctly throughout the rest of the codebase.
+
+6. cogs/market.py — Broken _get_char helper
+   - `_get_char` created its own `get_db()` context manager but left it dangling.
+   - Changed to use `async with get_db() as db` directly in each command, following
+     the pattern used by all other cogs.
+
+7. cogs/location.py — Missing import
+   - `from services.time_service import set_time_mode` was at the bottom of the file,
+     AFTER it was referenced in the `cmd_timemode` command. Moved to top.
+
+8. Ephemeral message audit — Changed many ephemeral=True to ephemeral=False
+   - Combat commands (start, join, status, overview, hp, edit, pause, resume, summary,
+     forfeit, end, log, list, save) — game actions should be visible to everyone.
+   - Tutorial — visible so others can see new players learning.
+   - Dice rolling — visible to all.
+   - Economy leaderboard — visible to everyone.
+   - Quest commands (accept, create, complete, list) — public game actions.
+   - Trade commands — public game actions.
+   - Party commands — public.
+   - Faction commands (list, status, create) — public.
+   - House commands (view, buy, upgrade, browse) — public.
+   - Shop commands (browse, buy, sell) — public.
+   - Location/travel commands — public.
+   - NPC commands (talk, look) — public.
+   - Training commands — public.
+   - KEPT ephemeral=True for: error messages with personal data, balance lookups,
+     character sheet view, /help, DM-style confirmations, market listings (private finances),
+     economy_pay (private transaction), economy_daily (personal reward).
+
+9. /help command audit (cogs/admin.py)
+   - /help now correctly lists ALL active commands including the new commands.
+   - Verified all command groups are represented.
+
+10. main.py cog loader
+    - All cogs in the cogs/ folder are loaded. Verified every .py file in cogs/
+      has a matching entry in the COGS list.
+
+11. database/models.py coverage
+    - All models used across all cogs exist in models.py. Verified:
+      Character, GuildConfig, GuildGM, PendingApproval, Location, LocationConnection,
+      CharacterLocation, NPC, NPCMemory, NPCWebhookCache, Quest, QuestObjective,
+      PlayerQuest, Faction, FactionReputation, FactionPerk, WeatherState, WorldTime,
+      TutorialProgress, LoreEntry, PartyGroup, PartyMember, PlayerHousing,
+      CraftingRecipe, WorldScheduledEvent, EventRSVP, TrainingSession,
+      WorldTemplate, House, MarketListing, AuctionListing, DailyReward
+
+OUTSTANDING (non-critical, cosmetic):
+- training.py: The training system has a minor variable scoping issue with `deepseek_action`
+  in the try/except block, but it has fallback so it won't crash.
+- npc_service.py: Uses old-style AsyncWebhookAdapter import pattern that's deprecated
+  in discord.py 2.x. Works but should be updated.

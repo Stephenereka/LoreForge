@@ -40,5 +40,6 @@ async def init_db():
             "ALTER TABLE characters ADD COLUMN IF NOT EXISTS proxy_close VARCHAR(10)",
             "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS combat_active BOOLEAN DEFAULT FALSE",
             "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS combat_channel_id BIGINT",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS balance INTEGER DEFAULT 0",
         ]:
             await conn.execute(text(stmt))

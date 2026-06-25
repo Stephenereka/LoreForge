@@ -102,7 +102,7 @@ async def shop_browse(interaction: discord.Interaction):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
         return
-    await interaction.response.send_message(embed=browse_embed(), ephemeral=True)
+    await interaction.response.send_message(embed=browse_embed())
 
 
 @shop_group.command(name="buy", description="Buy an item from the shop")

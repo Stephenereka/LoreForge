@@ -1,4 +1,5 @@
 import asyncio
+import random
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -13,8 +14,12 @@ from services.combat_engine import (
 )
 from services.ai_service import classify_combat_action
 from services.leveling import pvp_xp_reward, check_level_up, hp_gain_on_level, feature_at_level, xp_bar, ASI_LEVELS
-from cogs.character import resolve_character, CharacterPickView, pick_embed
+from cogs.character import resolve_character, CharacterPickView, pick_embed, _offer_attack_unlock
 from services.utils import is_gm
+from discord.ext import commands
+
+# Module-level bot reference — set when cog loads
+_bot_instance: commands.Bot | None = None
 
 # ── Active sessions: channel_id → CombatSession (infinite per guild) ─────────
 _sessions: dict[int, "CombatSession"] = {}
@@ -793,6 +798,7 @@ async def _end_combat(session: CombatSession, winner: Combatant | None):
 
     if winners and losers:
         total_xp_per_winner = sum(pvp_xp_reward(loser.level, len(winners)) for loser in losers)
+        total_stones_per_winner = sum(random.randint(10, 50) for loser in losers)
 
         level_up_embeds: list[discord.Embed] = []
         async with get_db() as db:
@@ -806,6 +812,7 @@ async def _end_combat(session: CombatSession, winner: Combatant | None):
                 char = result.scalar_one_or_none()
                 if not char:
                     continue
+                char.balance = (char.balance or 0) + total_stones_per_winner
                 char.xp = (char.xp or 0) + total_xp_per_winner
                 new_level = check_level_up(char.xp, char.level)
                 if new_level:
@@ -825,19 +832,36 @@ async def _end_combat(session: CombatSession, winner: Combatant | None):
                         lu_embed.add_field(name="🌟 New Feature", value=feature, inline=False)
                     if asi:
                         lu_embed.add_field(name="⬆️ ASI Available", value="You can increase an ability score! Use `/character edit` to apply it.", inline=False)
-                    level_up_embeds.append(lu_embed)
+                    level_up_embeds.append((char, new_level))
 
         channel = session.status_message.channel if session.status_message else None
         if channel:
+            stone_lines = [f"• **{p.name}** earned **{total_stones_per_winner}** 🔮 Spirit Stones" for p in winners]
             xp_lines = [f"• **{p.name}** earned **{total_xp_per_winner} XP**" for p in winners]
             xp_embed = discord.Embed(
-                title="⚔️ PvP XP Awarded",
-                description="\n".join(xp_lines),
+                title="⚔️ PvP Awards",
+                description="\n".join(xp_lines) + "\n\n" + "\n".join(stone_lines),
                 color=0xF59E0B,
             )
             await channel.send(embed=xp_embed)
-            for lu_embed in level_up_embeds:
+            for char, new_level in level_up_embeds:
+                char_snapshot = {"name": char.name, "level": new_level, "xp": char.xp, "hp_max": char.hp_max, "char_class": char.char_class, "constitution": char.constitution}
+                hp_gain = hp_gain_on_level(char.char_class, char.constitution)
+                feature = feature_at_level(char.char_class, new_level)
+                asi = new_level in ASI_LEVELS
+                lu_embed = discord.Embed(
+                    title=f"🎉 {char_snapshot['name']} levelled up! → Lv{new_level}",
+                    color=0xA855F7,
+                )
+                lu_embed.add_field(name="❤️ HP", value=f"+{hp_gain} (now {char_snapshot['hp_max']} max)", inline=True)
+                lu_embed.add_field(name="✨ XP", value=xp_bar(char_snapshot['xp'], new_level), inline=False)
+                if feature:
+                    lu_embed.add_field(name="🌟 New Feature", value=feature, inline=False)
+                if asi:
+                    lu_embed.add_field(name="⬆️ ASI Available", value="You can increase an ability score! Use `/character edit` to apply it.", inline=False)
                 await channel.send(embed=lu_embed)
+                # Offer attack unlock via DM
+                await _offer_attack_unlock(_bot_instance, char, new_level)
 
     if session.status_message:
         await session.status_message.channel.send(embed=session.winner_embed(winner))
@@ -1442,7 +1466,9 @@ async def combat_config_log_channel(interaction: discord.Interaction, channel: d
 
 class CombatCog(commands.Cog, name="Combat"):
     def __init__(self, bot):
+        global _bot_instance
         self.bot = bot
+        _bot_instance = bot
         combat_group.add_command(combat_config)
         bot.tree.add_command(combat_group)
 

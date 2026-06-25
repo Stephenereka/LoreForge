@@ -1,0 +1,870 @@
+{
+  "template_name": "Murim/Magic",
+  "description": "A world where ancient Murim cultivation meets arcane magic — the Merged Realms, born from a cataclysm that shattered two worlds together.",
+  "locations": [
+    {
+      "name": "Mount Tianlun — The Jade Palace",
+      "description": "The sacred peak of the Murim Alliance, a fortress-monastery carved into the mountain face. Training grounds, council chambers, and the Azure Cloud Sect's former home.",
+      "short_description": "Headquarters of the Murim Alliance",
+      "location_type": "city",
+      "is_safe": true,
+      "is_indoors": false,
+      "biome": "mountain",
+      "danger_level": 1,
+      "population_density": "dense",
+      "map_x": 50,
+      "map_y": 30,
+      "connections": [
+        {
+          "direction": "south",
+          "target_name": "The Convergence Market"
+        },
+        {
+          "direction": "east",
+          "target_name": "The Spire of Convergence"
+        }
+      ]
+    },
+    {
+      "name": "The Spire of Convergence",
+      "description": "A hybrid tower of impossible architecture — half-Murim pagoda, half-arcane spire — floating above Mount Tianlun. The Arcane Council headquarters.",
+      "short_description": "Arcane Council Headquarters",
+      "location_type": "city",
+      "is_safe": true,
+      "is_indoors": true,
+      "biome": "mountain",
+      "danger_level": 2,
+      "population_density": "dense",
+      "map_x": 55,
+      "map_y": 25,
+      "connections": [
+        {
+          "direction": "west",
+          "target_name": "Mount Tianlun — The Jade Palace"
+        },
+        {
+          "direction": "down",
+          "target_name": "The Convergence Market"
+        }
+      ]
+    },
+    {
+      "name": "The Convergence Market",
+      "description": "Sprawling city-sized bazaar at the base of Mount Tianlun. Anything can be bought or sold here.",
+      "short_description": "The economic heart of the Merged Realms",
+      "location_type": "city",
+      "is_safe": true,
+      "is_indoors": false,
+      "biome": "plains",
+      "danger_level": 2,
+      "population_density": "dense",
+      "map_x": 50,
+      "map_y": 40,
+      "connections": [
+        {
+          "direction": "north",
+          "target_name": "Mount Tianlun — The Jade Palace"
+        },
+        {
+          "direction": "south",
+          "target_name": "The Southern Kingdoms"
+        },
+        {
+          "direction": "west",
+          "target_name": "The Crimson Desert"
+        }
+      ]
+    },
+    {
+      "name": "The Black Mountains — Abyss Palace",
+      "description": "The corrupted fortress of the Heavenly Demon Cult, built into the caldera of an active volcano.",
+      "short_description": "Headquarters of the Heavenly Demon Cult",
+      "location_type": "dungeon",
+      "is_safe": false,
+      "is_indoors": true,
+      "biome": "mountain",
+      "danger_level": 5,
+      "population_density": "sparse",
+      "map_x": 80,
+      "map_y": 20,
+      "connections": [
+        {
+          "direction": "south",
+          "target_name": "The Verdant Wound"
+        },
+        {
+          "direction": "east",
+          "target_name": "The Whispering Wastes"
+        }
+      ]
+    },
+    {
+      "name": "The Southern Kingdoms",
+      "description": "Three mortal kingdoms — Yan, Wei, and Zhao — united under the Tri-Kingdom Compact.",
+      "short_description": "The last mortal kingdoms",
+      "location_type": "city",
+      "is_safe": true,
+      "is_indoors": false,
+      "biome": "plains",
+      "danger_level": 2,
+      "population_density": "dense",
+      "map_x": 50,
+      "map_y": 70,
+      "connections": [
+        {
+          "direction": "north",
+          "target_name": "The Convergence Market"
+        },
+        {
+          "direction": "west",
+          "target_name": "The Serpent River"
+        }
+      ]
+    },
+    {
+      "name": "The Serpent River",
+      "description": "The heavily fortified front line between Alliance and Cult territories.",
+      "short_description": "The war front",
+      "location_type": "wilderness",
+      "is_safe": false,
+      "is_indoors": false,
+      "biome": "plains",
+      "danger_level": 4,
+      "population_density": "moderate",
+      "map_x": 35,
+      "map_y": 60,
+      "connections": [
+        {
+          "direction": "north",
+          "target_name": "The Whispering Wastes"
+        },
+        {
+          "direction": "east",
+          "target_name": "The Southern Kingdoms"
+        },
+        {
+          "direction": "west",
+          "target_name": "The Verdant Wound"
+        }
+      ]
+    },
+    {
+      "name": "The Verdant Wound",
+      "description": "The largest open rift — a miles-long tear in reality hanging in the sky.",
+      "short_description": "The largest rift zone",
+      "location_type": "dungeon",
+      "is_safe": false,
+      "is_indoors": false,
+      "biome": "plains",
+      "danger_level": 5,
+      "population_density": "sparse",
+      "map_x": 30,
+      "map_y": 40,
+      "connections": [
+        {
+          "direction": "north",
+          "target_name": "The Black Mountains — Abyss Palace"
+        },
+        {
+          "direction": "east",
+          "target_name": "The Serpent River"
+        }
+      ]
+    },
+    {
+      "name": "The Silverwood Forest",
+      "description": "A vast forest of silver-barked trees glowing with bioluminescent magic, slowly dying from the Withering.",
+      "short_description": "The elven forest refuge",
+      "location_type": "forest",
+      "is_safe": true,
+      "is_indoors": false,
+      "biome": "forest",
+      "danger_level": 2,
+      "population_density": "sparse",
+      "map_x": 20,
+      "map_y": 30,
+      "connections": [
+        {
+          "direction": "south",
+          "target_name": "The Floating Isles of Aerendor"
+        },
+        {
+          "direction": "east",
+          "target_name": "The Convergence Market"
+        }
+      ]
+    },
+    {
+      "name": "The Floating Isles of Aerendor",
+      "description": "Seven sky-islands drifting above the Crimson Desert, home to mages and scholars.",
+      "short_description": "Sky-islands of mages",
+      "location_type": "city",
+      "is_safe": true,
+      "is_indoors": true,
+      "biome": "mountain",
+      "danger_level": 1,
+      "population_density": "moderate",
+      "map_x": 20,
+      "map_y": 50,
+      "connections": [
+        {
+          "direction": "north",
+          "target_name": "The Silverwood Forest"
+        },
+        {
+          "direction": "down",
+          "target_name": "The Crimson Desert"
+        }
+      ]
+    },
+    {
+      "name": "The Crimson Desert",
+      "description": "Red sand desert with Dominion ruins being uncovered by shifting sands.",
+      "short_description": "Red sand desert with ruins",
+      "location_type": "wilderness",
+      "is_safe": false,
+      "is_indoors": false,
+      "biome": "desert",
+      "danger_level": 3,
+      "population_density": "sparse",
+      "map_x": 30,
+      "map_y": 55,
+      "connections": [
+        {
+          "direction": "north",
+          "target_name": "The Convergence Market"
+        },
+        {
+          "direction": "east",
+          "target_name": "The Southern Kingdoms"
+        },
+        {
+          "direction": "up",
+          "target_name": "The Floating Isles of Aerendor"
+        }
+      ]
+    },
+    {
+      "name": "The Whispering Wastes",
+      "description": "A desolate wasteland where sands whisper secrets. Home to necromancers and exiles.",
+      "short_description": "Haunted wasteland",
+      "location_type": "wilderness",
+      "is_safe": false,
+      "is_indoors": false,
+      "biome": "desert",
+      "danger_level": 4,
+      "population_density": "sparse",
+      "map_x": 70,
+      "map_y": 30,
+      "connections": [
+        {
+          "direction": "south",
+          "target_name": "The Serpent River"
+        },
+        {
+          "direction": "west",
+          "target_name": "The Black Mountains — Abyss Palace"
+        }
+      ]
+    },
+    {
+      "name": "The Dragon's Teeth Mountains",
+      "description": "A volcanic mountain range ruled by the Ebon Scale Covenant.",
+      "short_description": "Dragon territory",
+      "location_type": "mountain",
+      "is_safe": false,
+      "is_indoors": false,
+      "biome": "mountain",
+      "danger_level": 5,
+      "population_density": "sparse",
+      "map_x": 80,
+      "map_y": 60,
+      "connections": [
+        {
+          "direction": "north",
+          "target_name": "The Isle of Whispers"
+        },
+        {
+          "direction": "west",
+          "target_name": "The Southern Kingdoms"
+        }
+      ]
+    },
+    {
+      "name": "The Bridge of Sighs",
+      "description": "A massive thirty-mile stone bridge connecting to the Isle of Whispers.",
+      "short_description": "The bridge to forgotten lands",
+      "location_type": "wilderness",
+      "is_safe": true,
+      "is_indoors": false,
+      "biome": "coastal",
+      "danger_level": 2,
+      "population_density": "moderate",
+      "map_x": 85,
+      "map_y": 75,
+      "connections": [
+        {
+          "direction": "east",
+          "target_name": "The Isle of Whispers"
+        },
+        {
+          "direction": "west",
+          "target_name": "The Dragon's Teeth Mountains"
+        }
+      ]
+    },
+    {
+      "name": "The Isle of Whispers",
+      "description": "The largest surviving fragment of the Arcane Dominion with First Age ruins.",
+      "short_description": "Uncharted Dominion island",
+      "location_type": "wilderness",
+      "is_safe": false,
+      "is_indoors": false,
+      "biome": "forest",
+      "danger_level": 4,
+      "population_density": "sparse",
+      "map_x": 90,
+      "map_y": 80,
+      "connections": [
+        {
+          "direction": "west",
+          "target_name": "The Bridge of Sighs"
+        }
+      ]
+    },
+    {
+      "name": "The Heartwood Nexus",
+      "description": "The only known location where qi and mana have achieved permanent stable harmony.",
+      "short_description": "The stable convergence point",
+      "location_type": "shrine",
+      "is_safe": true,
+      "is_indoors": false,
+      "biome": "forest",
+      "danger_level": 1,
+      "population_density": "sparse",
+      "map_x": 18,
+      "map_y": 28,
+      "connections": [
+        {
+          "direction": "surrounding",
+          "target_name": "The Silverwood Forest"
+        }
+      ]
+    },
+    {
+      "name": "Necropolis Omega",
+      "description": "The hidden capital of the Pale Hand — a city of the dead beneath the Whispering Wastes.",
+      "short_description": "The necromancer city",
+      "location_type": "dungeon",
+      "is_safe": false,
+      "is_indoors": true,
+      "biome": "underground",
+      "danger_level": 5,
+      "population_density": "sparse",
+      "map_x": 72,
+      "map_y": 32,
+      "connections": [
+        {
+          "direction": "up",
+          "target_name": "The Whispering Wastes"
+        }
+      ]
+    }
+  ],
+  "npcs": [
+    {
+      "name": "Song Linfeng",
+      "title": "Grand Elder of the Murim Alliance",
+      "race": "Human",
+      "description": "A weathered but dignified man with silver hair. The pragmatic leader who holds the Alliance together.",
+      "appearance": "White robes with gold embroidery, tired eyes.",
+      "location_name": "Mount Tianlun — The Jade Palace",
+      "disposition": "friendly",
+      "greeting": "Welcome to the Jade Palace. I pray you bring good news.",
+      "dialogue_topics": {
+        "alliance": "The Alliance is all that stands between order and chaos.",
+        "war": "The Cult presses us from the west."
+      },
+      "image_url": "",
+      "faction_name": "Murim Alliance"
+    },
+    {
+      "name": "Xuan Mo",
+      "title": "The Crimson Demon Lord",
+      "race": "Human (Corrupted)",
+      "description": "Tall, gaunt, with pale skin and crimson eyes. Ruthless leader of the Cult.",
+      "appearance": "Black-and-crimson robes embroidered with writhing souls.",
+      "location_name": "The Black Mountains — Abyss Palace",
+      "disposition": "hostile",
+      "greeting": "You have come to die — or to serve.",
+      "dialogue_topics": {
+        "power": "Power is the only law.",
+        "ascension": "I will consume the Convergence Zones and become a god."
+      },
+      "image_url": "",
+      "faction_name": "Heavenly Demon Cult"
+    },
+    {
+      "name": "Seraphina Vex",
+      "title": "Grand Archmage of the Arcane Council",
+      "race": "Human",
+      "description": "A tall, slender woman with silver-white hair and piercing blue eyes.",
+      "appearance": "Deep blue and silver robes, crystalline staff.",
+      "location_name": "The Spire of Convergence",
+      "disposition": "neutral",
+      "greeting": "Welcome to the Spire. I trust your business is meaningful.",
+      "dialogue_topics": {
+        "merge": "The Merge was no accident.",
+        "magic": "Magic must be studied, understood, and regulated."
+      },
+      "image_url": "",
+      "faction_name": "Arcane Council"
+    },
+    {
+      "name": "Queen Alyndra Moonshadow",
+      "title": "Sovereign of the Silverwood",
+      "race": "High Elf",
+      "description": "An ethereally beautiful high elf with silver hair and luminous green eyes.",
+      "appearance": "Crown of living branches, robes of woven moonlight.",
+      "location_name": "The Heartwood Nexus",
+      "disposition": "friendly",
+      "greeting": "The Silverwood welcomes you, traveler.",
+      "dialogue_topics": {
+        "withering": "The Withering consumes my home.",
+        "elves": "My people are all that remain of a lost world."
+      },
+      "image_url": "",
+      "faction_name": "Silverwood Dominion"
+    },
+    {
+      "name": "Deng Jie",
+      "title": "Founder of the Rift Wardens",
+      "race": "Human",
+      "description": "A stocky, scarred man with a shaved head and friendly face.",
+      "appearance": "Leather armor, steel sword, tired eyes.",
+      "location_name": "The Convergence Market",
+      "disposition": "friendly",
+      "greeting": "Need a job? The Wardens always have contracts.",
+      "dialogue_topics": {
+        "wardens": "We clear rifts, hunt monsters, and get paid.",
+        "danger": "The Verdant Wound gets worse every day."
+      },
+      "image_url": "",
+      "faction_name": "Rift Wardens"
+    },
+    {
+      "name": "Valthorax",
+      "title": "The Ember King",
+      "race": "Red Dragon",
+      "description": "A massive red dragon, scales gleaming like polished rubies.",
+      "appearance": "In human form: a tall man with ruby-red eyes.",
+      "location_name": "The Dragon's Teeth Mountains",
+      "disposition": "neutral",
+      "greeting": "A mortal who dares approach my lair.",
+      "dialogue_topics": {
+        "merge": "The Merge is the most interesting thing in millennia.",
+        "power": "Do not mistake my patience for weakness."
+      },
+      "image_url": "",
+      "faction_name": "Ebon Scale Covenant"
+    },
+    {
+      "name": "Lich Lord Mortis",
+      "title": "Leader of the Pale Hand",
+      "race": "Undead Human",
+      "description": "A skeletal figure with cold blue pinpricks of light for eyes.",
+      "appearance": "Bones wrapped in shadow, dragon-spine staff.",
+      "location_name": "Necropolis Omega",
+      "disposition": "hostile",
+      "greeting": "Ah... fresh souls.",
+      "dialogue_topics": {
+        "death": "Death is not an end.",
+        "necromancy": "The dead are a resource."
+      },
+      "image_url": "",
+      "faction_name": "Pale Hand"
+    },
+    {
+      "name": "Kaede the Windblade",
+      "title": "Leader of the Wandering Sword Association",
+      "race": "Human",
+      "description": "A tall, lean woman with weather-beaten skin and sharp eyes.",
+      "appearance": "Traveler's clothes, a long curved sword.",
+      "location_name": "The Convergence Market",
+      "disposition": "friendly",
+      "greeting": "Another soul looking for purpose.",
+      "dialogue_topics": {
+        "swords": "The blade is an extension of the self.",
+        "harmonized": "Qi and mana can coexist."
+      },
+      "image_url": "",
+      "faction_name": "Unorthodox"
+    },
+    {
+      "name": "Yun Mei",
+      "title": "The First Harmonized",
+      "race": "Human",
+      "description": "A young woman with unruly black hair and ink-stained hands.",
+      "appearance": "Traveler's clothes, backpack full of books.",
+      "location_name": "The Floating Isles of Aerendor",
+      "disposition": "friendly",
+      "greeting": "Oh! A visitor! I love answering questions.",
+      "dialogue_topics": {
+        "harmonization": "Qi and mana can flow together.",
+        "research": "I've discovered the key is in the soul."
+      },
+      "image_url": "",
+      "faction_name": "Unorthodox"
+    },
+    {
+      "name": "Grand Elder Feng Wei",
+      "title": "Voice of the Lost Age",
+      "race": "Human (Spirit)",
+      "description": "A legendary Nascent Soul cultivator who perished in the Merge. His spirit lingers.",
+      "appearance": "A translucent figure in flowing robes.",
+      "location_name": "Mount Tianlun — The Jade Palace",
+      "disposition": "neutral",
+      "greeting": "I am but a memory now.",
+      "dialogue_topics": {
+        "merging": "Before the Rending, we thought we understood the sky.",
+        "sacrifice": "I pray my sacrifice was not in vain."
+      },
+      "image_url": "",
+      "faction_name": "Murim Alliance"
+    }
+  ],
+  "factions": [
+    {
+      "name": "Murim Alliance",
+      "description": "The governing body of orthodox martial society — a coalition of sects, clans, and kingdoms.",
+      "faction_type": "guild",
+      "color": "#22C55E",
+      "icon_emoji": "⚔️",
+      "starting_rep": 0
+    },
+    {
+      "name": "Heavenly Demon Cult",
+      "description": "A shadow empire of demonic cultivators who consume life essence.",
+      "faction_type": "guild",
+      "color": "#EF4444",
+      "icon_emoji": "👹",
+      "starting_rep": -500
+    },
+    {
+      "name": "Arcane Council",
+      "description": "The governing body of magic — nine circles of mastery regulating spellcraft.",
+      "faction_type": "guild",
+      "color": "#6366F1",
+      "icon_emoji": "🔮",
+      "starting_rep": 0
+    },
+    {
+      "name": "Silverwood Dominion",
+      "description": "Elven refugees of a dying forest, struggling against the Withering.",
+      "faction_type": "guild",
+      "color": "#A855F7",
+      "icon_emoji": "🌳",
+      "starting_rep": 0
+    },
+    {
+      "name": "Ebon Scale Covenant",
+      "description": "The ruling council of ancient dragons in the Dragon's Teeth Mountains.",
+      "faction_type": "guild",
+      "color": "#F97316",
+      "icon_emoji": "🐉",
+      "starting_rep": 0
+    },
+    {
+      "name": "Rift Wardens",
+      "description": "A neutral guild of hunters who clear rifts for coin.",
+      "faction_type": "guild",
+      "color": "#F59E0B",
+      "icon_emoji": "🗡️",
+      "starting_rep": 50
+    },
+    {
+      "name": "Unorthodox",
+      "description": "Independent sects, wandering martial artists, and mercenaries who value freedom.",
+      "faction_type": "guild",
+      "color": "#9CA3AF",
+      "icon_emoji": "🌙",
+      "starting_rep": 0
+    },
+    {
+      "name": "Pale Hand",
+      "description": "Necromancers who practice forbidden arts of death, allied with the Cult.",
+      "faction_type": "guild",
+      "color": "#6B7280",
+      "icon_emoji": "💀",
+      "starting_rep": -300
+    }
+  ],
+  "quests": [
+    {
+      "name": "Defend the Spire",
+      "description": "The Cult is assaulting the Spire of Convergence. Join the defense!",
+      "quest_type": "standard",
+      "reward_xp": 500,
+      "reward_gold": 200,
+      "objectives": [
+        {
+          "description": "Report to defense command",
+          "objective_type": "talk_to",
+          "required_count": 1
+        },
+        {
+          "description": "Defeat Cult attackers",
+          "objective_type": "kill_enemy",
+          "required_count": 5
+        },
+        {
+          "description": "Stabilize the wards",
+          "objective_type": "interact",
+          "required_count": 1
+        }
+      ]
+    },
+    {
+      "name": "Find Elder Feng Liang",
+      "description": "The missing Alliance elder entered ancient ruins. Find him.",
+      "quest_type": "standard",
+      "reward_xp": 800,
+      "reward_gold": 500,
+      "objectives": [
+        {
+          "description": "Travel to the Dragon's Teeth Mountains",
+          "objective_type": "travel_to",
+          "required_count": 1
+        },
+        {
+          "description": "Explore the ancient ruins",
+          "objective_type": "explore_area",
+          "required_count": 1
+        },
+        {
+          "description": "Discover what happened",
+          "objective_type": "discover",
+          "required_count": 1
+        }
+      ]
+    },
+    {
+      "name": "Hunt the Alpha Magi-Beast",
+      "description": "An intelligent magi-beast terrorizes the Verdant Wound region.",
+      "quest_type": "standard",
+      "reward_xp": 600,
+      "reward_gold": 350,
+      "objectives": [
+        {
+          "description": "Track the Alpha",
+          "objective_type": "travel_to",
+          "required_count": 1
+        },
+        {
+          "description": "Defeat the beast",
+          "objective_type": "kill_enemy",
+          "required_count": 1
+        },
+        {
+          "description": "Report to the Wardens",
+          "objective_type": "talk_to",
+          "required_count": 1
+        }
+      ]
+    },
+    {
+      "name": "The Heartwood Sabotage",
+      "description": "Cult infiltrators threaten to corrupt the Heartwood Nexus.",
+      "quest_type": "standard",
+      "reward_xp": 1000,
+      "reward_gold": 400,
+      "objectives": [
+        {
+          "description": "Gain entry to the Silverwood",
+          "objective_type": "talk_to",
+          "required_count": 1
+        },
+        {
+          "description": "Hunt Cult infiltrators",
+          "objective_type": "kill_enemy",
+          "required_count": 3
+        },
+        {
+          "description": "Purify the Nexus",
+          "objective_type": "interact",
+          "required_count": 1
+        }
+      ]
+    },
+    {
+      "name": "The Third Convergence Zone",
+      "description": "Find the hidden third Convergence Zone beneath the mountains.",
+      "quest_type": "standard",
+      "reward_xp": 1200,
+      "reward_gold": 600,
+      "objectives": [
+        {
+          "description": "Research the location",
+          "objective_type": "talk_to",
+          "required_count": 1
+        },
+        {
+          "description": "Enter the mountain depths",
+          "objective_type": "travel_to",
+          "required_count": 1
+        },
+        {
+          "description": "Confirm the Zone",
+          "objective_type": "explore_area",
+          "required_count": 1
+        }
+      ]
+    },
+    {
+      "name": "Whispering Wastes Expedition",
+      "description": "Map Necropolis Omega and gather intelligence on the Pale Hand.",
+      "quest_type": "standard",
+      "reward_xp": 700,
+      "reward_gold": 300,
+      "objectives": [
+        {
+          "description": "Travel to the Wastes",
+          "objective_type": "travel_to",
+          "required_count": 1
+        },
+        {
+          "description": "Find Necropolis Omega's entrance",
+          "objective_type": "explore_area",
+          "required_count": 1
+        },
+        {
+          "description": "Gather intelligence",
+          "objective_type": "collect_item",
+          "required_count": 1
+        }
+      ]
+    }
+  ],
+  "lore_entries": [
+    {
+      "title": "The Day the Sky Broke",
+      "content": "On the 15th day of the 7th Moon, the sky turned violet and shattered — the Merging of two worlds.",
+      "category": "history",
+      "tags": [
+        "merge",
+        "cataclysm"
+      ],
+      "is_canon": true
+    },
+    {
+      "title": "Qi — The Internal Energy",
+      "content": "Qi is the lifeblood of the Murim world. Cultivators refine this internal energy across stages from Body Tempering to Dao Integration.",
+      "category": "lore",
+      "tags": [
+        "qi",
+        "cultivation"
+      ],
+      "is_canon": true
+    },
+    {
+      "title": "Mana — The Arcane Force",
+      "content": "Mana is the raw fabric of magic. Unlike qi which flows within, mana permeates the environment.",
+      "category": "lore",
+      "tags": [
+        "mana",
+        "magic"
+      ],
+      "is_canon": true
+    },
+    {
+      "title": "The First Harmonized",
+      "content": "Yun Mei discovered she could channel qi through a spell matrix, creating the first Harmonized practitioner.",
+      "category": "history",
+      "tags": [
+        "harmonized",
+        "yun mei"
+      ],
+      "is_canon": true
+    },
+    {
+      "title": "The Great Convergence Zones",
+      "content": "Three locations where qi and mana have achieved harmony: the Spire, the Heartwood Nexus, and a hidden third.",
+      "category": "lore",
+      "tags": [
+        "convergence",
+        "power"
+      ],
+      "is_canon": true
+    },
+    {
+      "title": "The Heavenly Demon Cult",
+      "content": "A 3,000-year-old shadow empire. Under Xuan Mo they corrupt mana into demonic techniques.",
+      "category": "faction",
+      "tags": [
+        "cult",
+        "demonic"
+      ],
+      "is_canon": true
+    },
+    {
+      "title": "The Withering of the Silverwood",
+      "content": "The qi-rich atmosphere of the Murim world is slowly killing the Silverwood Forest — a blight called the Withering.",
+      "category": "location",
+      "tags": [
+        "silverwood",
+        "withering"
+      ],
+      "is_canon": true
+    },
+    {
+      "title": "The Voice in the Bone Choir",
+      "content": "The true ruler of the Pale Hand is a collective consciousness of all liches.",
+      "category": "lore",
+      "tags": [
+        "pale hand",
+        "secret"
+      ],
+      "is_canon": true
+    },
+    {
+      "title": "The Outer Gate",
+      "content": "Ten thousand years ago, cultivators attempted to open a gateway beyond reality. Something came through.",
+      "category": "history",
+      "tags": [
+        "outer gate",
+        "ancient"
+      ],
+      "is_canon": true
+    },
+    {
+      "title": "The Sleeper Beneath",
+      "content": "A fragment of the Primordial Dragon slumbers beneath the Dragon's Teeth Mountains.",
+      "category": "lore",
+      "tags": [
+        "dragon",
+        "primordial"
+      ],
+      "is_canon": true
+    },
+    {
+      "title": "The Architects of the Merge",
+      "content": "Seraphina Vex discovered the Merge was a weapon deployed by a civilization that predates both worlds.",
+      "category": "history",
+      "tags": [
+        "merge",
+        "conspiracy"
+      ],
+      "is_canon": true
+    },
+    {
+      "title": "Rift Dungeons",
+      "content": "Stabilized rifts became permanent gateways to pocket dimensions filled with treasures and monsters.",
+      "category": "lore",
+      "tags": [
+        "rifts",
+        "adventure"
+      ],
+      "is_canon": true
+    }
+  ]
+}
