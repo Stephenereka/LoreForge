@@ -36,6 +36,7 @@ COGS = [
     "cogs.events",
     "cogs.dice",
     "cogs.embed_builder",
+    "cogs.encounter",
     "cogs.heavenly_demon",
     "cogs.ai_config",
     "cogs.sessions",
