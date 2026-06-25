@@ -120,10 +120,12 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
         "`/npc edit <name>` — Edit all NPC fields via modal (GM)\n"
         "`/npc move <name> <location>` — Change NPC's location (GM)\n"
         "`/npc kill / revive <name>` — Mark NPC as dead or alive (GM)\n"
-        "`/npc speak <name> <message>` — GM speaks AS the NPC via webhook proxy\n"
+        "`/npc speak <name> <msg>` — GM speaks AS the NPC via webhook (GM)\n"
         "`/npc act <name> <action>` — Post an RP action as the NPC (GM)\n"
-        "`/npc proxy-set <name>` — Configure NPC webhook appearance (GM)\n"
-        "`/npc proxy-mode <name> <auto/manual>` — Toggle proxy mode (GM)"
+        "`/npc possess <name>` — Claim an NPC; type its prefix to speak as it live (GM)\n"
+        "`/npc release <name>` — Stop possessing an NPC (GM)\n"
+        "`/npc mode <name> <auto/manual>` — Switch between automatic & manual proxy (GM)\n"
+        "`/npc proxy-set <name>` — Set webhook display name, avatar, prefix (GM)"
     ), inline=False)
     e.add_field(name="Quest Commands", value=(
         "`/quest create` — Multi-step wizard to build a quest\n"

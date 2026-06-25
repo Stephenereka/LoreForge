@@ -598,8 +598,9 @@ async def npc_nearby(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@npc_group.command(name="proxy-set", description="Configure NPC proxy appearance (GM only)")
-@app_commands.describe(name="NPC name", proxy_name="Display name for webhook messages", avatar_url="Avatar image URL", prefix="Prefix for manual proxy mode (e.g., !)")
+@npc_group.command(name="proxy-set", description="Configure NPC webhook display name, avatar, and prefix (GM only)")
+@app_commands.describe(name="NPC name", proxy_name="Webhook display name", avatar_url="Avatar image URL", prefix="Prefix for manual mode (e.g. aldric>)")
+@app_commands.autocomplete(name=_npc_autocomplete)
 async def npc_proxy_set(interaction: discord.Interaction, name: str, proxy_name: str, avatar_url: str = None, prefix: str = None):
     if not await is_gm(interaction):
         await interaction.response.send_message("Only GMs can configure NPC proxies.", ephemeral=True)
@@ -620,36 +621,24 @@ async def npc_proxy_set(interaction: discord.Interaction, name: str, proxy_name:
             npc.proxy_avatar = avatar_url
         if prefix:
             npc.proxy_prefix = prefix
-    await interaction.response.send_message(f"✅ Proxy for **{name}** set to **{proxy_name}**.")
 
-
-@npc_group.command(name="proxy-mode", description="Toggle NPC proxy mode (GM only)")
-@app_commands.describe(name="NPC name", mode="automatic or manual")
-@app_commands.choices(mode=[
-    app_commands.Choice(name="Automatic — NPC talks on its own", value="automatic"),
-    app_commands.Choice(name="Manual — GM speaks as NPC", value="manual"),
-])
-async def npc_proxy_mode(interaction: discord.Interaction, name: str, mode: app_commands.Choice[str]):
-    if not await is_gm(interaction):
-        await interaction.response.send_message("Only GMs can change proxy mode.", ephemeral=True)
-        return
-    async with get_db() as db:
-        result = await db.execute(
-            select(NPC).where(
-                NPC.guild_id == interaction.guild_id,
-                NPC.name.ilike(name),
-            )
-        )
-        npc = result.scalar_one_or_none()
-        if not npc:
-            await interaction.response.send_message("NPC not found.", ephemeral=True)
-            return
-        npc.proxy_mode = mode.value
-    await interaction.response.send_message(f"✅ **{name}** proxy mode set to **{mode.value}**.")
+    embed = discord.Embed(
+        title=f"✅ Proxy configured for {npc.name}",
+        color=0x22C55E,
+    )
+    embed.add_field(name="Display Name", value=proxy_name, inline=True)
+    if avatar_url:
+        embed.add_field(name="Avatar", value="Set ✓", inline=True)
+        embed.set_thumbnail(url=avatar_url)
+    if prefix:
+        embed.add_field(name="Prefix", value=f"`{prefix}`", inline=True)
+    embed.set_footer(text="Use /npc mode to switch between automatic and manual · LoreForge")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @npc_group.command(name="speak", description="Speak as an NPC via webhook (GM only)")
 @app_commands.describe(name="NPC name", message="What the NPC says")
+@app_commands.autocomplete(name=_npc_autocomplete)
 async def npc_speak(interaction: discord.Interaction, name: str, message: str):
     if not await is_gm(interaction):
         await interaction.response.send_message("Only GMs can speak as NPCs.", ephemeral=True)
@@ -666,14 +655,19 @@ async def npc_speak(interaction: discord.Interaction, name: str, message: str):
             await interaction.response.send_message("NPC not found.", ephemeral=True)
             return
 
-    await send_npc_proxy_message(
-        interaction.client, interaction.channel, npc, message
-    )
-    await interaction.response.send_message("✅ Message sent as NPC.", ephemeral=True)
+    success = await send_npc_proxy_message(interaction.client, interaction.channel, npc, message)
+    if success:
+        await interaction.response.send_message(f"✅ Spoke as **{npc.name}**.", ephemeral=True)
+    else:
+        await interaction.response.send_message(
+            "❌ Failed to send — make sure the bot has **Manage Webhooks** permission in this channel.",
+            ephemeral=True,
+        )
 
 
 @npc_group.command(name="act", description="Post a roleplay action as an NPC (GM only)")
-@app_commands.describe(name="NPC name", action="What the NPC does")
+@app_commands.describe(name="NPC name", action="What the NPC does (e.g. 'draws her sword')")
+@app_commands.autocomplete(name=_npc_autocomplete)
 async def npc_act(interaction: discord.Interaction, name: str, action: str):
     if not await is_gm(interaction):
         await interaction.response.send_message("Only GMs can act as NPCs.", ephemeral=True)
@@ -691,10 +685,112 @@ async def npc_act(interaction: discord.Interaction, name: str, action: str):
             return
 
     text = f"*{npc.proxy_name or npc.name} {action}*"
-    await send_npc_proxy_message(
-        interaction.client, interaction.channel, npc, text
+    success = await send_npc_proxy_message(interaction.client, interaction.channel, npc, text)
+    if success:
+        await interaction.response.send_message(f"✅ Action posted as **{npc.name}**.", ephemeral=True)
+    else:
+        await interaction.response.send_message(
+            "❌ Failed to post — check **Manage Webhooks** permission.",
+            ephemeral=True,
+        )
+
+
+@npc_group.command(name="possess", description="Claim an NPC to control via prefix (GM only)")
+@app_commands.describe(name="NPC name — you'll then type its prefix to speak as it")
+@app_commands.autocomplete(name=_npc_autocomplete)
+async def npc_possess(interaction: discord.Interaction, name: str):
+    if not await is_gm(interaction):
+        await interaction.response.send_message("Only GMs can possess NPCs.", ephemeral=True)
+        return
+    async with get_db() as db:
+        result = await db.execute(
+            select(NPC).where(
+                NPC.guild_id == interaction.guild_id,
+                NPC.name.ilike(name),
+            )
+        )
+        npc = result.scalar_one_or_none()
+        if not npc:
+            await interaction.response.send_message("NPC not found.", ephemeral=True)
+            return
+        npc.gm_user_id = interaction.user.id
+        npc.proxy_mode = "manual"
+        prefix = npc.proxy_prefix or f"{npc.name.lower().split()[0]}>"
+
+    embed = discord.Embed(
+        title=f"🎭 Possessing {npc.name}",
+        description=(
+            f"You are now controlling **{npc.name}**.\n\n"
+            f"Type `{prefix} <message>` in any channel to speak as them.\n"
+            f"Your original message will be deleted automatically.\n\n"
+            f"Use `/npc release {npc.name}` to stop."
+        ),
+        color=0x8B5CF6,
     )
-    await interaction.response.send_message("✅ Action posted.", ephemeral=True)
+    embed.set_footer(text="Proxy mode set to Manual · LoreForge")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@npc_group.command(name="release", description="Stop controlling an NPC (GM only)")
+@app_commands.describe(name="NPC name")
+@app_commands.autocomplete(name=_npc_autocomplete)
+async def npc_release(interaction: discord.Interaction, name: str):
+    if not await is_gm(interaction):
+        await interaction.response.send_message("Only GMs can release NPCs.", ephemeral=True)
+        return
+    async with get_db() as db:
+        result = await db.execute(
+            select(NPC).where(
+                NPC.guild_id == interaction.guild_id,
+                NPC.name.ilike(name),
+            )
+        )
+        npc = result.scalar_one_or_none()
+        if not npc:
+            await interaction.response.send_message("NPC not found.", ephemeral=True)
+            return
+        npc.gm_user_id = None
+    await interaction.response.send_message(
+        f"✅ Released control of **{npc.name}**.", ephemeral=True
+    )
+
+
+@npc_group.command(name="mode", description="Switch NPC proxy between automatic and manual (GM only)")
+@app_commands.describe(name="NPC name", mode="automatic = AI/keyword responds on /npc talk; manual = GM types prefix to speak")
+@app_commands.autocomplete(name=_npc_autocomplete)
+@app_commands.choices(mode=[
+    app_commands.Choice(name="Automatic — bot responds on /npc talk", value="automatic"),
+    app_commands.Choice(name="Manual — GM controls via prefix", value="manual"),
+])
+async def npc_mode(interaction: discord.Interaction, name: str, mode: app_commands.Choice[str]):
+    if not await is_gm(interaction):
+        await interaction.response.send_message("Only GMs can change NPC mode.", ephemeral=True)
+        return
+    async with get_db() as db:
+        result = await db.execute(
+            select(NPC).where(
+                NPC.guild_id == interaction.guild_id,
+                NPC.name.ilike(name),
+            )
+        )
+        npc = result.scalar_one_or_none()
+        if not npc:
+            await interaction.response.send_message("NPC not found.", ephemeral=True)
+            return
+        npc.proxy_mode = mode.value
+
+    if mode.value == "manual":
+        prefix = npc.proxy_prefix or f"{npc.name.lower().split()[0]}>"
+        detail = f"Type `{prefix} <message>` to speak as them (use `/npc possess` to claim control)."
+    else:
+        detail = "The NPC will respond automatically when players use `/npc talk`."
+
+    embed = discord.Embed(
+        title=f"🔄 {npc.name} — Mode Updated",
+        description=f"Proxy mode set to **{mode.value}**.\n{detail}",
+        color=0x22C55E,
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class NPCCog(commands.Cog, name="NPC"):

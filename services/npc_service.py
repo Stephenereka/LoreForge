@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from database.session import get_db
 from database.models import NPC, NPCMemory, NPCWebhookCache
 
@@ -86,16 +86,13 @@ async def update_npc_memory(npc_id: int, user_id: int, guild_id: int, interactio
                 pass
 
 
-async def get_or_create_npc_webhook(guild_id: int, channel_id: int, bot_http) -> tuple[int, str] | None:
+async def get_or_create_npc_webhook(guild_id: int, channel_id: int, bot) -> tuple[int, str] | None:
     """
     Get or create a shared NPC webhook for a channel.
     Returns (webhook_id, webhook_token) or None if failed.
     Strategy: ONE shared webhook per channel named 'LoreForge NPC'.
     Override name/avatar per message using execute params.
     """
-    from database.session import get_db
-    from sqlalchemy import select
-
     async with get_db() as db:
         result = await db.execute(
             select(NPCWebhookCache).where(
@@ -109,29 +106,23 @@ async def get_or_create_npc_webhook(guild_id: int, channel_id: int, bot_http) ->
     if cached:
         return cached.webhook_id, cached.webhook_token
 
-    # Create new webhook
+    # Create new webhook via bot
     try:
-        from discord import Webhook, AsyncWebhookAdapter
-        import aiohttp
-
-        channel = bot_http.get_channel(channel_id)
+        channel = bot.get_channel(channel_id)
         if not channel:
             return None
 
-        # Use bot's HTTP to create webhook
         webhook = await channel.create_webhook(name="LoreForge NPC")
         wh_id = webhook.id
         wh_token = webhook.token
 
-        # Cache it
         async with get_db() as db:
-            cache = NPCWebhookCache(
+            db.add(NPCWebhookCache(
                 guild_id=guild_id,
                 channel_id=channel_id,
                 webhook_id=wh_id,
                 webhook_token=wh_token,
-            )
-            db.add(cache)
+            ))
 
         return wh_id, wh_token
     except Exception:
@@ -139,18 +130,16 @@ async def get_or_create_npc_webhook(guild_id: int, channel_id: int, bot_http) ->
 
 
 async def send_npc_proxy_message(bot, channel, npc: NPC, content: str) -> bool:
-    """Send a message as an NPC using the shared webhook with per-message override."""
+    """Send a message as an NPC using the shared webhook with per-message name/avatar override."""
     import aiohttp
 
-    wh_id, wh_token = await get_or_create_npc_webhook(
-        npc.guild_id, channel.id, bot.http
-    )
-    if not wh_id or not wh_token:
+    result = await get_or_create_npc_webhook(npc.guild_id, channel.id, bot)
+    if not result:
         return False
+    wh_id, wh_token = result
 
     proxy_name = npc.proxy_name or npc.name
     proxy_avatar = npc.proxy_avatar or npc.image_url
-
     webhook_url = f"https://discord.com/api/webhooks/{wh_id}/{wh_token}"
 
     payload = {
@@ -165,10 +154,10 @@ async def send_npc_proxy_message(bot, channel, npc: NPC, content: str) -> bool:
         async with aiohttp.ClientSession() as session:
             async with session.post(webhook_url, json=payload) as resp:
                 if resp.status == 404:
-                    # Webhook was deleted, remove cache and retry
+                    # Webhook deleted — clear stale cache entry and retry once
                     async with get_db() as db:
                         await db.execute(
-                            select(NPCWebhookCache).where(
+                            delete(NPCWebhookCache).where(
                                 NPCWebhookCache.webhook_id == wh_id
                             )
                         )
