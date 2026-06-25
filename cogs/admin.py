@@ -93,6 +93,9 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     e.add_field(name="/location edit <name>", value="Edit all location fields via modal (GM only)", inline=False)
     e.add_field(name="/location hide/reveal <name>", value="Toggle fog of war for a location (GM only)", inline=False)
     e.add_field(name="/location lock/unlock <name> <direction>", value="Lock or unlock a connection (GM only)", inline=False)
+    e.add_field(name="/location set-image <id>", value="Set a custom image for a location (GM only — attach a file)", inline=False)
+    e.add_field(name="/world set-map", value="Upload a custom world map image (GM only — attach a file)", inline=False)
+    e.add_field(name="/world clear-map", value="Reset to the AI-generated world map (GM only)", inline=False)
     e.add_field(name="/look", value="See your current location with description, time, weather, exits", inline=False)
     e.add_field(name="/travel <direction/location>", value="Move to a connected location", inline=False)
     e.add_field(name="/travel fast <location>", value="Fast travel to a previously discovered location", inline=False)
@@ -340,7 +343,10 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
             value=(
                 "`/gm dashboard` — **World overview** (locations, NPCs, quests, factions, weather, time)\n"
                 "`/world generate / map / load_template / export / import` — World building\n"
+                "`/world set-map` — Upload custom world map image\n"
+                "`/world clear-map` — Reset to AI-generated map\n"
                 "`/location create/edit/connect/hide/reveal/lock/unlock` — Manage locations\n"
+                "`/location set-image <id>` — Set custom location image\n"
                 "`/npc create/edit/move/kill/revive/speak/act` — Manage NPCs\n"
                 "`/quest create` — Build quests with objectives and rewards\n"
                 "`/gm quest approve/deny` — Approve or deny quest completions\n"

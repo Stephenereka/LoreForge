@@ -10,6 +10,7 @@ from services.weather_service import get_weather, get_weather_flavor, set_weathe
 from services.map_service import generate_world_map_overlay, fetch_world_map
 from cogs.character import resolve_character
 import io
+import urllib.request
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
@@ -228,9 +229,18 @@ async def cmd_map(ctx):
     ]
     player_loc_id = loc.id if loc else None
     import asyncio
-    base_bytes = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: fetch_world_map(world_name, ctx.guild.id)
-    )
+    if config and config.world_map_url:
+        try:
+            with urllib.request.urlopen(config.world_map_url, timeout=20) as r:
+                base_bytes = r.read()
+        except Exception:
+            base_bytes = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: fetch_world_map(world_name, ctx.guild.id)
+            )
+    else:
+        base_bytes = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: fetch_world_map(world_name, ctx.guild.id)
+        )
     img_bytes = generate_world_map_overlay(
         base_bytes, loc_data, player_location_id=player_loc_id
     )
@@ -700,6 +710,38 @@ async def loc_set_weather(interaction: discord.Interaction, weather_type: str):
     await interaction.response.send_message(f"☁️ Weather set to **{weather_type}**.", ephemeral=True)
 
 
+@location_group.command(name="set-image", description="[GM] Set a custom image for a location")
+@app_commands.describe(
+    location_id="Location ID to set the image for",
+    image="Upload an image to use as the location's picture (optional — attach a file)",
+)
+async def location_set_image(interaction: discord.Interaction,
+                              location_id: int,
+                              image: discord.Attachment = None):
+    if not await gm_only(interaction):
+        return
+    if not image:
+        await interaction.response.send_message(
+            "Please attach an image file to set as the location picture.", ephemeral=True
+        )
+        return
+    async with get_db() as db:
+        result = await db.execute(
+            select(Location).where(
+                Location.id == location_id,
+                Location.guild_id == interaction.guild_id,
+            )
+        )
+        loc = result.scalar_one_or_none()
+        if not loc:
+            await interaction.response.send_message("Location not found.", ephemeral=True)
+            return
+        loc.image_url = image.url
+    await interaction.response.send_message(
+        f"✅ Set image for **{loc.name}** — it will appear in `/look` and `/location info`.", ephemeral=True
+    )
+
+
 # ── World Generation Commands ─────────────────────────────────────────────
 
 @world_group.command(name="generate", description="[GM] Generate random world locations")
@@ -861,6 +903,48 @@ async def world_info(interaction: discord.Interaction):
     embed.add_field(name="Time", value=f"{time_info['emoji']} {time_info['time_of_day']}", inline=True)
     embed.add_field(name="Weather", value=f"{weather_info['icon']} {weather_info['weather_type'].title()}", inline=True)
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@world_group.command(name="set-map", description="[GM] Upload a custom world map image")
+@app_commands.describe(
+    image="Upload an image to use as the custom world map",
+)
+async def world_set_map(interaction: discord.Interaction, image: discord.Attachment):
+    if not await gm_only(interaction):
+        return
+    async with get_db() as db:
+        result = await db.execute(
+            select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id)
+        )
+        config = result.scalar_one_or_none()
+        if not config:
+            config = GuildConfig(guild_id=interaction.guild_id)
+            db.add(config)
+        config.world_map_url = image.url
+    await interaction.response.send_message(
+        f"🗺️ Custom world map set! Use `/map` to see it.\n"
+        f"*Image URL: {image.url}*", ephemeral=True
+    )
+
+
+@world_group.command(name="clear-map", description="[GM] Reset to the AI-generated world map")
+async def world_clear_map(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
+    async with get_db() as db:
+        result = await db.execute(
+            select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id)
+        )
+        config = result.scalar_one_or_none()
+        if not config or not config.world_map_url:
+            await interaction.response.send_message(
+                "No custom map is currently set.", ephemeral=True
+            )
+            return
+        config.world_map_url = None
+    await interaction.response.send_message(
+        "🗺️ Custom map cleared — `/map` will now use the AI-generated world map.", ephemeral=True
+    )
 
 
 # ── Standalone Player Commands ────────────────────────────────────────────

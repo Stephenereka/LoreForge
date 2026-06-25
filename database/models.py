@@ -75,6 +75,7 @@ class GuildConfig(Base):
     combat_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     log_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     gm_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    world_map_url: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
