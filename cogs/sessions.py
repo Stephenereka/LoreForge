@@ -34,29 +34,28 @@ async def session_start(interaction: discord.Interaction, title: str | None = No
     chars = await _get_characters_at_location(interaction.guild_id)
     async with get_db() as db:
         log = SessionLog(
-            guild_id=str(interaction.guild_id),
-            channel_id=str(interaction.channel_id),
+            guild_id=interaction.guild_id,
+            channel_id=interaction.channel_id,
             title=title or f"Session {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
             started_at=datetime.utcnow(),
             characters_present=chars,
-            created_by=str(interaction.user.id),
+            created_by=interaction.user.id,
         )
         db.add(log)
         await db.flush()
         session_id = log.id
 
     embed = discord.Embed(
-        title="ðŸ“œ Session Started",
+        title="📜 Session Started",
         description=f"**{title or 'Untitled Session'}** has begun!\n\n"
                     f"**Characters present:** {', '.join(chars) if chars else 'None yet'}\n"
                     f"Use `/session end` when the session is over.",
         color=0x22C55E,
     )
-    embed.set_footer(text=f"Session ID: {session_id} â€¢ LoreForge")
-    await interaction.followup.send(embed=embed)
-    # Pin the embed
+    embed.set_footer(text=f"Session ID: {session_id} • LoreForge")
+    msg = await interaction.followup.send(embed=embed)
     try:
-        await interaction.channel.pins()
+        await msg.pin()
     except Exception:
         pass
 
@@ -127,21 +126,21 @@ async def session_end(interaction: discord.Interaction):
             log.summary_text = summary_text
 
     embed = discord.Embed(
-        title=f"ðŸ“œ Session Ended â€” {log.title if log else 'Session'}",
+        title=f"📜 Session Ended — {log.title if log else 'Session'}",
         color=0x6366F1,
     )
-    embed.add_field(name="â±ï¸ Duration", value="Active", inline=True)
-    embed.add_field(name="âš”ï¸ Combats", value=str(log.combat_count or 0), inline=True)
-    embed.add_field(name="ðŸ“‹ Quests", value=str(log.quest_completions or 0), inline=True)
-    embed.add_field(name="âœ¨ XP Earned", value=str(log.total_xp or 0), inline=True)
-    embed.add_field(name="ðŸŽ­ Characters", value=", ".join(log.characters_present or []) or "None", inline=False)
+    embed.add_field(name="⏱️ Duration", value="Active", inline=True)
+    embed.add_field(name="⚔️ Combats", value=str(log.combat_count or 0), inline=True)
+    embed.add_field(name="📋 Quests", value=str(log.quest_completions or 0), inline=True)
+    embed.add_field(name="✨ XP Earned", value=str(log.total_xp or 0), inline=True)
+    embed.add_field(name="🎭 Characters", value=", ".join(log.characters_present or []) or "None", inline=False)
 
     if summary_text:
-        embed.add_field(name="ðŸ“– Summary", value=summary_text, inline=False)
+        embed.add_field(name="📖 Summary", value=summary_text, inline=False)
     elif log.summary_text:
-        embed.add_field(name="ðŸ“– Summary", value=log.summary_text, inline=False)
+        embed.add_field(name="📖 Summary", value=log.summary_text, inline=False)
     else:
-        embed.add_field(name="ðŸ“– Summary", value="*No AI summary available. Toggle summaries with `/ai toggle summary`.*", inline=False)
+        embed.add_field(name="📖 Summary", value="*No AI summary available. Toggle summaries with `/ai toggle summary`.*", inline=False)
 
     embed.set_footer(text="LoreForge Session Log")
     await interaction.followup.send(embed=embed)
@@ -196,18 +195,18 @@ async def session_summary(interaction: discord.Interaction):
             log.summary_text = summary
 
     embed = discord.Embed(
-        title="ðŸ“œ Session Summary",
+        title="📜 Session Summary",
         color=0x6366F1,
     )
-    embed.add_field(name="ðŸŽ­ Characters", value=", ".join(log.characters_present or []) or "None", inline=False)
-    embed.add_field(name="âš”ï¸ Combats", value=str(log.combat_count or 0), inline=True)
-    embed.add_field(name="ðŸ“‹ Quests", value=str(log.quest_completions or 0), inline=True)
-    embed.add_field(name="âœ¨ XP", value=str(log.total_xp or 0), inline=True)
+    embed.add_field(name="🎭 Characters", value=", ".join(log.characters_present or []) or "None", inline=False)
+    embed.add_field(name="⚔️ Combats", value=str(log.combat_count or 0), inline=True)
+    embed.add_field(name="📋 Quests", value=str(log.quest_completions or 0), inline=True)
+    embed.add_field(name="✨ XP", value=str(log.total_xp or 0), inline=True)
 
     if summary:
-        embed.add_field(name="ðŸ“– Narrative", value=summary, inline=False)
+        embed.add_field(name="📖 Narrative", value=summary, inline=False)
     else:
-        embed.add_field(name="ðŸ“– Narrative", value="*AI summary unavailable.*", inline=False)
+        embed.add_field(name="📖 Narrative", value="*AI summary unavailable.*", inline=False)
 
     embed.set_footer(text="Use /session log to view past sessions")
     await interaction.followup.send(embed=embed)
@@ -242,7 +241,7 @@ async def session_log(interaction: discord.Interaction):
         def _build_embed(self):
             s = self.pages[self.page]
             embed = discord.Embed(
-                title=f"ðŸ“œ Session Log â€” Page {self.page + 1}/{len(self.pages)}",
+                title=f"📜 Session Log — Page {self.page + 1}/{len(self.pages)}",
                 color=0x6366F1,
             )
             embed.add_field(name="Title", value=s.title or "Untitled", inline=True)
@@ -254,20 +253,20 @@ async def session_log(interaction: discord.Interaction):
                 minutes = int((duration_seconds % 3600) // 60)
                 embed.add_field(name="Duration", value=f"{hours}h {minutes}m", inline=True)
             embed.add_field(name="Characters", value=", ".join(s.characters_present or []) or "None", inline=False)
-            embed.add_field(name="âš”ï¸", value=str(s.combat_count or 0), inline=True)
-            embed.add_field(name="ðŸ“‹", value=str(s.quest_completions or 0), inline=True)
-            embed.add_field(name="âœ¨ XP", value=str(s.total_xp or 0), inline=True)
+            embed.add_field(name="⚔️", value=str(s.combat_count or 0), inline=True)
+            embed.add_field(name="📋", value=str(s.quest_completions or 0), inline=True)
+            embed.add_field(name="✨ XP", value=str(s.total_xp or 0), inline=True)
             if s.summary_text:
                 embed.add_field(name="Summary", value=s.summary_text[:500], inline=False)
             return embed
 
-        @discord.ui.button(label="â—€ Prev", style=discord.ButtonStyle.secondary)
+        @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
         async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
             self.page -= 1
             self._update_buttons()
             await interaction.response.edit_message(embed=self._build_embed(), view=self)
 
-        @discord.ui.button(label="Next â–¶", style=discord.ButtonStyle.primary)
+        @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.primary)
         async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
             self.page += 1
             self._update_buttons()
