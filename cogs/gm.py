@@ -817,20 +817,103 @@ async def gm_xp(interaction: discord.Interaction, user: discord.Member, amount: 
 class GMEditModal(discord.ui.Modal, title="GM Edit Character"):
     """Discord modals support max 5 fields. Two panels cover all stats."""
     level = discord.ui.TextInput(label="Level (1–20)", required=False)
-    hp_max = discord.ui.TextInput(label="HP Max", required=False)
+    hp_max = discord.ui.TextInput(label="HP Max (leave blank = auto from level)", required=False)
     hp_current = discord.ui.TextInput(label="HP Current", required=False)
     gold = discord.ui.TextInput(label="Gold", required=False)
     armor_class = discord.ui.TextInput(label="Armor Class", required=False)
 
     def __init__(self, char: Character, editor: discord.Member):
         super().__init__(title=f"GM Edit — {char.name}")
-        self.char = char
+        self.char_id = char.id
+        self.char_name = char.name
+        self._char_class = char.char_class
+        self._constitution = char.constitution
         self.editor = editor
         self.level.default = str(char.level)
         self.hp_max.default = str(char.hp_max)
         self.hp_current.default = str(char.hp_current)
         self.gold.default = str(char.gold)
         self.armor_class.default = str(char.armor_class)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            changes = []
+            async with get_db() as db:
+                result = await db.execute(select(Character).where(Character.id == self.char_id))
+                char = result.scalar_one_or_none()
+                if not char:
+                    await interaction.followup.send("Character not found.", ephemeral=True)
+                    return
+
+                new_level: int | None = None
+                hp_max_explicitly_set = bool(self.hp_max.value.strip())
+
+                for attr in ("level", "hp_max", "hp_current", "gold", "armor_class"):
+                    raw = getattr(self, attr).value.strip()
+                    if not raw:
+                        continue
+                    try:
+                        new_val = int(raw)
+                    except ValueError:
+                        await interaction.followup.send(f"Invalid value for **{attr}**: `{raw}`.", ephemeral=True)
+                        return
+                    old_val = getattr(char, attr)
+                    if old_val != new_val:
+                        changes.append((attr, old_val, new_val))
+                        setattr(char, attr, new_val)
+                    if attr == "level":
+                        new_level = new_val
+
+                # When level changes: auto-recalculate hp_max (unless GM explicitly set it)
+                # and bump XP to the minimum for that level.
+                if new_level is not None:
+                    from services.leveling import _HIT_DICE, XP_THRESHOLDS
+                    con_mod = (char.constitution - 10) // 2
+                    hit_die = _HIT_DICE.get(char.char_class.lower(), 8)
+                    auto_hp = hit_die + con_mod  # level 1 = max die
+                    for _ in range(new_level - 1):
+                        auto_hp += max(1, (hit_die // 2 + 1) + con_mod)
+                    auto_hp = max(1, auto_hp)
+
+                    if not hp_max_explicitly_set and char.hp_max != auto_hp:
+                        old_hp = char.hp_max
+                        char.hp_max = auto_hp
+                        char.hp_current = min(char.hp_current, auto_hp)
+                        changes.append(("hp_max (auto)", old_hp, auto_hp))
+
+                    min_xp = XP_THRESHOLDS[new_level - 1] if new_level <= 20 else XP_THRESHOLDS[-1]
+                    if char.xp < min_xp:
+                        old_xp = char.xp
+                        char.xp = min_xp
+                        changes.append(("xp (auto)", old_xp, min_xp))
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"Error saving changes: `{type(e).__name__}: {e}`", ephemeral=True)
+            return
+
+        if not changes:
+            await interaction.followup.send("No changes were made.", ephemeral=True)
+            return
+
+        change_lines = "\n".join(f"• **{f}**: {o} → {n}" for f, o, n in changes)
+        embed = discord.Embed(
+            title="✅ Character Edited",
+            description=f"**{self.char_name}** was updated by GM {self.editor.display_name}.",
+            color=0x22C55E,
+        )
+        embed.add_field(name="Changes", value=change_lines, inline=False)
+        embed.set_footer(text="Use /gm edit again for ability scores and profile fields")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        audit = discord.Embed(
+            title="GM Edit Audit Log",
+            description=f"**{self.char_name}** edited by {self.editor.display_name}\n{change_lines}",
+            color=0x22C55E,
+        )
+        await _post_audit_log(interaction.client, interaction.guild_id, audit)
 
 
 class GMEditStatsModal(discord.ui.Modal, title="GM Edit — Ability Scores"):
@@ -842,7 +925,8 @@ class GMEditStatsModal(discord.ui.Modal, title="GM Edit — Ability Scores"):
 
     def __init__(self, char: Character, editor: discord.Member):
         super().__init__(title=f"GM Edit Stats — {char.name}")
-        self.char = char
+        self.char_id = char.id
+        self.char_name = char.name
         self.editor = editor
         self.strength.default = str(char.strength)
         self.dexterity.default = str(char.dexterity)
@@ -851,35 +935,42 @@ class GMEditStatsModal(discord.ui.Modal, title="GM Edit — Ability Scores"):
         self.wisdom.default = str(char.wisdom)
 
     async def on_submit(self, interaction: discord.Interaction):
-        changes = []
-        async with get_db() as db:
-            result = await db.execute(select(Character).where(Character.id == self.char.id))
-            char = result.scalar_one_or_none()
-            if not char:
-                await interaction.response.send_message("Character not found.", ephemeral=True)
-                return
-            for attr in ("strength", "dexterity", "constitution", "intelligence", "wisdom"):
-                raw = getattr(self, attr).value.strip()
-                if not raw:
-                    continue
-                try:
-                    new_val = int(raw)
-                except ValueError:
-                    await interaction.response.send_message(f"Invalid value for **{attr}**: `{raw}`.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            changes = []
+            async with get_db() as db:
+                result = await db.execute(select(Character).where(Character.id == self.char_id))
+                char = result.scalar_one_or_none()
+                if not char:
+                    await interaction.followup.send("Character not found.", ephemeral=True)
                     return
-                old_val = getattr(char, attr)
-                if old_val != new_val:
-                    changes.append((attr, old_val, new_val))
-                    setattr(char, attr, new_val)
+                for attr in ("strength", "dexterity", "constitution", "intelligence", "wisdom"):
+                    raw = getattr(self, attr).value.strip()
+                    if not raw:
+                        continue
+                    try:
+                        new_val = int(raw)
+                    except ValueError:
+                        await interaction.followup.send(f"Invalid value for **{attr}**: `{raw}`.", ephemeral=True)
+                        return
+                    old_val = getattr(char, attr)
+                    if old_val != new_val:
+                        changes.append((attr, old_val, new_val))
+                        setattr(char, attr, new_val)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"Error saving changes: `{type(e).__name__}: {e}`", ephemeral=True)
+            return
 
         if not changes:
-            await interaction.response.send_message("No changes were made.", ephemeral=True)
+            await interaction.followup.send("No changes were made.", ephemeral=True)
             return
         change_lines = "\n".join(f"• **{f}**: {o} → {n}" for f, o, n in changes)
-        embed = discord.Embed(title="✅ Stats Edited", description=f"**{self.char.name}** updated.", color=0x22C55E)
+        embed = discord.Embed(title="✅ Stats Edited", description=f"**{self.char_name}** updated.", color=0x22C55E)
         embed.add_field(name="Changes", value=change_lines, inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        audit = discord.Embed(title="GM Stat Edit", description=f"**{self.char.name}** edited by {self.editor.display_name}\n{change_lines}", color=0x22C55E)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        audit = discord.Embed(title="GM Stat Edit", description=f"**{self.char_name}** edited by {self.editor.display_name}\n{change_lines}", color=0x22C55E)
         await _post_audit_log(interaction.client, interaction.guild_id, audit)
 
 
@@ -892,7 +983,8 @@ class GMEditProfileModal(discord.ui.Modal, title="GM Edit — Profile"):
 
     def __init__(self, char: Character, editor: discord.Member):
         super().__init__(title=f"GM Edit Profile — {char.name}")
-        self.char = char
+        self.char_id = char.id
+        self.char_name = char.name
         self.editor = editor
         self.char_class.default = char.char_class
         self.race.default = char.race
@@ -901,89 +993,57 @@ class GMEditProfileModal(discord.ui.Modal, title="GM Edit — Profile"):
         self.xp.default = str(char.xp or 0)
 
     async def on_submit(self, interaction: discord.Interaction):
-        changes = []
-        async with get_db() as db:
-            result = await db.execute(select(Character).where(Character.id == self.char.id))
-            char = result.scalar_one_or_none()
-            if not char:
-                await interaction.response.send_message("Character not found.", ephemeral=True)
-                return
-            text_fields = {"char_class": self.char_class.value.strip(), "race": self.race.value.strip(), "background": self.background.value.strip()}
-            int_fields = {"charisma": self.charisma.value.strip(), "xp": self.xp.value.strip()}
-            for attr, raw in text_fields.items():
-                if not raw:
-                    continue
-                old_val = getattr(char, attr)
-                if str(old_val) != raw:
-                    changes.append((attr, old_val, raw))
-                    setattr(char, attr, raw)
-            for attr, raw in int_fields.items():
-                if not raw:
-                    continue
-                try:
-                    new_val = int(raw)
-                except ValueError:
-                    await interaction.response.send_message(f"Invalid value for **{attr}**: `{raw}`.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            changes = []
+            async with get_db() as db:
+                result = await db.execute(select(Character).where(Character.id == self.char_id))
+                char = result.scalar_one_or_none()
+                if not char:
+                    await interaction.followup.send("Character not found.", ephemeral=True)
                     return
-                old_val = getattr(char, attr)
-                if old_val != new_val:
-                    changes.append((attr, old_val, new_val))
-                    setattr(char, attr, new_val)
-
-        if not changes:
-            await interaction.response.send_message("No changes were made.", ephemeral=True)
-            return
-        change_lines = "\n".join(f"• **{f}**: {o} → {n}" for f, o, n in changes)
-        embed = discord.Embed(title="✅ Profile Edited", description=f"**{self.char.name}** updated.", color=0x22C55E)
-        embed.add_field(name="Changes", value=change_lines, inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        audit = discord.Embed(title="GM Profile Edit", description=f"**{self.char.name}** edited by {self.editor.display_name}\n{change_lines}", color=0x22C55E)
-        await _post_audit_log(interaction.client, interaction.guild_id, audit)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        changes = []
-        async with get_db() as db:
-            result = await db.execute(select(Character).where(Character.id == self.char.id))
-            char = result.scalar_one_or_none()
-            if not char:
-                await interaction.response.send_message("Character not found.", ephemeral=True)
-                return
-
-            for attr in ("level", "hp_max", "hp_current", "gold", "armor_class"):
-                raw = getattr(self, attr).value.strip()
-                if not raw:
-                    continue
-                try:
-                    new_val = int(raw)
-                except ValueError:
-                    await interaction.response.send_message(
-                        f"Invalid value for **{attr}**: `{raw}`.", ephemeral=True
-                    )
-                    return
-                old_val = getattr(char, attr)
-                if old_val != new_val:
-                    changes.append((attr, old_val, new_val))
-                    setattr(char, attr, new_val)
-
-        if not changes:
-            await interaction.response.send_message("No changes were made.", ephemeral=True)
+                text_fields = {
+                    "char_class": self.char_class.value.strip(),
+                    "race": self.race.value.strip(),
+                    "background": self.background.value.strip(),
+                }
+                int_fields = {
+                    "charisma": self.charisma.value.strip(),
+                    "xp": self.xp.value.strip(),
+                }
+                for attr, raw in text_fields.items():
+                    if not raw:
+                        continue
+                    old_val = getattr(char, attr)
+                    if str(old_val) != raw:
+                        changes.append((attr, old_val, raw))
+                        setattr(char, attr, raw)
+                for attr, raw in int_fields.items():
+                    if not raw:
+                        continue
+                    try:
+                        new_val = int(raw)
+                    except ValueError:
+                        await interaction.followup.send(f"Invalid value for **{attr}**: `{raw}`.", ephemeral=True)
+                        return
+                    old_val = getattr(char, attr)
+                    if old_val != new_val:
+                        changes.append((attr, old_val, new_val))
+                        setattr(char, attr, new_val)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"Error saving changes: `{type(e).__name__}: {e}`", ephemeral=True)
             return
 
+        if not changes:
+            await interaction.followup.send("No changes were made.", ephemeral=True)
+            return
         change_lines = "\n".join(f"• **{f}**: {o} → {n}" for f, o, n in changes)
-        embed = discord.Embed(
-            title="✅ Character Edited",
-            description=f"**{char.name}** was updated by GM {self.editor.display_name}.",
-            color=0x22C55E,
-        )
+        embed = discord.Embed(title="✅ Profile Edited", description=f"**{self.char_name}** updated.", color=0x22C55E)
         embed.add_field(name="Changes", value=change_lines, inline=False)
-        embed.set_footer(text="Use /gm edit again for ability scores and profile fields")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-        audit = discord.Embed(
-            title="GM Edit Audit Log",
-            description=f"**{char.name}** edited by {self.editor.display_name}\n{change_lines}",
-            color=0x22C55E,
-        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        audit = discord.Embed(title="GM Profile Edit", description=f"**{self.char_name}** edited by {self.editor.display_name}\n{change_lines}", color=0x22C55E)
         await _post_audit_log(interaction.client, interaction.guild_id, audit)
 
 
