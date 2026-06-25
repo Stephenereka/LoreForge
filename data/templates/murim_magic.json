@@ -745,6 +745,299 @@
       ]
     }
   ],
+  "bosses": [
+    {
+      "name": "Xuan Mo's Shadow Clone",
+      "title": "Manifestation of the Crimson Demon Lord",
+      "description": "Not the Demon Lord himself — his demonic inner world made flesh. A perfect replica of Xuan Mo forged from condensed demonic qi, capable of using every technique he has mastered. Destroying it will not kill Xuan Mo, but it will wound his soul and weaken the Cult's hold over the western territories.",
+      "hp_max": 280,
+      "armor_class": 18,
+      "attack_bonus": 11,
+      "damage_dice": "3d8",
+      "damage_bonus": 7,
+      "xp_value": 13000,
+      "gold_drop": 400,
+      "phase_count": 3,
+      "phase_thresholds": [
+        0.6,
+        0.3
+      ],
+      "phase_abilities": {
+        "2": {
+          "name": "Crimson Demonic Armament",
+          "description": "The clone draws on deeper reserves — a corona of crimson demonic qi erupts around it. All attacks now deal an additional 2d10 necrotic damage. The clone becomes immune to being frightened or charmed. Any creature that hits it in melee takes 1d8 fire damage from the feedback."
+        },
+        "3": {
+          "name": "Heavenly Demon Descent",
+          "description": "The clone abandons all restraint — it channels the true Heavenly Demon Manifestation. Its size increases, its attacks become AoE (all creatures in 10 ft take damage), and it gains 5 legendary actions per round. The battlefield is shrouded in crimson mist — all non-cultist creatures have disadvantage on saving throws."
+        }
+      },
+      "legendary_actions": [
+        {
+          "name": "Soul Slash",
+          "description": "A crescent of demonic qi strikes one target for 2d10+7 slashing + 1d8 necrotic damage.",
+          "cost": 0
+        },
+        {
+          "name": "Thousand Soul Convergence",
+          "description": "Xuan Mo's clone projects its demonic intent — all creatures within 20 ft make DC 18 WIS save or be frightened until end of their next turn.",
+          "cost": 1
+        },
+        {
+          "name": "Demonic Blood Art",
+          "description": "The clone sacrifices 20 HP to detonate a sphere of blood qi — 30-ft radius, 5d10 necrotic damage, DC 17 CON save for half. Creatures that fail are stunned until end of their next turn.",
+          "cost": 2
+        }
+      ],
+      "legendary_action_count": 3,
+      "is_lair_boss": true,
+      "lair_actions": [
+        {
+          "name": "Demonic Qi Surge",
+          "description": "Waves of corrupted energy wash through the arena — all non-Cult creatures make DC 16 CON save or have their speed halved and take 2d8 necrotic damage.",
+          "initiative_count": 20
+        },
+        {
+          "name": "Soul Anchor",
+          "description": "The clone reaches into one creature's soul — that creature cannot move more than 30 ft from their current position until initiative count 20 on the next round. DC 17 WIS save to negate.",
+          "initiative_count": 10
+        },
+        {
+          "name": "Cult Reinforcements",
+          "description": "1d4 Cult disciples (AC 13, 22 HP, +4 attack, 1d8+2 damage) are drawn through a rift in the demonic qi and enter combat.",
+          "initiative_count": 5
+        }
+      ],
+      "loot_table": [
+        {
+          "item": "Crimson Demon Core",
+          "chance": 0.35,
+          "qty_min": 1,
+          "qty_max": 1
+        },
+        {
+          "item": "Demonic Qi Essence",
+          "chance": 0.75,
+          "qty_min": 1,
+          "qty_max": 3
+        },
+        {
+          "item": "Shadow Clone Shard",
+          "chance": 0.2,
+          "qty_min": 1,
+          "qty_max": 1
+        },
+        {
+          "item": "Xuan Mo's Fragment of Will",
+          "chance": 0.08,
+          "qty_min": 1,
+          "qty_max": 1
+        },
+        {
+          "item": "Spirit Stone Cache",
+          "chance": 1.0,
+          "qty_min": 150,
+          "qty_max": 400
+        }
+      ]
+    },
+    {
+      "name": "Lich Lord Mortis — Risen",
+      "title": "The Pale Hand Ascendant",
+      "description": "The true form of the Lich Lord Mortis when he stops holding back. The leader of the Pale Hand drops all pretense of restraint and channels every ounce of necrotic power accumulated over centuries of forbidden practice. His phylactery is hidden inside Necropolis Omega — defeat him in combat and he will reform, but each defeat chips away at his essence.",
+      "hp_max": 320,
+      "armor_class": 17,
+      "attack_bonus": 10,
+      "damage_dice": "3d10",
+      "damage_bonus": 5,
+      "xp_value": 16000,
+      "gold_drop": 600,
+      "phase_count": 3,
+      "phase_thresholds": [
+        0.55,
+        0.25
+      ],
+      "phase_abilities": {
+        "2": {
+          "name": "Bone Choir Awakens",
+          "description": "Mortis calls upon the collective consciousness of the Pale Hand — the voices of a thousand dead liches speak through him. He gains immunity to necrotic damage. His attacks now drain 1d6 from the target's maximum HP (recovers on long rest). The chamber fills with spectral wailing — all creatures must make a DC 16 WIS save at the start of each turn or lose their bonus action."
+        },
+        "3": {
+          "name": "The Death Transcendent",
+          "description": "Mortis fully channels the Outer Gate's power — he becomes partially extradimensional. He gains resistance to all damage except radiant, force, and magical weapon damage. All of his spells are cast as if Empowered and Quickened. The air in the room becomes deadly still — any creature that starts their turn with less than half HP must make a DC 18 CON save or drop to 0 HP."
+        }
+      },
+      "legendary_actions": [
+        {
+          "name": "Necromantic Bolt",
+          "description": "One creature takes 2d10+5 necrotic damage. If this kills the target, they rise as a zombie (AC 8, 22 HP) under Mortis's control.",
+          "cost": 0
+        },
+        {
+          "name": "Life Drain",
+          "description": "One creature within 60 ft must succeed on DC 17 CON save or take 4d8+5 necrotic damage and have their HP maximum reduced by the same amount until a long rest. Mortis regains HP equal to half the damage dealt.",
+          "cost": 1
+        },
+        {
+          "name": "Army of Bone",
+          "description": "Mortis animates the corpses of any creatures that have died in the encounter — each rises as a skeleton (AC 13, 13 HP, +4 attack, 1d6+2) under his control.",
+          "cost": 2
+        }
+      ],
+      "legendary_action_count": 3,
+      "is_lair_boss": true,
+      "lair_actions": [
+        {
+          "name": "Death Pulse",
+          "description": "A wave of negative energy ripples through the Necropolis — all living creatures take 3d8 necrotic damage, DC 15 CON save for half. Undead in the area are healed for 15 HP instead.",
+          "initiative_count": 20
+        },
+        {
+          "name": "Spectral Wall",
+          "description": "A barrier of screaming spirits rises across any wall, door, or passageway of Mortis's choice — it blocks movement and deals 2d10 necrotic to any creature that passes through it. Lasts until initiative count 20 of the next round.",
+          "initiative_count": 10
+        },
+        {
+          "name": "Temporal Stasis",
+          "description": "One creature is frozen in time — they skip their next turn entirely. DC 19 INT save to resist. This cannot affect the same creature twice in a row.",
+          "initiative_count": 5
+        }
+      ],
+      "loot_table": [
+        {
+          "item": "Lich Phylactery Fragment",
+          "chance": 0.25,
+          "qty_min": 1,
+          "qty_max": 1
+        },
+        {
+          "item": "Pale Hand Grimoire",
+          "chance": 0.12,
+          "qty_min": 1,
+          "qty_max": 1
+        },
+        {
+          "item": "Death Essence Crystal",
+          "chance": 0.6,
+          "qty_min": 1,
+          "qty_max": 2
+        },
+        {
+          "item": "Bone Choir Echo",
+          "chance": 0.3,
+          "qty_min": 1,
+          "qty_max": 1
+        },
+        {
+          "item": "Ancient Gold Reserve",
+          "chance": 1.0,
+          "qty_min": 300,
+          "qty_max": 600
+        }
+      ]
+    },
+    {
+      "name": "Valthorax — The Ember Sovereign",
+      "title": "The Ember King Unchained",
+      "description": "When diplomacy ends and Valthorax decides a threat is worthy of his full power, the Ember King's human form burns away and the true dragon emerges. A creature of apocalyptic scale whose wings blot out the sun above the Dragon's Teeth Mountains. Valthorax rarely enters this form — the last time he did, he leveled a city. The fact that he's doing it again means someone has made a very serious mistake.",
+      "hp_max": 312,
+      "armor_class": 22,
+      "attack_bonus": 15,
+      "damage_dice": "2d10",
+      "damage_bonus": 10,
+      "xp_value": 18000,
+      "gold_drop": 1500,
+      "phase_count": 2,
+      "phase_thresholds": [
+        0.45
+      ],
+      "phase_abilities": {
+        "2": {
+          "name": "Sovereign's Wrath",
+          "description": "Valthorax reaches his full power — the mountain itself trembles. His fire breath deals maximum damage to the first target it hits. He gains the ability to use Fire Breath and a legendary action in the same turn. Any creature that deals more than 30 damage to him in a single hit must make a DC 20 STR save or be hurled 30 ft into a wall (taking 3d6 bludgeoning damage). The sky above the battlefield turns red."
+        }
+      },
+      "legendary_actions": [
+        {
+          "name": "Detect",
+          "description": "Valthorax makes a Perception check — all hidden, invisible, or magically concealed creatures within 120 ft are revealed to him until his next turn.",
+          "cost": 0
+        },
+        {
+          "name": "Tail Strike",
+          "description": "One creature within 20 ft takes 2d8+10 bludgeoning damage, DC 23 STR save or be knocked prone and pushed 15 ft.",
+          "cost": 1
+        },
+        {
+          "name": "Wing Tempest",
+          "description": "Valthorax beats his wings — all creatures within 20 ft take 2d8+10 bludgeoning damage and must make a DC 21 STR save or be knocked back 20 ft and knocked prone. Valthorax may then fly up to half his speed.",
+          "cost": 2
+        },
+        {
+          "name": "Ember Sovereign's Breath",
+          "description": "90-ft cone of superheated dragon fire — 20d6 fire damage, DC 24 DEX save for half. The ground in the area becomes scorched earth (difficult terrain, 3d6 fire damage to anyone who enters). Recharge 5–6.",
+          "cost": 3
+        }
+      ],
+      "legendary_action_count": 3,
+      "is_lair_boss": true,
+      "lair_actions": [
+        {
+          "name": "Volcanic Eruption",
+          "description": "The mountain responds to Valthorax's rage — lava geysers erupt from six points of the GM's choice within the lair. Each creates a 10-ft radius zone of molten rock (4d10 fire damage on contact, 5 ft costs 15 ft of movement). Lasts 2 rounds.",
+          "initiative_count": 20
+        },
+        {
+          "name": "Magma Hail",
+          "description": "Chunks of molten rock rain from the ceiling — all creatures make DC 19 DEX save or take 4d6 bludgeoning + 2d6 fire damage and are covered in burning magma (1d6 fire at start of each turn until they use an action to scrape it off).",
+          "initiative_count": 10
+        },
+        {
+          "name": "Primordial Roar",
+          "description": "Valthorax channels the ancient primordial dragon sleeping beneath the mountain — his roar shakes reality. All creatures make DC 22 CON save or be stunned until initiative count 10 of the next round. Creatures within 10 ft automatically fail.",
+          "initiative_count": 5
+        }
+      ],
+      "loot_table": [
+        {
+          "item": "Valthorax's Crown Scale",
+          "chance": 0.15,
+          "qty_min": 1,
+          "qty_max": 1
+        },
+        {
+          "item": "Ember Sovereign's Fang",
+          "chance": 0.2,
+          "qty_min": 1,
+          "qty_max": 2
+        },
+        {
+          "item": "Dragon Heart Blood",
+          "chance": 0.3,
+          "qty_min": 1,
+          "qty_max": 1
+        },
+        {
+          "item": "Primordial Fire Gem",
+          "chance": 0.4,
+          "qty_min": 1,
+          "qty_max": 2
+        },
+        {
+          "item": "Ancient Dragon Gold",
+          "chance": 1.0,
+          "qty_min": 800,
+          "qty_max": 1500
+        },
+        {
+          "item": "Ebon Scale Armor Plate",
+          "chance": 0.25,
+          "qty_min": 1,
+          "qty_max": 3
+        }
+      ]
+    }
+  ],
   "lore_entries": [
     {
       "title": "The Day the Sky Broke",

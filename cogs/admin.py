@@ -86,8 +86,8 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     e = discord.Embed(title="🗺️ Location & Travel", color=0x22C55E)
     e.add_field(name="/world generate [seed]", value="Generate a base world map via Pollinations.AI (visit the URL in your browser)", inline=False)
     e.add_field(name="/world map", value="Show the world map with all discovered locations", inline=False)
-    e.add_field(name="/world load_template <name>", value="Load a pre-built world template (e.g. Murim/Magic)", inline=False)
-    e.add_field(name="/world export / /world import", value="Export your world as JSON or import one (GM only)", inline=False)
+    e.add_field(name="/world load-template [murim_magic]", value="Seed all locations, NPCs, factions, quests, lore, and bosses from a built-in template — skips anything already created (GM only)", inline=False)
+    e.add_field(name="/world validate <json>", value="Validate a world JSON file before importing (no DB writes)", inline=False)
     e.add_field(name="/location create <name> <type>", value="Create a new location (wizard with coordinates)", inline=False)
     e.add_field(name="/location connect <from> <to> <direction>", value="Link two locations with a directional exit", inline=False)
     e.add_field(name="/location edit <name>", value="Edit all location fields via modal (GM only)", inline=False)
@@ -499,7 +499,7 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
             name="GM — World Tools",
             value=(
                 "`/gm dashboard` — **World overview** (locations, NPCs, quests, factions, weather, time)\n"
-                "`/world generate / map / load_template / export / import` — World building\n"
+                "`/world generate / map / load-template / validate` — World building\n"
                 "`/world set-map` — Upload custom world map image\n"
                 "`/world clear-map` — Reset to AI-generated map\n"
                 "`/world annotate <type> <x> <y>` — Add map overlay (road_block/danger_zone/icon/label)\n"
