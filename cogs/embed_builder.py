@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 import re
 
-from services.utils import is_gm
+from services.utils import gm_only
 
 # ─── Templates ───────────────────────────────────────────────────────────────
 
@@ -165,15 +165,19 @@ async def _refresh_preview(interaction: discord.Interaction, embed_data: dict, v
     embed = _build_embed(embed_data)
     field_count = len(embed_data.get("fields", []))
     char_count = _total_chars(embed_data)
-
     status = f"**Fields:** {field_count}/25 • **Chars:** {char_count}/6000"
 
-    # Disable Add Field if at max
     for child in view.children:
         if isinstance(child, discord.ui.Button) and child.label == "Add Field":
             child.disabled = field_count >= 25
 
-    await interaction.response.edit_message(content=status, embed=embed, view=view)
+    # edit_message only works for component interactions (buttons).
+    # Modal submits must use defer() + message.edit() instead.
+    if interaction.type == discord.InteractionType.modal_submit:
+        await interaction.response.defer()
+        await interaction.message.edit(content=status, embed=embed, view=view)
+    else:
+        await interaction.response.edit_message(content=status, embed=embed, view=view)
 
 
 # ─── Modals ───────────────────────────────────────────────────────────────────
@@ -460,7 +464,7 @@ class EmbedBuilder(commands.Cog):
 
     @embed_group.command(name="create", description="Open the embed builder")
     async def embed_create(self, interaction: discord.Interaction):
-        if not await is_gm(interaction):
+        if not await gm_only(interaction):
             return
         await interaction.response.send_modal(EmbedStep1Modal())
 
@@ -475,7 +479,7 @@ class EmbedBuilder(commands.Cog):
         app_commands.Choice(name="News", value="news"),
     ])
     async def embed_template(self, interaction: discord.Interaction, type: str):
-        if not await is_gm(interaction):
+        if not await gm_only(interaction):
             return
         template_data = EMBED_TEMPLATES.get(type)
         if template_data is None:
