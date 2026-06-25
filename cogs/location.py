@@ -642,8 +642,6 @@ async def loc_teleport(interaction: discord.Interaction,
                         location_id: int):
     if not await gm_only(interaction):
         return
-                        member: discord.Member,
-                        location_id: int):
     char, _ = await resolve_character(member.id, interaction.guild_id)
     if not char:
         await interaction.response.send_message(
