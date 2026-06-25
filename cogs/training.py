@@ -413,13 +413,13 @@ async def _handle_rp_training(message: discord.Message, session: TrainingSession
 
 # ── DnD Message Handler ───────────────────────────────────────────────────────
 
-async def _handle_training_message(bot, message: discord.Message):
+async def _handle_training_message(bot, message: discord.Message, actual_user_id: int):
     session = active_training.get(message.channel.id)
     if not session or session.state != "active":
         return
-    if message.author.id != session.user_id:
+    if actual_user_id != session.user_id:
         return
-    if message.author.bot or message.content.startswith("/"):
+    if message.content.startswith("/"):
         return
 
     # Branch to RP mode
@@ -659,9 +659,17 @@ class TrainingCog(commands.Cog, name="Training"):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        if not message.guild or message.author.bot:
+        if not message.guild:
             return
-        await _handle_training_message(self.bot, message)
+        # Only process messages sent through the proxy system (LoreForge Proxy webhook).
+        # Direct user messages are ignored — users must speak through their character proxy.
+        if not message.author.bot or not message.webhook_id:
+            return
+        from cogs.proxy import _proxy_msg_authors
+        original_user_id = _proxy_msg_authors.get(message.id)
+        if original_user_id is None:
+            return  # Not a tracked proxy message (e.g. training dummy webhook, other bots)
+        await _handle_training_message(self.bot, message, original_user_id)
 
 
 async def setup(bot):
