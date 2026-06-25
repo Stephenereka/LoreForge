@@ -815,16 +815,8 @@ async def gm_xp(interaction: discord.Interaction, user: discord.Member, amount: 
 # ---------------------------------------------------------------------------
 
 class GMEditModal(discord.ui.Modal, title="GM Edit Character"):
-    level = discord.ui.TextInput(label="Level", required=False)
-    char_class = discord.ui.TextInput(label="Class", required=False)
-    race = discord.ui.TextInput(label="Race", required=False)
-    background = discord.ui.TextInput(label="Background", required=False)
-    strength = discord.ui.TextInput(label="Strength", required=False)
-    dexterity = discord.ui.TextInput(label="Dexterity", required=False)
-    constitution = discord.ui.TextInput(label="Constitution", required=False)
-    intelligence = discord.ui.TextInput(label="Intelligence", required=False)
-    wisdom = discord.ui.TextInput(label="Wisdom", required=False)
-    charisma = discord.ui.TextInput(label="Charisma", required=False)
+    """Discord modals support max 5 fields. Two panels cover all stats."""
+    level = discord.ui.TextInput(label="Level (1–20)", required=False)
     hp_max = discord.ui.TextInput(label="HP Max", required=False)
     hp_current = discord.ui.TextInput(label="HP Current", required=False)
     gold = discord.ui.TextInput(label="Gold", required=False)
@@ -834,21 +826,119 @@ class GMEditModal(discord.ui.Modal, title="GM Edit Character"):
         super().__init__(title=f"GM Edit — {char.name}")
         self.char = char
         self.editor = editor
-        # Pre-fill with current values
         self.level.default = str(char.level)
-        self.char_class.default = char.char_class
-        self.race.default = char.race
-        self.background.default = char.background or ""
+        self.hp_max.default = str(char.hp_max)
+        self.hp_current.default = str(char.hp_current)
+        self.gold.default = str(char.gold)
+        self.armor_class.default = str(char.armor_class)
+
+
+class GMEditStatsModal(discord.ui.Modal, title="GM Edit — Ability Scores"):
+    strength = discord.ui.TextInput(label="Strength", required=False)
+    dexterity = discord.ui.TextInput(label="Dexterity", required=False)
+    constitution = discord.ui.TextInput(label="Constitution", required=False)
+    intelligence = discord.ui.TextInput(label="Intelligence", required=False)
+    wisdom = discord.ui.TextInput(label="Wisdom", required=False)
+
+    def __init__(self, char: Character, editor: discord.Member):
+        super().__init__(title=f"GM Edit Stats — {char.name}")
+        self.char = char
+        self.editor = editor
         self.strength.default = str(char.strength)
         self.dexterity.default = str(char.dexterity)
         self.constitution.default = str(char.constitution)
         self.intelligence.default = str(char.intelligence)
         self.wisdom.default = str(char.wisdom)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        changes = []
+        async with get_db() as db:
+            result = await db.execute(select(Character).where(Character.id == self.char.id))
+            char = result.scalar_one_or_none()
+            if not char:
+                await interaction.response.send_message("Character not found.", ephemeral=True)
+                return
+            for attr in ("strength", "dexterity", "constitution", "intelligence", "wisdom"):
+                raw = getattr(self, attr).value.strip()
+                if not raw:
+                    continue
+                try:
+                    new_val = int(raw)
+                except ValueError:
+                    await interaction.response.send_message(f"Invalid value for **{attr}**: `{raw}`.", ephemeral=True)
+                    return
+                old_val = getattr(char, attr)
+                if old_val != new_val:
+                    changes.append((attr, old_val, new_val))
+                    setattr(char, attr, new_val)
+
+        if not changes:
+            await interaction.response.send_message("No changes were made.", ephemeral=True)
+            return
+        change_lines = "\n".join(f"• **{f}**: {o} → {n}" for f, o, n in changes)
+        embed = discord.Embed(title="✅ Stats Edited", description=f"**{self.char.name}** updated.", color=0x22C55E)
+        embed.add_field(name="Changes", value=change_lines, inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        audit = discord.Embed(title="GM Stat Edit", description=f"**{self.char.name}** edited by {self.editor.display_name}\n{change_lines}", color=0x22C55E)
+        await _post_audit_log(interaction.client, interaction.guild_id, audit)
+
+
+class GMEditProfileModal(discord.ui.Modal, title="GM Edit — Profile"):
+    char_class = discord.ui.TextInput(label="Class", required=False)
+    race = discord.ui.TextInput(label="Race", required=False)
+    background = discord.ui.TextInput(label="Background", required=False)
+    charisma = discord.ui.TextInput(label="Charisma", required=False)
+    xp = discord.ui.TextInput(label="XP", required=False)
+
+    def __init__(self, char: Character, editor: discord.Member):
+        super().__init__(title=f"GM Edit Profile — {char.name}")
+        self.char = char
+        self.editor = editor
+        self.char_class.default = char.char_class
+        self.race.default = char.race
+        self.background.default = char.background or ""
         self.charisma.default = str(char.charisma)
-        self.hp_max.default = str(char.hp_max)
-        self.hp_current.default = str(char.hp_current)
-        self.gold.default = str(char.gold)
-        self.armor_class.default = str(char.armor_class)
+        self.xp.default = str(char.xp or 0)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        changes = []
+        async with get_db() as db:
+            result = await db.execute(select(Character).where(Character.id == self.char.id))
+            char = result.scalar_one_or_none()
+            if not char:
+                await interaction.response.send_message("Character not found.", ephemeral=True)
+                return
+            text_fields = {"char_class": self.char_class.value.strip(), "race": self.race.value.strip(), "background": self.background.value.strip()}
+            int_fields = {"charisma": self.charisma.value.strip(), "xp": self.xp.value.strip()}
+            for attr, raw in text_fields.items():
+                if not raw:
+                    continue
+                old_val = getattr(char, attr)
+                if str(old_val) != raw:
+                    changes.append((attr, old_val, raw))
+                    setattr(char, attr, raw)
+            for attr, raw in int_fields.items():
+                if not raw:
+                    continue
+                try:
+                    new_val = int(raw)
+                except ValueError:
+                    await interaction.response.send_message(f"Invalid value for **{attr}**: `{raw}`.", ephemeral=True)
+                    return
+                old_val = getattr(char, attr)
+                if old_val != new_val:
+                    changes.append((attr, old_val, new_val))
+                    setattr(char, attr, new_val)
+
+        if not changes:
+            await interaction.response.send_message("No changes were made.", ephemeral=True)
+            return
+        change_lines = "\n".join(f"• **{f}**: {o} → {n}" for f, o, n in changes)
+        embed = discord.Embed(title="✅ Profile Edited", description=f"**{self.char.name}** updated.", color=0x22C55E)
+        embed.add_field(name="Changes", value=change_lines, inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        audit = discord.Embed(title="GM Profile Edit", description=f"**{self.char.name}** edited by {self.editor.display_name}\n{change_lines}", color=0x22C55E)
+        await _post_audit_log(interaction.client, interaction.guild_id, audit)
 
     async def on_submit(self, interaction: discord.Interaction):
         changes = []
@@ -859,38 +949,19 @@ class GMEditModal(discord.ui.Modal, title="GM Edit Character"):
                 await interaction.response.send_message("Character not found.", ephemeral=True)
                 return
 
-            field_map = {
-                "level": self.level.value.strip(),
-                "char_class": self.char_class.value.strip(),
-                "race": self.race.value.strip(),
-                "background": self.background.value.strip(),
-                "strength": self.strength.value.strip(),
-                "dexterity": self.dexterity.value.strip(),
-                "constitution": self.constitution.value.strip(),
-                "intelligence": self.intelligence.value.strip(),
-                "wisdom": self.wisdom.value.strip(),
-                "charisma": self.charisma.value.strip(),
-                "hp_max": self.hp_max.value.strip(),
-                "hp_current": self.hp_current.value.strip(),
-                "gold": self.gold.value.strip(),
-                "armor_class": self.armor_class.value.strip(),
-            }
-
-            for attr, raw in field_map.items():
+            for attr in ("level", "hp_max", "hp_current", "gold", "armor_class"):
+                raw = getattr(self, attr).value.strip()
                 if not raw:
                     continue
                 try:
-                    if attr in ("char_class", "race", "background"):
-                        new_val = raw
-                    else:
-                        new_val = int(raw)
+                    new_val = int(raw)
                 except ValueError:
                     await interaction.response.send_message(
                         f"Invalid value for **{attr}**: `{raw}`.", ephemeral=True
                     )
                     return
                 old_val = getattr(char, attr)
-                if str(old_val) != str(new_val):
+                if old_val != new_val:
                     changes.append((attr, old_val, new_val))
                     setattr(char, attr, new_val)
 
@@ -905,16 +976,35 @@ class GMEditModal(discord.ui.Modal, title="GM Edit Character"):
             color=0x22C55E,
         )
         embed.add_field(name="Changes", value=change_lines, inline=False)
-        embed.set_footer(text="LoreForge GM Edit")
+        embed.set_footer(text="Use /gm edit again for ability scores and profile fields")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        # Audit log
         audit = discord.Embed(
             title="GM Edit Audit Log",
             description=f"**{char.name}** edited by {self.editor.display_name}\n{change_lines}",
             color=0x22C55E,
         )
         await _post_audit_log(interaction.client, interaction.guild_id, audit)
+
+
+class GMEditView(discord.ui.View):
+    """Three-panel edit picker — Discord modals are capped at 5 fields."""
+    def __init__(self, char: Character, editor: discord.Member):
+        super().__init__(timeout=120)
+        self.char = char
+        self.editor = editor
+
+    @discord.ui.button(label="⚔️ Level / HP / Gold / AC", style=discord.ButtonStyle.primary)
+    async def main_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(GMEditModal(self.char, self.editor))
+
+    @discord.ui.button(label="💪 Ability Scores", style=discord.ButtonStyle.secondary)
+    async def stats_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(GMEditStatsModal(self.char, self.editor))
+
+    @discord.ui.button(label="📋 Class / Race / Profile", style=discord.ButtonStyle.secondary)
+    async def profile_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(GMEditProfileModal(self.char, self.editor))
 
 
 class GMEditCharSelect(discord.ui.Select):
@@ -937,7 +1027,11 @@ class GMEditCharSelect(discord.ui.Select):
         if not char:
             await interaction.response.send_message("Character not found.", ephemeral=True)
             return
-        await interaction.response.send_modal(GMEditModal(char, self._editor))
+        await interaction.response.send_message(
+            embed=discord.Embed(title=f"✏️ Editing {char.name}", description="Choose what to edit:", color=0x6366F1),
+            view=GMEditView(char, self._editor),
+            ephemeral=True,
+        )
 
 
 class GMEditCharView(discord.ui.View):
@@ -970,7 +1064,16 @@ async def gm_edit(interaction: discord.Interaction, user: discord.Member | None 
         return
 
     if len(chars) == 1:
-        await interaction.response.send_modal(GMEditModal(chars[0], interaction.user))
+        char = chars[0]
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title=f"✏️ Editing {char.name}",
+                description=f"Lv{char.level} {char.race} {char.char_class} — choose a panel to edit:",
+                color=0x6366F1,
+            ),
+            view=GMEditView(char, interaction.user),
+            ephemeral=True,
+        )
     else:
         await interaction.response.send_message(
             embed=discord.Embed(

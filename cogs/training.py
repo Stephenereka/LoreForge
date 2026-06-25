@@ -62,12 +62,13 @@ class TrainingDummy:
 
 
 class TrainingSessionData:
-    def __init__(self, channel_id, user_id, guild_id, character_id, difficulty, player, dummy):
+    def __init__(self, channel_id, user_id, guild_id, character_id, difficulty, player, dummy, mode: str = "dnd"):
         self.channel_id = channel_id
         self.user_id = user_id
         self.guild_id = guild_id
         self.character_id = character_id
         self.difficulty = difficulty
+        self.mode = mode  # "dnd" or "rp"
         self.player = player
         self.dummy = dummy
         self.round = 1
@@ -82,6 +83,18 @@ class TrainingSessionData:
         self.log.append(line)
 
     def arena_embed(self) -> discord.Embed:
+        if self.mode == "rp":
+            embed = discord.Embed(
+                title=f"📖 RP Sparring — {self.difficulty.title()}",
+                color=0x8B5CF6,
+            )
+            embed.add_field(name="Round", value=f"**{self.round}**", inline=True)
+            embed.add_field(name="Fighters", value=f"{self.player.name} vs Training Dummy", inline=True)
+            if self.log:
+                embed.add_field(name="📜 Narration", value="\n".join(self.log[-5:]), inline=False)
+            embed.set_footer(text="Type your action • 'surrender' or /training stop to end")
+            return embed
+
         player_pct = max(0, self.player.hp_current / self.player.hp_max) if self.player.hp_max > 0 else 0
         dummy_pct = max(0, self.dummy.hp_current / self.dummy.hp_max) if self.dummy.hp_max > 0 else 0
         player_bar = "█" * round(player_pct * 10) + "░" * (10 - round(player_pct * 10))
@@ -134,10 +147,48 @@ async def _cleanup_webhook(session: TrainingSessionData):
         session.webhook = None
 
 
-class TrainingDifficultyView(discord.ui.View):
+class TrainingModeView(discord.ui.View):
+    """First step: choose DnD combat or pure RP sparring."""
     def __init__(self, bot):
         super().__init__(timeout=300)
         self.bot = bot
+
+    @discord.ui.button(label="⚔️ DnD Combat", style=discord.ButtonStyle.primary, row=0)
+    async def dnd_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="⚔️ DnD Combat — Choose Difficulty",
+            description=(
+                "**Easy 🟢** — Slow dummy, great for beginners.\n"
+                "**Medium 🟡** — Basic tactics, competent fighter.\n"
+                "**Hard 🟠** — Aggressive, uses conditions.\n"
+                "**Impossible 💀** — Near-perfect counter-play."
+            ),
+            color=0xF59E0B,
+        )
+        await interaction.response.edit_message(embed=embed, view=TrainingDifficultyView(self.bot, mode="dnd"))
+
+    @discord.ui.button(label="📖 RP Sparring", style=discord.ButtonStyle.secondary, row=0)
+    async def rp_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="📖 RP Sparring — Choose Difficulty",
+            description=(
+                "No dice rolls or HP tracking — pure narrative sparring.\n"
+                "Type your actions in chat and the dummy responds.\n\n"
+                "**Easy 🟢** — Clumsy, makes mistakes.\n"
+                "**Medium 🟡** — Trained fighter.\n"
+                "**Hard 🟠** — Relentless and tactical.\n"
+                "**Impossible 💀** — Perfect counter, taunts every move."
+            ),
+            color=0x8B5CF6,
+        )
+        await interaction.response.edit_message(embed=embed, view=TrainingDifficultyView(self.bot, mode="rp"))
+
+
+class TrainingDifficultyView(discord.ui.View):
+    def __init__(self, bot, mode: str = "dnd"):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.mode = mode
 
     @discord.ui.button(label="Easy 😊", style=discord.ButtonStyle.success, emoji="🟢")
     async def easy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -198,6 +249,7 @@ class TrainingDifficultyView(discord.ui.View):
             difficulty=difficulty,
             player=player_combatant,
             dummy=dummy,
+            mode=self.mode,
         )
 
         # Create webhook so dummy speaks with its own identity
@@ -212,11 +264,11 @@ class TrainingDifficultyView(discord.ui.View):
         active_training[interaction.channel_id] = session
 
         embed = session.arena_embed()
-        await interaction.edit_original_response(
-            content=f"⚔️ **Training: {difficulty.title()}** — Type your actions in chat!",
-            embed=embed,
-            view=None,
-        )
+        if self.mode == "rp":
+            start_content = f"📖 **RP Sparring: {difficulty.title()}** — Write your actions in chat! Type `surrender` to end."
+        else:
+            start_content = f"⚔️ **Training: {difficulty.title()}** — Type your actions in chat!"
+        await interaction.edit_original_response(content=start_content, embed=embed, view=None)
 
 
 async def get_active_char(user_id: int, guild_id: int):
@@ -240,17 +292,14 @@ training_group = app_commands.Group(name="training", description="Training dummy
 @training_group.command(name="start", description="Start training against an AI dummy")
 async def training_start(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="🎯 Training Dummy",
+        title="🎯 Training Dummy — Choose Mode",
         description=(
-            "Choose your difficulty:\n\n"
-            "**Easy 😊** — A slow, clumsy dummy. Perfect for beginners.\n"
-            "**Medium 🤔** — A competent fighter with basic tactics.\n"
-            "**Hard 😤** — Aggressive, uses conditions strategically.\n"
-            "**Impossible 💀** — Near-perfect counter-play. Taunts you."
+            "**⚔️ DnD Combat** — Full dice mechanics: attack rolls, AC, HP tracking, conditions, and XP rewards.\n\n"
+            "**📖 RP Sparring** — Pure narrative mode. Type your actions freely; the training dummy responds with vivid descriptions powered by DeepSeek AI. No dice, just immersive roleplay."
         ),
         color=0x8B5CF6,
     )
-    await interaction.response.send_message(embed=embed, view=TrainingDifficultyView(interaction.client))
+    await interaction.response.send_message(embed=embed, view=TrainingModeView(interaction.client))
 
 
 @training_group.command(name="stop", description="End your training session early")
@@ -264,7 +313,75 @@ async def training_stop(interaction: discord.Interaction):
     await _end_training(interaction, session, "forfeit")
 
 
-# ── Message Handler ───────────────────────────────────────────────────────────
+# ── RP Mode Handler ───────────────────────────────────────────────────────────
+
+async def _handle_rp_training(message: discord.Message, session: TrainingSessionData):
+    """Pure narrative sparring — no dice, DeepSeek responds to every player action."""
+    import aiohttp, os
+    content = message.content.strip()
+    content_lower = content.lower()
+
+    # End keywords
+    if any(kw in content_lower for kw in ("surrender", "stop", "quit", "flee", "run", "escape")):
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        await _end_training_via_msg(message.channel, session, "fled")
+        return
+
+    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+    config = DIFFICULTY_CONFIGS.get(session.difficulty, DIFFICULTY_CONFIGS["medium"])
+
+    dummy_reply = f"*{config['flavor_prefix']} as you act.*"
+    if DEEPSEEK_API_KEY:
+        try:
+            history_text = "\n".join(session.log[-6:]) if session.log else "The sparring just began."
+            system_prompt = (
+                f"You are a sentient training dummy in a dark fantasy martial arts world. "
+                f"Difficulty: {session.difficulty}. Personality: {config['personality']}. "
+                f"Respond to the player's sparring action with 2-3 vivid sentences of combat narration. "
+                f"Stay in character as a dummy that can speak and react. No game stats or dice. "
+                f"Keep it immersive and exciting."
+            )
+            user_prompt = (
+                f"Round {session.round}. Recent exchange:\n{history_text}\n\n"
+                f"Player's action: {content[:300]}"
+            )
+            async with aiohttp.ClientSession() as http:
+                resp = await http.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+                    json={
+                        "model": "deepseek-chat",
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        "max_tokens": 120,
+                        "temperature": 0.9,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=6),
+                )
+                data = await resp.json()
+                dummy_reply = data["choices"][0]["message"]["content"].strip()
+        except Exception:
+            pass
+
+    session.add_log(f"*{session.player.name}:* {content[:80]}")
+    session.round += 1
+    embed = session.arena_embed()
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    await _dummy_send(session, message.channel, content=dummy_reply)
+    await message.channel.send(f"**Round {session.round}**", embed=embed)
+
+
+# ── DnD Message Handler ───────────────────────────────────────────────────────
 
 async def _handle_training_message(bot, message: discord.Message):
     session = active_training.get(message.channel.id)
@@ -273,6 +390,11 @@ async def _handle_training_message(bot, message: discord.Message):
     if message.author.id != session.user_id:
         return
     if message.author.bot or message.content.startswith("/"):
+        return
+
+    # Branch to RP mode
+    if session.mode == "rp":
+        await _handle_rp_training(message, session)
         return
 
     content_lower = message.content.lower()
@@ -449,19 +571,39 @@ async def _end_training_via_msg(channel: discord.TextChannel, session: TrainingS
                 end_time=datetime.datetime.utcnow(),
             ))
     else:
-        embed.description = f"🏳️ Training ended (Round {session.round})."
-        async with get_db() as db:
-            db.add(TrainingSession(
-                user_id=session.user_id,
-                guild_id=session.guild_id,
-                character_id=session.character_id,
-                difficulty=session.difficulty,
-                rounds_survived=session.round,
-                damage_dealt=session.damage_dealt,
-                damage_taken=session.damage_taken,
-                result=result,
-                end_time=datetime.datetime.utcnow(),
-            ))
+        if session.mode == "rp" and session.round > 1:
+            rp_xp = session.round * 5
+            embed.description = f"📖 **RP Sparring ended** after {session.round} rounds.\n✨ **{rp_xp} XP** earned for the narrative session."
+            async with get_db() as db:
+                db.add(TrainingSession(
+                    user_id=session.user_id,
+                    guild_id=session.guild_id,
+                    character_id=session.character_id,
+                    difficulty=session.difficulty,
+                    rounds_survived=session.round,
+                    damage_dealt=0,
+                    damage_taken=0,
+                    result="rp_complete",
+                    end_time=datetime.datetime.utcnow(),
+                ))
+                char = await db.execute(select(Character).where(Character.id == session.character_id))
+                char_obj = char.scalar_one_or_none()
+                if char_obj:
+                    char_obj.xp = (char_obj.xp or 0) + rp_xp
+        else:
+            embed.description = f"🏳️ Training ended (Round {session.round})."
+            async with get_db() as db:
+                db.add(TrainingSession(
+                    user_id=session.user_id,
+                    guild_id=session.guild_id,
+                    character_id=session.character_id,
+                    difficulty=session.difficulty,
+                    rounds_survived=session.round,
+                    damage_dealt=session.damage_dealt,
+                    damage_taken=session.damage_taken,
+                    result=result,
+                    end_time=datetime.datetime.utcnow(),
+                ))
 
     await channel.send(embed=embed)
     await _cleanup_webhook(session)

@@ -2278,6 +2278,7 @@ async def character_edit_cosmetic(interaction: discord.Interaction):
 @character_group.command(name="edit_stats", description="Request a stat/Gold/XP/HP change (requires GM approval)")
 @app_commands.describe(field="Which stat to change", value="New value for the stat")
 @app_commands.choices(field=[
+    app_commands.Choice(name="Level", value="level"),
     app_commands.Choice(name="Strength", value="strength"),
     app_commands.Choice(name="Dexterity", value="dexterity"),
     app_commands.Choice(name="Constitution", value="constitution"),
