@@ -11,6 +11,7 @@ from services.map_service import generate_world_map_overlay, fetch_world_map, fe
 from cogs.character import resolve_character
 import io
 import urllib.request
+import urllib.parse
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
@@ -1125,7 +1126,10 @@ async def world_clear_map(interaction: discord.Interaction):
 
 
 @world_group.command(name="load-template", description="[GM] Load a built-in world template (locations, NPCs, factions, quests, lore, bosses)")
-@app_commands.describe(template_name="Template name — use 'murim_magic' for the Murim/Magic world")
+@app_commands.describe(template_name="Choose a world template")
+@app_commands.choices(template_name=[
+    app_commands.Choice(name="Murim / Magic World (The Merged Realms)", value="murim_magic"),
+])
 async def world_load_template(interaction: discord.Interaction, template_name: str = "murim_magic"):
     if not await gm_only(interaction):
         return
@@ -1133,10 +1137,12 @@ async def world_load_template(interaction: discord.Interaction, template_name: s
 
     import json, pathlib, os
     bot_root = pathlib.Path(__file__).parent.parent
-    template_path = bot_root / "data" / "templates" / f"{template_name}.json"
+    # Normalize: "murim/magic" or "murim magic" → "murim_magic"
+    safe_name = template_name.replace("/", "_").replace(" ", "_").replace("-", "_")
+    template_path = bot_root / "data" / "templates" / f"{safe_name}.json"
     if not template_path.exists():
         await interaction.followup.send(
-            f"❌ Template `{template_name}` not found at `{template_path}`.", ephemeral=True
+            f"❌ Template `{safe_name}` not found. Available: `murim_magic`", ephemeral=True
         )
         return
 
@@ -1154,18 +1160,33 @@ async def world_load_template(interaction: discord.Interaction, template_name: s
     bosses_created = bosses_skipped = 0
 
     # ── Step 0: GuildConfig ────────────────────────────────────────────────
-    if "guild_config" in data:
-        gc_data = data["guild_config"]
-        async with get_db() as db:
-            gc_result = await db.execute(select(GuildConfig).where(GuildConfig.guild_id == guild_id))
-            gc = gc_result.scalar_one_or_none()
-            if not gc:
-                gc = GuildConfig(guild_id=guild_id)
-                db.add(gc)
-            if not gc.world_name or gc.world_name == "LoreForge World":
-                gc.world_name = gc_data.get("world_name", gc.world_name)
-            if gc_data.get("world_data"):
-                gc.world_data = {**(gc.world_data or {}), **gc_data["world_data"]}
+    _MERGED_REALMS_MAP_URL = (
+        "https://image.pollinations.ai/prompt/"
+        + urllib.parse.quote(
+            "fantasy political territory map, soft watercolor colored faction territories, "
+            "dark teal ocean background, parchment texture overlay, fantasy cartography art, "
+            "Inkarnate style, highly detailed, professional TTRPG world map, "
+            "title The Merged Realms, faction territories: jade green Murim Alliance center-north, "
+            "deep crimson Heavenly Demon Cult far northeast, indigo Arcane Council center-north, "
+            "silver purple Silverwood Dominion far west, golden Southern Kingdoms south, "
+            "orange Ebon Scale Covenant far southeast, dark grey Pale Hand northeast, "
+            "neutral Rift Wardens center crossroads"
+        )
+        + "?width=1792&height=1008&model=flux&seed=1000&nologo=true&enhance=true"
+    )
+    gc_data = data.get("guild_config", {})
+    async with get_db() as db:
+        gc_result = await db.execute(select(GuildConfig).where(GuildConfig.guild_id == guild_id))
+        gc = gc_result.scalar_one_or_none()
+        if not gc:
+            gc = GuildConfig(guild_id=guild_id)
+            db.add(gc)
+        if not gc.world_name or gc.world_name == "LoreForge World":
+            gc.world_name = gc_data.get("world_name", "The Merged Realms")
+        if gc_data.get("world_data"):
+            gc.world_data = {**(gc.world_data or {}), **gc_data["world_data"]}
+        if not gc.world_map_url:
+            gc.world_map_url = _MERGED_REALMS_MAP_URL
 
     # ── Step 1: Locations ──────────────────────────────────────────────────
     loc_name_to_id: dict[str, int] = {}

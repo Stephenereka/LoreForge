@@ -263,6 +263,33 @@ async def _auto_seed_murim_template():
                 db.add(BossTemplate(guild_id=guild_id, name=b_data["name"], title=b_data.get("title"), description=b_data.get("description", ""), hp_max=b_data.get("hp_max", 100), armor_class=b_data.get("armor_class", 15), attack_bonus=b_data.get("attack_bonus", 6), damage_dice=b_data.get("damage_dice", "2d8"), damage_bonus=b_data.get("damage_bonus", 0), xp_value=b_data.get("xp_value", 1000), gold_drop=b_data.get("gold_drop", 0), loot_table=b_data.get("loot_table", []), phase_count=b_data.get("phase_count", 1), phase_thresholds=b_data.get("phase_thresholds", []), phase_abilities=b_data.get("phase_abilities", {}), legendary_actions=b_data.get("legendary_actions", []), legendary_action_count=b_data.get("legendary_action_count", 3), is_lair_boss=b_data.get("is_lair_boss", False), lair_actions=b_data.get("lair_actions", []), created_by=bot_user_id))
                 bosses_created += 1
 
+        # Store world map URL so /map shows our custom Merged Realms map
+        WORLD_MAP_PROMPT = (
+            "fantasy political territory map, soft watercolor colored faction territories, "
+            "dark teal ocean background, parchment texture overlay, fantasy cartography art, "
+            "Inkarnate style, highly detailed, professional TTRPG world map, "
+            "title The Merged Realms, faction territories: jade green Murim Alliance center-north, "
+            "deep crimson Heavenly Demon Cult far northeast, indigo Arcane Council center-north, "
+            "silver purple Silverwood Dominion far west, golden Southern Kingdoms south, "
+            "orange Ebon Scale Covenant far southeast, dark grey Pale Hand northeast, "
+            "neutral Rift Wardens center crossroads"
+        )
+        import urllib.parse as _ul
+        _map_url = (
+            f"https://image.pollinations.ai/prompt/{_ul.quote(WORLD_MAP_PROMPT)}"
+            f"?width=1792&height=1008&model=flux&seed=1000&nologo=true&enhance=true"
+        )
+        from database.models import GuildConfig
+        async with get_db() as db:
+            gc_result = await db.execute(select(GuildConfig).where(GuildConfig.guild_id == guild_id))
+            gc = gc_result.scalar_one_or_none()
+            if not gc:
+                gc = GuildConfig(guild_id=guild_id, world_name="The Merged Realms")
+                db.add(gc)
+            elif not gc.world_map_url:
+                gc.world_name = gc.world_name if gc.world_name != "LoreForge World" else "The Merged Realms"
+                gc.world_map_url = _map_url
+
         print(f"[AutoSeed] Done — {locs_created} locations, {factions_created} factions, {npc_created} NPCs, {quests_created} quests, {lore_created} lore, {bosses_created} bosses.")
 
 
