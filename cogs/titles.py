@@ -12,10 +12,6 @@ from services.title_service import (
 class TitlesCog(commands.Cog, name="Titles"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        bot.tree.add_command(self.title_group)
-
-    async def cog_unload(self):
-        self.bot.tree.remove_command("title")
 
     title_group = app_commands.Group(name="title", description="Manage your character's displayed title")
 
