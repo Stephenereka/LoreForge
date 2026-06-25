@@ -7,7 +7,7 @@ from database.models import Location, LocationConnection, CharacterLocation, Gui
 from services.utils import gm_only, is_gm
 from services.time_service import get_world_time, get_time_flavor
 from services.weather_service import get_weather, get_weather_flavor, set_weather
-from services.map_service import generate_world_map_overlay
+from services.map_service import generate_world_map_overlay, fetch_world_map
 from cogs.character import resolve_character
 import io
 
@@ -201,9 +201,10 @@ async def cmd_travel(ctx, direction: str):
 async def cmd_map(ctx):
     if not ctx.guild:
         return
+    await ctx.defer()
     char, _ = await resolve_character(ctx.author.id, ctx.guild.id)
     if not char:
-        await ctx.send("Create a character first.", ephemeral=True)
+        await ctx.send("Create a character first with `/character create`.", ephemeral=True)
         return
     loc, _ = await get_character_location(char.id, ctx.guild.id)
     async with get_db() as db:
@@ -214,6 +215,11 @@ async def cmd_map(ctx):
             )
         )
         all_locs = list(result.scalars().all())
+        config_result = await db.execute(
+            select(GuildConfig).where(GuildConfig.guild_id == ctx.guild.id)
+        )
+        config = config_result.scalar_one_or_none()
+    world_name = config.world_name if config else ctx.guild.name
     loc_data = [
         dict(
             id=l.id, name=l.name, map_x=l.map_x, map_y=l.map_y,
@@ -221,11 +227,19 @@ async def cmd_map(ctx):
         ) for l in all_locs
     ]
     player_loc_id = loc.id if loc else None
+    import asyncio
+    base_bytes = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: fetch_world_map(world_name, ctx.guild.id)
+    )
     img_bytes = generate_world_map_overlay(
-        None, loc_data, player_location_id=player_loc_id
+        base_bytes, loc_data, player_location_id=player_loc_id
     )
     file = discord.File(img_bytes, filename="world_map.png")
-    embed = discord.Embed(title="🗺️ World Map", color=0x22C55E)
+    embed = discord.Embed(title=f"🗺️ {world_name}", color=0x22C55E)
+    if player_loc_id:
+        current = next((l for l in all_locs if l.id == player_loc_id), None)
+        if current:
+            embed.set_footer(text=f"⭐ You are in {current.name}")
     embed.set_image(url="attachment://world_map.png")
     await ctx.send(embed=embed, file=file)
 

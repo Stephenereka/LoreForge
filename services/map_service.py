@@ -1,12 +1,35 @@
 import io
 import random
 import math
+import urllib.request
+import urllib.parse
 
 try:
     from PIL import Image, ImageDraw, ImageFont
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
+
+_MAP_CACHE: dict[int, bytes] = {}  # guild_id → cached base map bytes
+
+
+def fetch_world_map(world_name: str, guild_id: int, force: bool = False) -> bytes | None:
+    """Fetch a fantasy world map image from Pollinations.AI and cache it per guild."""
+    if not force and guild_id in _MAP_CACHE:
+        return _MAP_CACHE[guild_id]
+    prompt = (
+        f"fantasy world map, top-down view, parchment style, hand-drawn, "
+        f"continents with kingdoms and territories labeled, mountains forests rivers, "
+        f"compass rose, aged paper texture, {world_name}, no text overlays, clean"
+    )
+    url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}?width=1200&height=800&nologo=true&seed={guild_id}"
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            data = r.read()
+        _MAP_CACHE[guild_id] = data
+        return data
+    except Exception:
+        return None
 
 
 def generate_world_map_overlay(
