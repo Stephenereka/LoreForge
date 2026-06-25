@@ -52,6 +52,15 @@ class Character(Base):
     skill_proficiencies: Mapped[dict] = mapped_column(JSON, default=list)
     class_resources: Mapped[dict] = mapped_column(JSON, default=dict)
 
+    # Class-specific resources (Phase 4)
+    ki_points: Mapped[int] = mapped_column(Integer, default=0)
+    ki_max: Mapped[int] = mapped_column(Integer, default=0)
+    bardic_inspiration_dice: Mapped[int] = mapped_column(Integer, default=0)
+    hunter_mark_target_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    wild_shape_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    wild_shape_form: Mapped[str] = mapped_column(String(30), nullable=True)
+    wild_shape_hp: Mapped[int] = mapped_column(Integer, default=0)
+
     # Lore & proxy
     backstory: Mapped[str] = mapped_column(Text, nullable=True)
     avatar_url: Mapped[str] = mapped_column(Text, nullable=True)
@@ -103,8 +112,130 @@ class PendingApproval(Base):
     field_name: Mapped[str] = mapped_column(String(50), nullable=False)
     old_value: Mapped[str] = mapped_column(Text, nullable=True)
     new_value: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending")
+    reviewed_by: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     requested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ── Phase 4: AI Config ────────────────────────────────────────────────────────
+
+class AIConfig(Base):
+    """Per-guild AI feature toggles — all OFF by default."""
+    __tablename__ = "ai_configs"
+
+    guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    narration_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    narration_style: Mapped[str] = mapped_column(String(20), default="epic")
+    npc_ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    session_summary_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_by: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ── Phase 4: Session Log ──────────────────────────────────────────────────────
+
+class SessionLog(Base):
+    """Record of a play session with auto-summary."""
+    __tablename__ = "session_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    ended_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    characters_present: Mapped[dict] = mapped_column(JSON, default=list)
+    summary_text: Mapped[str] = mapped_column(Text, nullable=True)
+    combat_count: Mapped[int] = mapped_column(Integer, default=0)
+    quest_completions: Mapped[int] = mapped_column(Integer, default=0)
+    total_xp: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ── Phase 4: Boss System ──────────────────────────────────────────────────────
+
+class BossTemplate(Base):
+    """Reusable boss encounter template."""
+    __tablename__ = "boss_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    title: Mapped[str] = mapped_column(String(100), nullable=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    image_url: Mapped[str] = mapped_column(Text, nullable=True)
+
+    hp_max: Mapped[int] = mapped_column(Integer, nullable=False)
+    armor_class: Mapped[int] = mapped_column(Integer, nullable=False)
+    attack_bonus: Mapped[int] = mapped_column(Integer, default=4)
+    damage_dice: Mapped[str] = mapped_column(String(20), nullable=False)
+    damage_bonus: Mapped[int] = mapped_column(Integer, default=0)
+    xp_value: Mapped[int] = mapped_column(Integer, default=500)
+    gold_drop: Mapped[int] = mapped_column(Integer, default=0)
+
+    loot_table: Mapped[dict] = mapped_column(JSON, default=list)
+    phase_count: Mapped[int] = mapped_column(Integer, default=1)
+    phase_thresholds: Mapped[dict] = mapped_column(JSON, default=list)
+    phase_abilities: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    legendary_actions: Mapped[dict] = mapped_column(JSON, default=list)
+    legendary_action_count: Mapped[int] = mapped_column(Integer, default=3)
+
+    minion_template_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    minion_count_per_summon: Mapped[int] = mapped_column(Integer, default=2)
+
+    is_lair_boss: Mapped[bool] = mapped_column(Boolean, default=False)
+    lair_actions: Mapped[dict] = mapped_column(JSON, default=list)
+
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SpawnedBoss(Base):
+    """An active boss encounter in a channel."""
+    __tablename__ = "spawned_bosses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    combat_session_id: Mapped[str] = mapped_column(String(100), nullable=True)
+
+    template_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    hp_current: Mapped[int] = mapped_column(Integer, nullable=False)
+    hp_max: Mapped[int] = mapped_column(Integer, nullable=False)
+    armor_class: Mapped[int] = mapped_column(Integer, nullable=False)
+    attack_bonus: Mapped[int] = mapped_column(Integer, default=4)
+    damage_dice: Mapped[str] = mapped_column(String(20), nullable=False)
+    damage_bonus: Mapped[int] = mapped_column(Integer, default=0)
+    xp_value: Mapped[int] = mapped_column(Integer, default=500)
+    gold_drop: Mapped[int] = mapped_column(Integer, default=0)
+    loot_table: Mapped[dict] = mapped_column(JSON, default=list)
+
+    current_phase: Mapped[int] = mapped_column(Integer, default=1)
+    phase_thresholds: Mapped[dict] = mapped_column(JSON, default=list)
+    phase_abilities: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    legendary_actions: Mapped[dict] = mapped_column(JSON, default=list)
+    legendary_actions_remaining: Mapped[int] = mapped_column(Integer, default=3)
+    legendary_action_count: Mapped[int] = mapped_column(Integer, default=3)
+
+    minion_template_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    minion_count_per_summon: Mapped[int] = mapped_column(Integer, default=2)
+    parent_boss_id: Mapped[int] = mapped_column(Integer, nullable=True)
+
+    is_lair_boss: Mapped[bool] = mapped_column(Boolean, default=False)
+    lair_actions: Mapped[dict] = mapped_column(JSON, default=list)
+
+    conditions: Mapped[dict] = mapped_column(JSON, default=list)
+    forced_target_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+
+    spawned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    spawned_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class WorldEvent(Base):

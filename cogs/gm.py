@@ -1083,6 +1083,654 @@ async def gm_revive(interaction: discord.Interaction, character_name: str):
 
 
 # ---------------------------------------------------------------------------
+# /gm pending-user <user>
+# ---------------------------------------------------------------------------
+
+@gm_group.command(name="pending-user", description="List pending requests for a specific user (GM only)")
+@app_commands.describe(user="The user whose pending requests to view")
+async def gm_pending_user(interaction: discord.Interaction, user: discord.Member):
+    if not await gm_only(interaction):
+        return
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(PendingApproval).where(
+                PendingApproval.guild_id == interaction.guild_id,
+                PendingApproval.user_id == user.id,
+                PendingApproval.status == "pending",
+            ).order_by(PendingApproval.requested_at.asc())
+        )
+        requests = result.scalars().all()
+
+    if not requests:
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                description=f"No pending requests for {user.mention}.",
+                color=0x6B7280,
+            ),
+            ephemeral=True,
+        )
+        return
+
+    lines: list[str] = []
+    for req in requests:
+        ts = req.requested_at.strftime("%Y-%m-%d %H:%M") if req.requested_at else "unknown"
+        lines.append(
+            f"**ID {req.id}** — {req.character_name} | `{req.field_name}`: "
+            f"`{req.old_value}` → `{req.new_value}`\n"
+            f"  Requested at {ts}"
+        )
+
+    description = "\n\n".join(lines)
+    if len(description) > 4000:
+        description = description[:3990] + "\n…"
+
+    embed = discord.Embed(
+        title=f"Pending Requests — {user.display_name}",
+        description=description,
+        color=0xF59E0B,
+        timestamp=datetime.utcnow(),
+    )
+    embed.set_footer(text="Use /gm approve <id> or /gm deny <id> to act")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# ---------------------------------------------------------------------------
+# /gm boss subgroup
+# ---------------------------------------------------------------------------
+
+boss_group = app_commands.Group(name="boss", description="Boss encounter management (GM only)", parent=gm_group)
+
+
+# ── /gm boss create ───────────────────────────────────────────────────────────
+
+class BossCreateModal(discord.ui.Modal, title="Create Boss Template"):
+    name = discord.ui.TextInput(label="Boss Name", max_length=100)
+    title = discord.ui.TextInput(label="Title (optional)", required=False, max_length=100)
+    description = discord.ui.TextInput(label="Description", style=discord.TextStyle.paragraph)
+    hp_max = discord.ui.TextInput(label="Max HP", placeholder="e.g. 150")
+    armor_class = discord.ui.TextInput(label="Armor Class", placeholder="e.g. 16")
+    damage_dice = discord.ui.TextInput(label="Damage Dice", placeholder="e.g. 2d8")
+    xp_value = discord.ui.TextInput(label="XP Value", placeholder="e.g. 1500")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            hp = int(self.hp_max.value.strip())
+            ac = int(self.armor_class.value.strip())
+            xp = int(self.xp_value.value.strip())
+        except ValueError:
+            await interaction.response.send_message("HP, AC, and XP must be whole numbers.", ephemeral=True)
+            return
+
+        async with get_db() as db:
+            from database.models import BossTemplate
+            template = BossTemplate(
+                guild_id=interaction.guild_id,
+                name=self.name.value.strip(),
+                title=self.title.value.strip() or None,
+                description=self.description.value.strip(),
+                hp_max=hp,
+                armor_class=ac,
+                attack_bonus=4,
+                damage_dice=self.damage_dice.value.strip(),
+                damage_bonus=0,
+                xp_value=xp,
+                created_by=interaction.user.id,
+            )
+            db.add(template)
+            await db.flush()
+            tid = template.id
+
+        embed = discord.Embed(
+            title="🗡️ Boss Template Created",
+            description=f"**{self.name.value.strip()}** is ready for battle!",
+            color=0xEF4444,
+        )
+        embed.add_field(name="HP", value=str(hp), inline=True)
+        embed.add_field(name="AC", value=str(ac), inline=True)
+        embed.add_field(name="Damage", value=self.damage_dice.value.strip(), inline=True)
+        embed.add_field(name="XP", value=str(xp), inline=True)
+        embed.set_footer(text=f"Template ID: {tid} • Use /gm boss spawn to deploy")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@boss_group.command(name="create", description="Create a new boss template (GM only)")
+async def gm_boss_create(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.send_modal(BossCreateModal())
+
+
+# ── /gm boss list ─────────────────────────────────────────────────────────────
+
+@boss_group.command(name="list", description="List all boss templates (GM only)")
+async def gm_boss_list(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
+
+    async with get_db() as db:
+        from database.models import BossTemplate
+        result = await db.execute(
+            select(BossTemplate).where(
+                BossTemplate.guild_id == interaction.guild_id
+            ).order_by(BossTemplate.name)
+        )
+        templates = list(result.scalars().all())
+
+    if not templates:
+        await interaction.response.send_message("No boss templates created yet.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="🗡️ Boss Templates",
+        color=0xEF4444,
+    )
+    for t in templates[:20]:
+        embed.add_field(
+            name=f"{t.name} ({t.title or 'No title'})",
+            value=f"❤️ {t.hp_max}  🛡️ {t.armor_class}  ⚔️ {t.damage_dice}  ✨ {t.xp_value} XP  ⚡ {t.phase_count} phase(s)",
+            inline=False,
+        )
+    embed.set_footer(text=f"{len(templates)} template(s)  •  LoreForge")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# ── /gm boss spawn ────────────────────────────────────────────────────────────
+
+async def _boss_name_autocomplete(interaction: discord.Interaction, current: str):
+    async with get_db() as db:
+        from database.models import BossTemplate
+        result = await db.execute(
+            select(BossTemplate).where(
+                BossTemplate.guild_id == interaction.guild_id,
+                BossTemplate.name.ilike(f"%{current}%"),
+            ).limit(25)
+        )
+        return [
+            app_commands.Choice(name=f"{t.name} (HP:{t.hp_max} AC:{t.armor_class})", value=t.name)
+            for t in result.scalars().all()
+        ]
+
+
+@boss_group.command(name="spawn", description="Spawn a boss in the current channel (GM only)")
+@app_commands.describe(name="Boss template name", hp_override="Override HP (optional)", name_override="Custom display name (optional)")
+@app_commands.autocomplete(name=_boss_name_autocomplete)
+async def gm_boss_spawn(interaction: discord.Interaction, name: str, hp_override: int | None = None, name_override: str | None = None):
+    if not await gm_only(interaction):
+        return
+
+    async with get_db() as db:
+        from database.models import BossTemplate, SpawnedBoss
+        result = await db.execute(
+            select(BossTemplate).where(
+                BossTemplate.guild_id == interaction.guild_id,
+                BossTemplate.name.ilike(name),
+            )
+        )
+        t = result.scalar_one_or_none()
+        if not t:
+            await interaction.response.send_message(f"Boss template **{name}** not found.", ephemeral=True)
+            return
+
+        display_name = name_override or t.name
+        hp = hp_override or t.hp_max
+
+        spawned = SpawnedBoss(
+            guild_id=interaction.guild_id,
+            channel_id=interaction.channel_id,
+            template_id=t.id,
+            display_name=display_name,
+            hp_current=hp,
+            hp_max=hp,
+            armor_class=t.armor_class,
+            attack_bonus=t.attack_bonus,
+            damage_dice=t.damage_dice,
+            damage_bonus=t.damage_bonus,
+            xp_value=t.xp_value,
+            gold_drop=t.gold_drop,
+            loot_table=t.loot_table,
+            current_phase=1,
+            phase_thresholds=t.phase_thresholds,
+            phase_abilities=t.phase_abilities,
+            legendary_actions=t.legendary_actions,
+            legendary_actions_remaining=t.legendary_action_count,
+            legendary_action_count=t.legendary_action_count,
+            minion_template_id=t.minion_template_id,
+            minion_count_per_summon=t.minion_count_per_summon,
+            is_lair_boss=t.is_lair_boss,
+            lair_actions=t.lair_actions,
+            spawned_by=interaction.user.id,
+        )
+        db.add(spawned)
+        await db.flush()
+        sid = spawned.id
+
+    # Build intro embed
+    hp_bar_filled = 10
+    hp_bar = "█" * hp_bar_filled + "░" * (10 - hp_bar_filled)
+    embed = discord.Embed(
+        title=f"🗡️ {display_name} has appeared!",
+        description=t.description[:500],
+        color=0xEF4444,
+    )
+    embed.add_field(name="❤️ HP", value=f"`{hp_bar}` **{hp}/{hp}**", inline=True)
+    embed.add_field(name="🛡️ AC", value=str(t.armor_class), inline=True)
+    embed.add_field(name="⚡ Phases", value=str(t.phase_count or 1), inline=True)
+    if t.image_url:
+        embed.set_image(url=t.image_url)
+
+    lair_text = "Yes" if t.is_lair_boss else "No"
+    embed.add_field(name="🏰 Lair Boss", value=lair_text, inline=True)
+    embed.add_field(name="⚔️ Legendary Actions", value=str(t.legendary_action_count), inline=True)
+    embed.add_field(name="✨ XP Value", value=str(t.xp_value), inline=True)
+    embed.set_footer(text=f"Spawned by {interaction.user.display_name}  •  ID: {sid}")
+    await interaction.response.send_message(embed=embed)
+
+
+# ── /gm boss force-attack ─────────────────────────────────────────────────────
+
+@boss_group.command(name="force-attack", description="Force the active boss to target a specific player (GM only)")
+@app_commands.describe(user="The player for the boss to target")
+async def gm_boss_force_attack(interaction: discord.Interaction, user: discord.Member):
+    if not await gm_only(interaction):
+        return
+
+    async with get_db() as db:
+        from database.models import SpawnedBoss
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == interaction.guild_id,
+                SpawnedBoss.channel_id == interaction.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss:
+            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            return
+
+        boss.forced_target_id = user.id
+
+    embed = discord.Embed(
+        title="🎯 Boss Target Set",
+        description=f"**{boss.display_name}** is now targeting **{user.display_name}**!",
+        color=0xEF4444,
+    )
+    await interaction.response.send_message(embed=embed)
+
+
+# ── /gm boss force-ability ────────────────────────────────────────────────────
+
+@boss_group.command(name="force-ability", description="Force the boss to use a specific phase ability (GM only)")
+@app_commands.describe(ability_name="Name of the ability to use")
+async def gm_boss_force_ability(interaction: discord.Interaction, ability_name: str):
+    if not await gm_only(interaction):
+        return
+
+    async with get_db() as db:
+        from database.models import SpawnedBoss
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == interaction.guild_id,
+                SpawnedBoss.channel_id == interaction.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss:
+            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            return
+
+        phase_key = f"phase_{boss.current_phase}"
+        abilities = (boss.phase_abilities or {}).get(phase_key, [])
+        ability = next((a for a in abilities if a.get("name", "").lower() == ability_name.lower()), None)
+        if not ability:
+            await interaction.response.send_message(
+                f"Ability **{ability_name}** not found in current phase ({boss.current_phase}).",
+                ephemeral=True,
+            )
+            return
+
+    embed = discord.Embed(
+        title=f"⚡ Boss Ability — {ability['name']}",
+        description=ability.get("description", f"{boss.display_name} uses {ability['name']}!"),
+        color=0xEF4444,
+    )
+    if ability.get("effect"):
+        embed.add_field(name="Effect", value=ability["effect"], inline=True)
+    if ability.get("condition_applied"):
+        embed.add_field(name="Condition", value=ability["condition_applied"], inline=True)
+    await interaction.response.send_message(embed=embed)
+
+
+# ── /gm boss set-phase ────────────────────────────────────────────────────────
+
+@boss_group.command(name="set-phase", description="Manually set the boss's current phase (GM only)")
+@app_commands.describe(phase="Phase number (1-4)")
+async def gm_boss_set_phase(interaction: discord.Interaction, phase: int):
+    if not await gm_only(interaction):
+        return
+    if phase < 1 or phase > 4:
+        await interaction.response.send_message("Phase must be 1-4.", ephemeral=True)
+        return
+
+    async with get_db() as db:
+        from database.models import SpawnedBoss
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == interaction.guild_id,
+                SpawnedBoss.channel_id == interaction.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss:
+            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            return
+
+        old_phase = boss.current_phase
+        boss.current_phase = phase
+
+    phase_descriptions = {
+        1: "The boss fights normally.",
+        2: "The boss becomes more aggressive — new abilities unlock!",
+        3: "The boss is enraged! Powerful attacks are unleashed!",
+        4: "Desperate measures — the boss fights with everything it has!",
+    }
+
+    embed = discord.Embed(
+        title=f"⚡ Phase Change!",
+        description=f"**{boss.display_name}** shifts to **Phase {phase}**!\n\n"
+                    f"*{phase_descriptions.get(phase, 'The boss transforms!')}*",
+        color=0xEF4444,
+    )
+    embed.add_field(name="Previous Phase", value=str(old_phase), inline=True)
+    embed.add_field(name="New Phase", value=str(phase), inline=True)
+    await interaction.response.send_message(embed=embed)
+
+
+# ── /gm boss hp ───────────────────────────────────────────────────────────────
+
+@boss_group.command(name="hp", description="Set the active boss's HP directly (GM only)")
+@app_commands.describe(value="New HP value")
+async def gm_boss_hp(interaction: discord.Interaction, value: int):
+    if not await gm_only(interaction):
+        return
+    if value < 0:
+        await interaction.response.send_message("HP cannot be negative.", ephemeral=True)
+        return
+
+    async with get_db() as db:
+        from database.models import SpawnedBoss
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == interaction.guild_id,
+                SpawnedBoss.channel_id == interaction.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss:
+            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            return
+
+        old_hp = boss.hp_current
+        boss.hp_current = min(value, boss.hp_max)
+
+        # Check phase thresholds
+        if boss.phase_thresholds:
+            pct = (boss.hp_current / boss.hp_max) * 100 if boss.hp_max > 0 else 0
+            for i, threshold in enumerate(boss.phase_thresholds):
+                if pct <= threshold:
+                    new_phase = i + 2
+                    if new_phase > boss.current_phase and new_phase <= (boss.phase_count or 1):
+                        boss.current_phase = new_phase
+
+    # Build HP bar
+    pct = boss.hp_current / boss.hp_max if boss.hp_max > 0 else 0
+    bar_filled = round(pct * 10)
+    hp_bar = "█" * bar_filled + "░" * (10 - bar_filled)
+    embed = discord.Embed(
+        title=f"❤️ {boss.display_name} HP Updated",
+        description=f"`{hp_bar}` **{boss.hp_current}/{boss.hp_max}**  (was `{old_hp}`)",
+        color=0x22C55E if pct > 0.5 else (0xF97316 if pct > 0.25 else 0xEF4444),
+    )
+    embed.add_field(name="Phase", value=str(boss.current_phase), inline=True)
+    embed.add_field(name="HP %", value=f"{round(pct * 100)}%", inline=True)
+    await interaction.response.send_message(embed=embed)
+
+
+# ── /gm boss summon-minions ───────────────────────────────────────────────────
+
+@boss_group.command(name="summon-minions", description="Spawn minions for the active boss (GM only)")
+async def gm_boss_summon_minions(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
+
+    async with get_db() as db:
+        from database.models import SpawnedBoss, BossTemplate
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == interaction.guild_id,
+                SpawnedBoss.channel_id == interaction.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss:
+            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            return
+
+        mini_template_id = boss.minion_template_id
+        if not mini_template_id:
+            await interaction.response.send_message("This boss has no minion template configured.", ephemeral=True)
+            return
+
+        t_result = await db.execute(select(BossTemplate).where(BossTemplate.id == mini_template_id))
+        mini_t = t_result.scalar_one_or_none()
+        if not mini_t:
+            await interaction.response.send_message("Minion template not found.", ephemeral=True)
+            return
+
+        count = boss.minion_count_per_summon or 2
+        for _ in range(count):
+            mini = SpawnedBoss(
+                guild_id=boss.guild_id,
+                channel_id=boss.channel_id,
+                template_id=mini_t.id,
+                display_name=mini_t.name,
+                hp_current=mini_t.hp_max,
+                hp_max=mini_t.hp_max,
+                armor_class=mini_t.armor_class,
+                attack_bonus=mini_t.attack_bonus or 3,
+                damage_dice=mini_t.damage_dice,
+                damage_bonus=mini_t.damage_bonus or 0,
+                xp_value=mini_t.xp_value or 50,
+                parent_boss_id=boss.id,
+                spawned_by=interaction.user.id,
+            )
+            db.add(mini)
+
+    embed = discord.Embed(
+        title=f"👥 Minions Arrive!",
+        description=f"**{count}** **{mini_t.name}**(s) emerge to aid **{boss.display_name}**!",
+        color=0xF97316,
+    )
+    await interaction.response.send_message(embed=embed)
+
+
+# ── /gm boss legendary ────────────────────────────────────────────────────────
+
+@boss_group.command(name="legendary", description="Use a legendary action for the active boss (GM only)")
+@app_commands.describe(action_name="Name of the legendary action to use")
+async def gm_boss_legendary(interaction: discord.Interaction, action_name: str):
+    if not await gm_only(interaction):
+        return
+
+    async with get_db() as db:
+        from database.models import SpawnedBoss
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == interaction.guild_id,
+                SpawnedBoss.channel_id == interaction.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss:
+            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            return
+
+        if boss.legendary_actions_remaining <= 0:
+            await interaction.response.send_message(
+                f"{boss.display_name} has no legendary actions remaining this round.",
+                ephemeral=True,
+            )
+            return
+
+        action = next(
+            (a for a in (boss.legendary_actions or []) if a.get("name", "").lower() == action_name.lower()),
+            None,
+        )
+        if not action:
+            await interaction.response.send_message(
+                f"Legendary action **{action_name}** not found.",
+                ephemeral=True,
+            )
+            return
+
+        cost = action.get("cost", 1)
+        if boss.legendary_actions_remaining < cost:
+            await interaction.response.send_message(
+                f"Need {cost} legendary action(s) but only {boss.legendary_actions_remaining} remaining.",
+                ephemeral=True,
+            )
+            return
+
+        boss.legendary_actions_remaining -= cost
+
+    embed = discord.Embed(
+        title=f"⚡ Legendary Action — {action['name']}",
+        description=action.get("description", f"{boss.display_name} unleashes a legendary power!") or f"{boss.display_name} unleashes a legendary power!",
+        color=0xEF4444,
+    )
+    embed.add_field(name="Legendary Actions Remaining", value=f"{boss.legendary_actions_remaining}/{boss.legendary_action_count}", inline=True)
+    await interaction.response.send_message(embed=embed)
+
+
+# ── /gm boss kill ─────────────────────────────────────────────────────────────
+
+@boss_group.command(name="kill", description="Instantly kill the active boss and award loot/XP (GM only)")
+async def gm_boss_kill(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
+
+    async with get_db() as db:
+        from database.models import SpawnedBoss, Character
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == interaction.guild_id,
+                SpawnedBoss.channel_id == interaction.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss:
+            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            return
+
+        xp_value = boss.xp_value or 500
+        gold_drop = boss.gold_drop or 0
+        loot_table = boss.loot_table or []
+        boss_name = boss.display_name
+
+        # Get active characters for XP split
+        active_chars = await db.execute(
+            select(Character).where(
+                Character.guild_id == interaction.guild_id,
+                Character.is_active == True,
+                Character.is_dead == False,
+            )
+        )
+        combat_participants = list(active_chars.scalars().all())
+        participant_count = max(len(combat_participants), 1)
+        xp_per_player = xp_value // participant_count
+
+        for char in combat_participants:
+            char.xp = (char.xp or 0) + xp_per_player
+            if gold_drop > 0:
+                char.gold = (char.gold or 0) + (gold_drop // participant_count)
+
+        await db.delete(boss)
+
+    embed = discord.Embed(
+        title=f"💀 {boss_name} Defeated!",
+        description=f"The mighty **{boss_name}** has fallen!",
+        color=0x22C55E,
+    )
+    if combat_participants:
+        embed.add_field(
+            name="✨ XP Awarded",
+            value=f"**{xp_per_player} XP** each to {participant_count} player(s)",
+            inline=False,
+        )
+    if gold_drop > 0:
+        embed.add_field(name="💰 Gold", value=f"**{gold_drop}** gold dropped!", inline=True)
+    if loot_table:
+        loot_lines = []
+        for item in loot_table:
+            qty = item.get("qty", 1)
+            chance = item.get("chance", 1.0)
+            qty_str = f"x{qty}" if qty > 1 else ""
+            loot_lines.append(f"• {item.get('item', 'Unknown')} {qty_str} ({round(chance * 100)}% chance)")
+        embed.add_field(name="🎁 Loot Table", value="\n".join(loot_lines) or "None", inline=False)
+    embed.set_footer(text="Use /gm boss spawn to summon another")
+    await interaction.response.send_message(embed=embed)
+
+
+# ── /gm boss flee ─────────────────────────────────────────────────────────────
+
+@boss_group.command(name="flee", description="The active boss flees — awards half XP (GM only)")
+async def gm_boss_flee(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
+
+    async with get_db() as db:
+        from database.models import SpawnedBoss, Character
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == interaction.guild_id,
+                SpawnedBoss.channel_id == interaction.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss:
+            await interaction.response.send_message("No active boss in this channel.", ephemeral=True)
+            return
+
+        xp_value = boss.xp_value or 500
+        xp_half = xp_value // 2
+        boss_name = boss.display_name
+
+        active_chars = await db.execute(
+            select(Character).where(
+                Character.guild_id == interaction.guild_id,
+                Character.is_active == True,
+                Character.is_dead == False,
+            )
+        )
+        combat_participants = list(active_chars.scalars().all())
+        participant_count = max(len(combat_participants), 1)
+        xp_per_player = xp_half // participant_count
+
+        for char in combat_participants:
+            char.xp = (char.xp or 0) + xp_per_player
+
+        await db.delete(boss)
+
+    embed = discord.Embed(
+        title=f"💨 {boss_name} Flees!",
+        description=f"**{boss_name}** retreats in defeat! "
+                    f"The party earns **{xp_per_player} XP** each (half value) for driving it off.",
+        color=0xF97316,
+    )
+    await interaction.response.send_message(embed=embed)
+
+
+# ---------------------------------------------------------------------------
 # Cog
 # ---------------------------------------------------------------------------
 

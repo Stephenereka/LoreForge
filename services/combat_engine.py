@@ -172,6 +172,27 @@ ENEMIES: dict[str, dict] = {
     },
 }
 
+# ── Beast forms for Druid Wild Shape ──────────────────────────────────────────
+
+BEAST_FORMS: dict[str, dict] = {
+    "Wolf": {
+        "ac": 13, "hp": 11,
+        "attack_name": "Bite", "damage_dice": (1, 6), "damage_bonus": 2,
+        "damage_type": "piercing",
+    },
+    "Bear": {
+        "ac": 11, "hp": 34,
+        "attack_name": "Claws", "damage_dice": (2, 6), "damage_bonus": 5,
+        "damage_type": "slashing",
+    },
+    "Eagle": {
+        "ac": 13, "hp": 5,
+        "attack_name": "Talons", "damage_dice": (2, 4), "damage_bonus": 3,
+        "damage_type": "slashing",
+    },
+}
+
+
 def make_enemy(enemy_key: str) -> Combatant:
     t = ENEMIES[enemy_key]
     return Combatant(
@@ -223,6 +244,13 @@ STARTER_WEAPONS: dict[str, str] = {
     "Cleric":    "mace",
     "Warlock":   "unarmed",
     "Heavenly Demon Heir": "longsword",
+    # Phase 4 — Six New Classes
+    "Paladin":   "longsword",
+    "Ranger":    "shortbow",
+    "Druid":     "quarterstaff",
+    "Bard":      "rapier",
+    "Monk":      "unarmed",
+    "Sorcerer":  "unarmed",
 }
 
 STARTER_ATTACKS: dict[str, list[dict]] = {
@@ -296,6 +324,8 @@ WEAPON_DAMAGE: dict[str, tuple[int, int]] = {
     "handaxe":    (1, 6),
     "mace":       (1, 6),
     "quarterstaff":(1, 6),
+    "rapier":     (1, 8),
+    "shortbow":   (1, 6),
     "demonic_gauntlet": (1, 10),
 }
 
@@ -307,6 +337,12 @@ CLASS_ATTACK_STAT = {
     "Wizard":    "int",
     "Warlock":   "cha",
     "Heavenly Demon Heir": "dex",
+    "Paladin":   "str",
+    "Ranger":    "dex",
+    "Druid":     "wis",
+    "Bard":      "cha",
+    "Monk":      "dex",
+    "Sorcerer":  "cha",
 }
 
 def _stat(combatant: Combatant, stat: str) -> int:
@@ -1014,6 +1050,345 @@ def _hellish_rebuke(attacker: Combatant, target: Combatant) -> dict:
     return r
 
 
+# ─── Paladin ──────────────────────────────────────────────────────────────────
+
+def _divine_smite(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Divine Smite")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(_stat(attacker, CLASS_ATTACK_STAT.get(attacker.char_class, "str")))
+    dis = has_condition(attacker, "blinded") or has_condition(attacker, "frightened")
+    adv = has_condition(target, "stunned") or has_condition(target, "prone")
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target), adv, dis)
+    dc, ds = WEAPON_DAMAGE.get(attacker.weapon, (1, 8))
+    if crit: dc *= 2
+    rolls = roll_dice(dc, ds)
+    rad_r = roll_dice(4 if crit else 2, 8)
+    dmg = max(1, sum(rolls) + sm + sum(rad_r))
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    r["log_lines"] = [
+        f"⚡ **{attacker.name}** channels divine power — **Divine Smite**!",
+        f"🎲 d20({raw}) {sm:+} STR  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+        *([f"💥 {dc}d{ds}({sum(rolls)}) + STR({sm:+}) + {'4' if crit else '2'}d8 radiant({sum(rad_r)}) = **{dmg} damage**"] if hit else []),
+    ]
+    return r
+
+
+def _lay_on_hands(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Lay on Hands")
+    heal_r = roll_dice(1, 8)
+    level_bonus = attacker.level
+    amount = max(1, sum(heal_r) + level_bonus)
+    actual = target.heal(amount) if target else attacker.heal(amount)
+    target_name = target.name if target else attacker.name
+    r.update(is_heal=True, heal_amount=actual)
+    r["log_lines"] = [
+        f"✝️ **{attacker.name}** channels healing — **Lay on Hands** on {target_name}!",
+        f"💚 1d8({sum(heal_r)}) + Level({level_bonus}) = **{amount} HP** → healed **{actual} HP** ❤️ `{target.hp_current}/{target.hp_max if target else attacker.hp_max}`",
+    ]
+    return r
+
+
+def _sacred_weapon(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Sacred Weapon")
+    sm = modifier(_stat(attacker, "str"))
+    r["log_lines"] = [
+        f"✨ **{attacker.name}** imbues their weapon with holy light — **Sacred Weapon**!",
+        f"⬆️ +STR_mod({sm:+}) to all attack rolls until rest.",
+    ]
+    return r
+
+
+# ─── Ranger ──────────────────────────────────────────────────────────────────
+
+def _hunters_mark(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Hunter's Mark")
+    forced_id = int(target.id.replace("enemy:", "")) if not target.is_player else int(target.id)
+    r["log_lines"] = [
+        f"🎯 **{attacker.name}** marks **{target.name}** — **Hunter's Mark**!",
+        f"🐾 Deal +1d6 bonus damage on every hit against {target.name} until rest.",
+        f"Target ID set: {forced_id}",
+    ]
+    return r
+
+
+def _volley(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Volley")
+    sm = modifier(_stat(attacker, "dex"))
+    dice_r = roll_dice(1, 6)
+    dmg = max(1, sum(dice_r) + sm)
+    r.update(hit=True, damage=dmg, is_aoe=True)
+    r["log_lines"] = [
+        f"🏹 **{attacker.name}** fires a **Volley**!",
+        f"💥 1d6({sum(dice_r)}) + DEX({sm:+}) = **{dmg} piercing damage** to all enemies!",
+    ]
+    return r
+
+
+def _conceal(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Conceal")
+    sm = modifier(_stat(attacker, "dex"))
+    pb = proficiency_bonus(attacker.level)
+    stealth_roll = roll(20) + sm + pb
+    dc = 12
+    success = stealth_roll >= dc
+    if success:
+        apply_condition(attacker, "hidden", 1)
+        r["self_conditions"].append({"name": "hidden", "duration": 1})
+    r["hit"] = success
+    r["log_lines"] = [
+        f"🌑 **{attacker.name}** attempts to **Conceal** — vanishing into the shadows!",
+        f"🎲 Stealth {stealth_roll} vs DC {dc} — {'✅ Hidden!' if success else '❌ Spotted!'}",
+    ]
+    return r
+
+
+# ─── Druid ───────────────────────────────────────────────────────────────────
+
+def _thorn_whip(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Thorn Whip")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(_stat(attacker, "wis"))
+    dis = has_condition(attacker, "blinded") or has_condition(attacker, "frightened")
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target), False, dis)
+    dice_r = roll_dice(2 if crit else 1, 6)
+    dmg = max(1, sum(dice_r))
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    lines = [
+        f"🌿 **{attacker.name}** lashes with **Thorn Whip** at {target.name}!",
+        f"🎲 d20({raw}) {sm:+} WIS  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {'2' if crit else '1'}d6({sum(dice_r)}) = **{dmg} piercing damage**")
+        str_save = roll(20) + modifier(target.strength)
+        if str_save < 13:
+            apply_condition(target, "prone", 1)
+            r["conditions_applied"].append({"name": "prone", "duration": 1})
+            lines.append(f"⬇️ {target.name} fails STR save ({str_save} vs DC 13) — **Knocked Prone!**")
+        else:
+            lines.append(f"{target.name} passes STR save ({str_save}) — stays standing.")
+    r["log_lines"] = lines
+    return r
+
+
+def _healing_word(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Healing Word")
+    wis_mod = modifier(_stat(attacker, "wis"))
+    heal_r = roll_dice(1, 4)
+    amount = max(1, sum(heal_r) + wis_mod)
+    actual = target.heal(amount) if target else attacker.heal(amount)
+    target_name = target.name if target else attacker.name
+    r.update(is_heal=True, heal_amount=actual)
+    r["log_lines"] = [
+        f"🍃 **{attacker.name}** whispers **Healing Word** to {target_name}!",
+        f"💚 1d4({sum(heal_r)}) + WIS({wis_mod:+}) = **{amount} HP** → healed **{actual} HP** ❤️ `{target.hp_current if target else attacker.hp_current}/{target.hp_max if target else attacker.hp_max}`",
+    ]
+    return r
+
+
+def _entangle(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Entangle")
+    str_save = roll(20) + modifier(target.strength)
+    if str_save < 13:
+        apply_condition(target, "prone", 1)
+        r["conditions_applied"].append({"name": "prone", "duration": 1})
+        r["hit"] = True
+    r["log_lines"] = [
+        f"🌿 **{attacker.name}** casts **Entangle**! Vines erupt from the ground!",
+        f"🎲 {target.name} STR save: {str_save} vs DC 13 — {'⬇️ **Prone!**' if str_save < 13 else '✅ Escapes the vines!'}",
+    ]
+    return r
+
+
+# ─── Bard ────────────────────────────────────────────────────────────────────
+
+def _vicious_mockery(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Vicious Mockery")
+    sm = modifier(_stat(attacker, "cha"))
+    cha_save = roll(20) + modifier(target.charisma)
+    dc = 13
+    saved = cha_save >= dc
+    if not saved:
+        dice_r = roll_dice(1, 4)
+        dmg = max(1, sum(dice_r))
+        r.update(hit=True, damage=dmg)
+        apply_condition(target, "frightened", 1)
+        r["conditions_applied"].append({"name": "frightened", "duration": 1})
+    r["log_lines"] = [
+        f"🎭 **{attacker.name}** unleashes **Vicious Mockery** on {target.name}!",
+        f"🎲 {target.name} WIS save: {cha_save} vs DC {dc} — {'✅ Resisted!' if saved else '❌ Failed!'}",
+        *([f"💥 1d4 = **{r['damage']} psychic damage** — 😨 {target.name} is **Frightened**!"] if not saved else []),
+    ]
+    return r
+
+
+def _cutting_words(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Cutting Words")
+    reduction = roll(6)
+    r.update(hit=True)
+    r["log_lines"] = [
+        f"🎵 **{attacker.name}** cuts deep with healing words — **Cutting Words**!",
+        f"🎲 Spend 1 Bardic Inspiration: enemy roll reduced by **1d6({reduction})**",
+    ]
+    return r
+
+
+def _inspire(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Inspire")
+    target_name = target.name if target else attacker.name
+    r.update(hit=True)
+    r["log_lines"] = [
+        f"🎵 **{attacker.name}** inspires **{target_name}** with their art!",
+        f"⬆️ +2 bonus to {target_name}'s next attack or save roll!",
+    ]
+    return r
+
+
+# ─── Monk ────────────────────────────────────────────────────────────────────
+
+def _flurry_of_blows(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Flurry of Blows")
+    sm = modifier(_stat(attacker, "dex"))
+    pb = proficiency_bonus(attacker.level)
+    hit_penalty = -2
+    total_dmg = 0
+    dmg_lines = []
+    for i in range(2):
+        raw = roll(20)
+        is_crit = raw == 20
+        is_miss = raw == 1
+        total = raw + sm + pb + hit_penalty
+        hit = not is_miss and (is_crit or total >= effective_ac(target))
+        if hit:
+            dice_r = roll_dice(2 if is_crit else 1, 4)
+            dmg = max(1, sum(dice_r) + sm)
+            total_dmg += dmg
+            dmg_lines.append(f"   Strike {i+1}: d20({raw}) {sm:+} DEX  {pb:+} Prof {hit_penalty:+} = **{total}** vs AC {effective_ac(target)} — {'**CRIT!** 🌟' if is_crit else '**HIT!**'} — **{dmg} bludgeoning**")
+        else:
+            dmg_lines.append(f"   Strike {i+1}: d20({raw}) {sm:+} DEX  {pb:+} Prof {hit_penalty:+} = **{total}** vs AC {effective_ac(target)} — {'**NAT 1!**' if is_miss else '**MISS!**'}")
+    r.update(hit=total_dmg > 0, damage=total_dmg)
+    r["log_lines"] = [
+        f"🥋 **{attacker.name}** unleashes **Flurry of Blows** — spending 1 Ki!",
+        *dmg_lines,
+        *([f"💥 Total damage: **{total_dmg} bludgeoning**"] if total_dmg > 0 else []),
+    ]
+    return r
+
+
+def _stunning_strike(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Stunning Strike")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(_stat(attacker, "dex"))
+    dis = has_condition(attacker, "blinded") or has_condition(attacker, "frightened")
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target), False, dis)
+    dc, ds = WEAPON_DAMAGE.get(attacker.weapon, (1, 6))
+    if crit: dc *= 2
+    rolls = roll_dice(dc, ds)
+    dmg = max(1, sum(rolls) + sm)
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    lines = [
+        f"🥋 **{attacker.name}** strikes with **Stunning Strike** — spending 1 Ki!",
+        f"🎲 d20({raw}) {sm:+} DEX  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+    ]
+    if hit:
+        lines.append(f"💥 {dc}d{ds}({sum(rolls)}) + DEX({sm:+}) = **{dmg} damage**")
+        con_save = roll(20) + modifier(target.constitution)
+        if con_save < 13:
+            apply_condition(target, "stunned", 1)
+            r["conditions_applied"].append({"name": "stunned", "duration": 1})
+            lines.append(f"⭐ {target.name} fails CON save ({con_save} vs DC 13) — **Stunned** until end of {attacker.name}'s next turn!")
+        else:
+            lines.append(f"{target.name} passes CON save ({con_save}) — not stunned.")
+    r["log_lines"] = lines
+    return r
+
+
+def _step_of_wind(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Step of the Wind")
+    r.update(hit=True)
+    r["log_lines"] = [
+        f"💨 **{attacker.name}** uses **Step of the Wind** — spending 1 Ki!",
+        f"🛡️ Disengaged! Immune to Prone until next turn.",
+    ]
+    return r
+
+
+# ─── Sorcerer ──────────────────────────────────────────────────────────────
+
+def _chaos_bolt(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Chaos Bolt")
+    raw = roll(20)
+    pb = proficiency_bonus(attacker.level)
+    sm = modifier(_stat(attacker, "cha"))
+    raw, total, hit, crit, miss = _resolve_hit(raw, sm, pb, effective_ac(target))
+    dice_r = roll_dice(2 if crit else 2, 4)
+    dmg = max(1, sum(dice_r))
+    damage_types = ["acid", "cold", "fire", "force", "lightning", "necrotic", "poison", "psychic", "radiant", "thunder"]
+    dtype = damage_types[random.randint(0, len(damage_types) - 1)]
+    r.update(miss=miss, crit=crit, attack_roll=total, hit=hit, damage=dmg if hit else 0)
+    rw = "**CRITICAL HIT!** 🌟" if crit else ("**HIT!**" if hit else ("**NAT 1!**" if miss else "**MISS!**"))
+    doubles = dice_r[0] == dice_r[1] if len(dice_r) >= 2 else False
+    lines = [
+        f"🌀 **{attacker.name}** hurls **Chaos Bolt** at {target.name}!",
+        f"🎲 d20({raw}) {sm:+} CHA  {pb:+} Prof = **{total}** vs AC {effective_ac(target)} — {rw}",
+        *([f"💥 2d4({sum(dice_r)}) = **{dmg} {dtype} damage**"] if hit else []),
+        *([f"⚡ **Doubles!** Chaotic energy chains to a new target!"] if hit and doubles else []),
+    ]
+    r["log_lines"] = lines
+    return r
+
+
+def _twinned_fireball(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Twinned Fireball")
+    sm = modifier(_stat(attacker, "cha"))
+    dice_r = roll_dice(2, 6)
+    dmg = max(1, sum(dice_r) + sm)
+    r.update(hit=True, damage=dmg, is_aoe=True)
+    r["log_lines"] = [
+        f"🔥 **{attacker.name}** casts **Twinned Fireball** — focused at two targets!",
+        f"💥 2d6({sum(dice_r)}) + CHA({sm:+}) = **{dmg} force damage** per target!",
+    ]
+    return r
+
+
+def _wild_surge(attacker: Combatant, target: Combatant) -> dict:
+    r = _base_result("Wild Surge")
+    outcome = roll(3)
+    if outcome == 1:
+        dice_r = roll_dice(3, 8)
+        dmg = max(1, sum(dice_r))
+        r.update(hit=True, damage=dmg, is_aoe=True)
+        r["log_lines"] = [
+            f"💥 **{attacker.name}** unleashes **Wild Surge** — **Explosion!** (rolled 1)",
+            f"🔥 3d8({sum(dice_r)}) = **{dmg} damage** to all enemies!",
+        ]
+    elif outcome == 2:
+        heal_r = roll_dice(2, 8)
+        amount = max(1, sum(heal_r))
+        actual = attacker.heal(amount)
+        r.update(is_heal=True, heal_amount=actual)
+        r["log_lines"] = [
+            f"💚 **{attacker.name}** unleashes **Wild Surge** — **Surge Heal!** (rolled 2)",
+            f"🍃 2d8({sum(heal_r)}) = **{amount} HP** → healed **{actual} HP** ❤️ `{attacker.hp_current}/{attacker.hp_max}`",
+        ]
+    else:
+        target_hp = target.hp_current
+        target.hp_current = attacker.hp_current
+        attacker.hp_current = target_hp
+        r.update(hit=True)
+        r["log_lines"] = [
+            f"🔀 **{attacker.name}** unleashes **Wild Surge** — **HP Swap!** (rolled 3)",
+            f"🔄 **{attacker.name}** and **{target.name}** swap HP!",
+            f"❤️ {attacker.name}: `{attacker.hp_current}/{attacker.hp_max}` | {target.name}: `{target.hp_current}/{target.hp_max}`",
+        ]
+    return r
+
+
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
 _HANDLERS: dict = {
@@ -1038,6 +1413,25 @@ _HANDLERS: dict = {
     "Ray of Frost":   _ray_of_frost,
     "Guiding Bolt":   _guiding_bolt,
     "Hellish Rebuke": _hellish_rebuke,
+    # Phase 4 — New Classes
+    "Divine Smite":   _divine_smite,
+    "Lay on Hands":   _lay_on_hands,
+    "Sacred Weapon":  _sacred_weapon,
+    "Hunter's Mark":  _hunters_mark,
+    "Volley":         _volley,
+    "Conceal":        _conceal,
+    "Thorn Whip":     _thorn_whip,
+    "Healing Word":   _healing_word,
+    "Entangle":       _entangle,
+    "Vicious Mockery":_vicious_mockery,
+    "Cutting Words":  _cutting_words,
+    "Inspire":        _inspire,
+    "Flurry of Blows":_flurry_of_blows,
+    "Stunning Strike":_stunning_strike,
+    "Step of the Wind":_step_of_wind,
+    "Chaos Bolt":     _chaos_bolt,
+    "Twinned Fireball": _twinned_fireball,
+    "Wild Surge":     _wild_surge,
 }
 
 

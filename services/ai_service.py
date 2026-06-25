@@ -1,8 +1,45 @@
 import json
+import httpx
 from openai import AsyncOpenAI
-from config import DEEPSEEK_API_KEY
+from config import DEEPSEEK_API_KEY, DEEPSEEK_API_URL
 
 _client: AsyncOpenAI | None = None
+_httpx_client: httpx.AsyncClient | None = None
+
+
+def _get_httpx_client() -> httpx.AsyncClient:
+    global _httpx_client
+    if _httpx_client is None:
+        _httpx_client = httpx.AsyncClient(
+            base_url=DEEPSEEK_API_URL,
+            timeout=30.0,
+        )
+    return _httpx_client
+
+
+async def _deepseek_call(system_prompt: str, user_prompt: str, max_tokens: int = 200, temperature: float = 0.7) -> str:
+    """Generic call to DeepSeek via httpx. Returns empty string on any failure."""
+    try:
+        client = _get_httpx_client()
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+            },
+            headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return data["choices"][0]["message"]["content"].strip()
+        return ""
+    except Exception:
+        return ""
 
 _OOC_SIGNALS = {
     "lol", "lmao", "haha", "gg", "brb", "nvm", "omg", "wtf", "smh", "lmfao",
@@ -162,3 +199,89 @@ async def classify_combat_action(
     if kw:
         return {"action": kw, "target": None, "weapon": None, "skill_name": None}
     return {"action": "UNCLEAR", "target": None, "weapon": None, "skill_name": None}
+
+
+# ── Phase 4: AI Narration ─────────────────────────────────────────────────────
+
+async def narrate_combat(
+    guild_id: int,
+    attacker_name: str,
+    attack_name: str,
+    weapon: str,
+    target_name: str,
+    result: str,
+    damage: int,
+    hp_remaining: int,
+    conditions: list,
+    world_name: str,
+    lore_snippets: list[str],
+    style: str = "epic",
+) -> str:
+    """Generate a 1-2 sentence combat narration via DeepSeek. Returns empty string on failure."""
+    lore_text = "\n".join(lore_snippets) if lore_snippets else "No additional world context."
+    cond_text = ", ".join(c["name"] if isinstance(c, dict) else str(c) for c in (conditions or [])) or "none"
+    system_prompt = (
+        f"You are a GM narrating combat in {world_name}.\n"
+        f"World facts: {lore_text}\n"
+        f"Style: {style}. Max 2 sentences. Never contradict lore. "
+        "Keep it vivid but brief — just the action, no meta-commentary."
+    )
+    user_prompt = (
+        f"{attacker_name} used {attack_name} ({weapon}) against {target_name} → {result}: {damage} dmg. "
+        f"{target_name} has {hp_remaining} HP remaining. Conditions: {cond_text}."
+    )
+    return await _deepseek_call(system_prompt, user_prompt, max_tokens=120)
+
+
+async def generate_npc_dialogue(
+    npc_name: str,
+    race: str,
+    title: str,
+    personality_traits: str,
+    speaking_style: str,
+    attitude: int,
+    interaction_count: int,
+    last_topic: str,
+    lore_snippets: list[str],
+    player_name: str,
+    player_message: str,
+) -> str:
+    """Generate NPC dialogue via DeepSeek. Returns empty string on failure."""
+    lore_text = "\n".join(lore_snippets) if lore_snippets else "No additional lore."
+    system_prompt = (
+        f"You are {npc_name}, a {race} {title or 'character'}.\n"
+        f"Personality: {personality_traits or 'neutral, polite'}.\n"
+        f"Speaking style: {speaking_style or 'normal'}.\n"
+        f"Your relationship with {player_name}: attitude {attitude}/10, "
+        f"{interaction_count} past conversations, last topic: {last_topic or 'nothing specific'}.\n"
+        f"World facts you know: {lore_text}\n"
+        "Never break character. Max 3 sentences. Speak naturally — don't describe actions in asterisks."
+    )
+    user_prompt = f"{player_name} says to you: \"{player_message}\"\n\nHow do you respond?"
+    return await _deepseek_call(system_prompt, user_prompt, max_tokens=200)
+
+
+async def summarize_session(
+    messages_text: str,
+    characters: list[str],
+    location: str,
+    combat_count: int,
+    quest_completions: int,
+    total_xp: int,
+) -> str:
+    """Generate a 2-3 sentence narrative summary of a session. Returns empty string on failure."""
+    system_prompt = (
+        "You are a session chronicler. Summarize the events of an RPG session "
+        "in 2-3 narrative sentences. Focus on key events, combat, and character moments. "
+        "Be concise and engaging."
+    )
+    user_prompt = (
+        f"Session location: {location}\n"
+        f"Characters: {', '.join(characters)}\n"
+        f"Combat encounters: {combat_count}\n"
+        f"Quests completed: {quest_completions}\n"
+        f"Total XP earned: {total_xp}\n\n"
+        f"Messages from the session:\n{messages_text[:2000]}\n\n"
+        "Write a 2-3 sentence narrative summary."
+    )
+    return await _deepseek_call(system_prompt, user_prompt, max_tokens=250)

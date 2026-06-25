@@ -426,8 +426,54 @@ async def npc_talk(interaction: discord.Interaction, name: str, message: str = N
             mem.last_spoke = datetime.datetime.utcnow()
             mem.interaction_count = (mem.interaction_count or 0) + 1
 
-            # Get response based on keyword matching
-            if message:
+            # AI dialogue if enabled
+            from database.models import AIConfig
+            ai_result = await db.execute(
+                select(AIConfig).where(AIConfig.guild_id == interaction.guild_id)
+            )
+            ai_config = ai_result.scalar_one_or_none()
+
+            if ai_config and ai_config.npc_ai_enabled and message:
+                from services import ai_service
+                # Get lore snippets
+                lore_snippets = ""
+                try:
+                    from database.models import LoreEntry
+                    lore_result = await db.execute(
+                        select(LoreEntry).where(
+                            LoreEntry.guild_id == interaction.guild_id,
+                            LoreEntry.visibility == "public",
+                        ).limit(3)
+                    )
+                    lore_entries = lore_result.scalars().all()
+                    lore_snippets = ". ".join(e.title + ": " + e.content[:100] for e in lore_entries)
+                except Exception:
+                    pass
+
+                # Get player character name
+                player_char = await get_active_char(interaction.user.id, interaction.guild_id)
+                player_name = player_char.name if player_char else interaction.user.display_name
+
+                ai_response = await ai_service.generate_npc_dialogue(
+                    npc_name=npc.name,
+                    race=npc.race or "unknown",
+                    title=npc.title or "",
+                    personality_traits=npc.description[:200] if npc.description else "",
+                    speaking_style=npc.disposition or "neutral",
+                    attitude=mem.attitude or 0,
+                    interaction_count=mem.interaction_count or 0,
+                    last_topic=mem.last_topic or "",
+                    lore_snippets=lore_snippets,
+                    player_name=player_name,
+                    player_message=message,
+                )
+                if ai_response:
+                    response = ai_response
+                    mem.last_topic = message[:100]
+                else:
+                    # AI returned empty — fall through to keyword matching
+                    response = get_npc_response(npc, message, mem) if message else (npc.greeting or "Yes? What is it?")
+            elif message:
                 response = get_npc_response(npc, message, mem)
             else:
                 response = npc.greeting or "Yes? What is it?"

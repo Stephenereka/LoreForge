@@ -761,6 +761,107 @@ async def location_set_image(interaction: discord.Interaction,
 
 # ── World Generation Commands ─────────────────────────────────────────────
 
+@world_group.command(name="validate", description="[GM] Validate a world JSON file before importing")
+@app_commands.describe(json_file="Attach a .json file to validate")
+async def world_validate(interaction: discord.Interaction, json_file: discord.Attachment):
+    if not await gm_only(interaction):
+        return
+    if not json_file.filename.endswith(".json"):
+        await interaction.response.send_message("Attached file must be a `.json` file.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        content = await json_file.read()
+        import json
+        data = json.loads(content)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Failed to parse JSON: {e}", ephemeral=True)
+        return
+
+    errors = []
+
+    # Check required top-level fields
+    if "version" not in data:
+        errors.append("Missing required field: `version`")
+    if "world_name" not in data:
+        errors.append("Missing required field: `world_name`")
+
+    # Collect location names/ids
+    locations = data.get("locations", [])
+    location_names = {loc.get("name"): loc.get("id") for loc in locations}
+    location_ids = {loc.get("id"): loc.get("name") for loc in locations}
+
+    # Validate each location has required fields
+    for i, loc in enumerate(locations):
+        loc_name = loc.get("name", f"locations[{i}]")
+        if "name" not in loc:
+            errors.append(f"locations[{i}]: Missing required field `name`")
+        if "location_type" not in loc:
+            errors.append(f"locations[{i}] (`{loc_name}`): Missing required field `location_type`")
+
+    # Validate NPC location references
+    npcs = data.get("npcs", [])
+    for i, npc in enumerate(npcs):
+        npc_name = npc.get("name", f"npcs[{i}]")
+        loc_id = npc.get("location_id")
+        loc_name_ref = npc.get("location_name")
+        if loc_id:
+            if loc_id not in location_ids:
+                errors.append(f"npcs[{i}] (`{npc_name}`): `location_id` {loc_id} not found in locations")
+        elif loc_name_ref:
+            if loc_name_ref not in location_names:
+                errors.append(f"npcs[{i}] (`{npc_name}`): `location_name` \"{loc_name_ref}\" not found in locations")
+
+    # Validate quest NPC references
+    quests = data.get("quests", [])
+    for i, quest in enumerate(quests):
+        quest_name = quest.get("name", f"quests[{i}]")
+        giver_npc_id = quest.get("giver_npc_id")
+        turnin_npc_id = quest.get("turnin_npc_id")
+        npc_ids = [npc.get("id") for npc in npcs]
+        if giver_npc_id and giver_npc_id not in npc_ids:
+            errors.append(f"quests[{i}] (`{quest_name}`): `giver_npc_id` {giver_npc_id} not found in npcs array")
+        if turnin_npc_id and turnin_npc_id not in npc_ids:
+            errors.append(f"quests[{i}] (`{quest_name}`): `turnin_npc_id` {turnin_npc_id} not found in npcs array")
+
+    # Validate boss template minion references
+    boss_templates = data.get("boss_templates", [])
+    bt_ids = {bt.get("id"): bt.get("name") for bt in boss_templates}
+    for i, bt in enumerate(boss_templates):
+        bt_name = bt.get("name", f"boss_templates[{i}]")
+        minion_id = bt.get("minion_template_id")
+        if minion_id and minion_id not in bt_ids:
+            errors.append(f"boss_templates[{i}] (`{bt_name}`): `minion_template_id` {minion_id} not found in boss_templates array")
+
+    if errors:
+        error_list = "\n".join(f"• {e}" for e in errors[:20])
+        if len(errors) > 20:
+            error_list += f"\n*...and {len(errors)-20} more errors*"
+        embed = discord.Embed(
+            title="❌ Validation Failed",
+            description=f"Found **{len(errors)}** error(s):\n\n{error_list}",
+            color=0xEF4444,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    else:
+        loc_count = len(locations)
+        npc_count = len(npcs)
+        quest_count = len(quests)
+        bt_count = len(boss_templates)
+        embed = discord.Embed(
+            title="✅ Validation Passed",
+            description=f"The world JSON is valid and ready to import!\n\n"
+                        f"📍 **{loc_count}** locations\n"
+                        f"👤 **{npc_count}** NPCs\n"
+                        f"📜 **{quest_count}** quests\n"
+                        f"🗡️ **{bt_count}** boss templates",
+            color=0x22C55E,
+        )
+        embed.set_footer(text="Use /world import to load this data")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 @world_group.command(name="generate", description="[GM] Generate random world locations")
 @app_commands.describe(count="How many locations to generate")
 async def world_generate(interaction: discord.Interaction, count: int = 10):

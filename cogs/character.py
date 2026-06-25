@@ -26,13 +26,20 @@ RACES = {
 }
 
 CLASSES = {
-    "Fighter":   {"hit_die": 10, "primary": "str", "saves": ["str", "con"]},
-    "Rogue":     {"hit_die": 8,  "primary": "dex", "saves": ["dex", "int"]},
-    "Cleric":    {"hit_die": 8,  "primary": "wis", "saves": ["wis", "cha"]},
-    "Wizard":    {"hit_die": 6,  "primary": "int", "saves": ["int", "wis"]},
-    "Barbarian": {"hit_die": 12, "primary": "str", "saves": ["str", "con"]},
-    "Warlock":   {"hit_die": 8,  "primary": "cha", "saves": ["wis", "cha"]},
-    "Heavenly Demon Heir": {"hit_die": 8, "primary": "dex", "saves": ["dex", "wis"]},
+    "Fighter":   {"hit_die": 10, "primary": "str", "armor": "heavy", "saves": ["str", "con"]},
+    "Rogue":     {"hit_die": 8,  "primary": "dex", "armor": "light", "saves": ["dex", "int"]},
+    "Cleric":    {"hit_die": 8,  "primary": "wis", "armor": "medium", "saves": ["wis", "cha"]},
+    "Wizard":    {"hit_die": 6,  "primary": "int", "armor": "none", "saves": ["int", "wis"]},
+    "Barbarian": {"hit_die": 12, "primary": "str", "armor": "medium", "saves": ["str", "con"]},
+    "Warlock":   {"hit_die": 8,  "primary": "cha", "armor": "light", "saves": ["wis", "cha"]},
+    "Heavenly Demon Heir": {"hit_die": 8, "primary": "dex", "armor": "light", "saves": ["dex", "wis"]},
+    # Phase 4 — Six New Classes
+    "Paladin":   {"hit_die": 10, "primary": "str", "armor": "heavy", "description": "A holy warrior who channels divine power to smite enemies and protect allies.", "saves": ["wis", "cha"]},
+    "Ranger":    {"hit_die": 10, "primary": "dex", "armor": "medium", "description": "A skilled hunter who tracks prey across any terrain and strikes with deadly precision.", "saves": ["str", "dex"]},
+    "Druid":     {"hit_die": 8,  "primary": "wis", "armor": "medium", "description": "A shapeshifter and nature caster who commands the forces of the wild.", "saves": ["int", "wis"]},
+    "Bard":      {"hit_die": 8,  "primary": "cha", "armor": "light", "description": "A performer who weaves magic through music and words, inspiring allies and demoralizing foes.", "saves": ["dex", "cha"]},
+    "Monk":      {"hit_die": 8,  "primary": "dex", "armor": "none", "description": "A martial artist who harnesses ki energy to perform superhuman feats of speed and precision.", "saves": ["str", "dex"]},
+    "Sorcerer":  {"hit_die": 6,  "primary": "cha", "armor": "none", "description": "An innate spellcaster whose raw magical power is as unpredictable as it is devastating.", "saves": ["con", "cha"]},
 }
 
 BACKGROUNDS = ["Acolyte", "Criminal", "Soldier", "Noble", "Sage", "Folk Hero"]
@@ -52,6 +59,12 @@ CLASS_STAT_ORDER = {
     "Barbarian": ["str", "con", "dex", "wis", "cha", "int"],
     "Warlock":   ["cha", "con", "dex", "wis", "int", "str"],
     "Heavenly Demon Heir": ["dex", "wis", "con", "int", "str", "cha"],
+    "Paladin":   ["str", "cha", "con", "wis", "dex", "int"],
+    "Ranger":    ["dex", "wis", "con", "str", "int", "cha"],
+    "Druid":     ["wis", "con", "dex", "int", "cha", "str"],
+    "Bard":      ["cha", "dex", "con", "wis", "int", "str"],
+    "Monk":      ["dex", "wis", "str", "con", "int", "cha"],
+    "Sorcerer":  ["cha", "con", "dex", "wis", "int", "str"],
 }
 
 CLASS_DESCRIPTIONS = {
@@ -62,6 +75,12 @@ CLASS_DESCRIPTIONS = {
     "Barbarian": "Rage machine — Bonus damage & resistance",
     "Warlock":   "Pact caster — Eldritch Blast & short-rest slots",
     "Heavenly Demon Heir": "Sword cultivator — Tao system & 24 Demonic Forms",
+    "Paladin":   "Holy warrior — Divine Smite & healing",
+    "Ranger":    "Hunter & tracker — Hunter's Mark & archery",
+    "Druid":     "Nature caster — Wild Shape & beast forms",
+    "Bard":      "Support & face — Bardic Inspiration & magic",
+    "Monk":      "Martial artist — Ki Points & stunning strikes",
+    "Sorcerer":  "Raw power — Chaos Bolt & Wild Surge",
 }
 
 CLASS_INFO = {
@@ -467,6 +486,12 @@ def _starting_resources(char_class: str) -> dict:
             "sword_rain_used": False, "elemental_type": None,
             "tao_exhausted": False,
         },
+        "Paladin":   {"divine_smite_available": True},
+        "Ranger":    {"hunters_mark_active": False, "hunters_mark_target": None},
+        "Druid":     {"wild_shape_uses": 2, "beast_form": None, "beast_hp": 0},
+        "Bard":      {"bardic_inspiration_dice": 3, "bardic_inspiration_max": 3},
+        "Monk":      {"ki_points": 2, "ki_max": 2},
+        "Sorcerer":  {"sorcery_points": 2, "sorcery_points_max": 2},
     }.get(char_class, {})
 
 

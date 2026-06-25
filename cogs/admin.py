@@ -311,7 +311,95 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     e.set_footer(text="Page 9 / 10  —  Rest, Shop & Inventory")
     pages.append(e)
 
-    # Page 6 — GM + Server Setup + Coming Soon (only shown to GMs)
+    # Page 10 — Phase 4: AI System, Sessions, Bosses, New Classes, Approvals
+    e = discord.Embed(title="🤖 Phase 4 — AI, Bosses, Sessions & New Classes", color=0x7C3AED)
+    e.add_field(
+        name="🤖 AI System (toggle per guild)",
+        value=(
+            "`/ai toggle narration` — Toggle AI combat narration (on/off)\n"
+            "`/ai toggle npc` — Toggle AI NPC dialogue generation\n"
+            "`/ai toggle summary` — Toggle AI session summaries\n"
+            "`/ai style <epic|gritty|comedic|minimal>` — Set narration style\n"
+            "`/ai status` — View all AI toggles and current style\n"
+            "*All AI features are OFF by default. Must be enabled per guild.*"
+        ),
+        inline=False,
+    )
+    e.add_field(
+        name="📋 Session Management (GM only)",
+        value=(
+            "`/session start [title]` — Start a session log (pinned embed)\n"
+            "`/session end` — End session, auto-summary if AI enabled\n"
+            "`/session summary` — Generate/regenerate session summary\n"
+            "`/session log` — Paginated list of past sessions (10 per page)"
+        ),
+        inline=False,
+    )
+    e.add_field(
+        name="🗡️ Boss Commands (GM only)",
+        value=(
+            "`/gm boss create` — Create a new boss template (modal wizard)\n"
+            "`/gm boss list` — List all boss templates for this guild\n"
+            "`/gm boss spawn <name>` — Deploy a boss to current channel\n"
+            "`/gm boss force-attack <@user>` — Boss focuses a player\n"
+            "`/gm boss force-ability <name>` — Trigger a phase ability\n"
+            "`/gm boss set-phase <n>` — Manually set boss phase\n"
+            "`/gm boss hp <value>` — Set boss HP directly\n"
+            "`/gm boss summon-minions` — Summon minions for active boss\n"
+            "`/gm boss legendary <action>` — Use a legendary action\n"
+            "`/gm boss kill` — Kill boss, award XP and loot\n"
+            "`/gm boss flee` — Boss flees, award half XP"
+        ),
+        inline=False,
+    )
+    e.add_field(
+        name="⚔️ Six New Classes",
+        value=(
+            "**Paladin** (d10, STR, Heavy) — Holy warrior with Divine Smite, Lay on Hands, Sacred Weapon\n"
+            "**Ranger** (d10, DEX, Medium) — Hunter with Hunter's Mark, Volley, Conceal\n"
+            "**Druid** (d8, WIS, Medium) — Nature caster with Thorn Whip, Healing Word, Entangle\n"
+            "**Bard** (d8, CHA, Light) — Performer with Vicious Mockery, Cutting Words, Inspire\n"
+            "**Monk** (d8, DEX, None) — Martial artist with Flurry of Blows, Stunning Strike, Step of the Wind\n"
+            "**Sorcerer** (d6, CHA, None) — Raw power with Chaos Bolt, Twinned Fireball, Wild Surge"
+        ),
+        inline=False,
+    )
+    e.add_field(
+        name="✨ Special Mechanics",
+        value=(
+            "• **Wild Shape** (`/character wildshape`) — Druids transform into Wolf/Bear/Eagle\n"
+            "• **Ki Points** — Monks spend Ki on Flurry of Blows, Stunning Strike, Step of the Wind\n"
+            "• **Bardic Inspiration** — Bards use Inspiration for Cutting Words and buffing allies\n"
+            "• **Hunter's Mark** — Rangers mark targets for bonus damage\n"
+            "• **Wild Surge** — Sorcerers roll d3 for random effects\n"
+            "*Ki and Bardic Inspiration are tracked per character and reset on long rest.*"
+        ),
+        inline=False,
+    )
+    e.add_field(
+        name="📋 GM Approval Queue",
+        value=(
+            "`/gm pending` — View all pending stat change requests\n"
+            "`/gm pending-user <@user>` — View pending requests for a specific user\n"
+            "`/gm approve <id>` — Approve and apply a pending request\n"
+            "`/gm deny <id> [reason]` — Deny with optional reason\n"
+            "*Cosmetic changes (name, backstory, avatar, proxy) are always instant.*"
+        ),
+        inline=False,
+    )
+    e.add_field(
+        name="🌍 World Validation",
+        value=(
+            "`/world validate <attachment>` — Validate a world JSON file before importing\n"
+            "Checks: required fields, location references, NPC location IDs, quest NPC IDs, boss minion templates\n"
+            "*No DB writes — just validation. Re-import with confidence.*"
+        ),
+        inline=False,
+    )
+    e.set_footer(text="Page 10 / 11  —  Phase 4: AI, Bosses & New Classes")
+    pages.append(e)
+
+    # Page 11 — GM + Server Setup (only shown to GMs)
     if not show_gm:
         # Skip GM page for non-GM users
         pass
@@ -388,7 +476,7 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
             ),
             inline=False,
         )
-        e.set_footer(text="Page 10 / 10  —  GM & Server")
+        e.set_footer(text="Page 11 / 11  —  GM & Server")
         pages.append(e)
 
     # Update all footers dynamically so page count is always accurate
