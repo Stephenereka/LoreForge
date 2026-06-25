@@ -514,13 +514,6 @@ async def loc_connect(interaction: discord.Interaction,
                       travel_time: int = None):
     if not await gm_only(interaction):
         return
-                       from_id: int,
-                       to_id: int,
-                       direction: str,
-                       label: str = None,
-                       is_locked: bool = False,
-                       is_secret: bool = False,
-                       travel_time: int = None):
     if direction.lower() not in DIRECTIONS:
         await interaction.response.send_message(
             f"Invalid direction. Options: {', '.join(DIRECTIONS)}", ephemeral=True
