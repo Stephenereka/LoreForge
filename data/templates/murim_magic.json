@@ -14,6 +14,20 @@
       "population_density": "dense",
       "map_x": 50,
       "map_y": 30,
+      "resources": {
+        "Spirit Herbs": {
+          "dc": 14,
+          "max_qty": 3
+        },
+        "Qi Crystals": {
+          "dc": 18,
+          "max_qty": 1
+        },
+        "Mountain Stone": {
+          "dc": 10,
+          "max_qty": 5
+        }
+      },
       "connections": [
         {
           "direction": "south",
@@ -37,6 +51,16 @@
       "population_density": "dense",
       "map_x": 55,
       "map_y": 25,
+      "resources": {
+        "Arcane Residue": {
+          "dc": 15,
+          "max_qty": 2
+        },
+        "Mana Crystal": {
+          "dc": 20,
+          "max_qty": 1
+        }
+      },
       "connections": [
         {
           "direction": "west",
@@ -60,6 +84,16 @@
       "population_density": "dense",
       "map_x": 50,
       "map_y": 40,
+      "resources": {
+        "Gathered Intelligence": {
+          "dc": 12,
+          "max_qty": 1
+        },
+        "Exotic Spice": {
+          "dc": 10,
+          "max_qty": 4
+        }
+      },
       "connections": [
         {
           "direction": "north",
@@ -87,6 +121,16 @@
       "population_density": "sparse",
       "map_x": 80,
       "map_y": 20,
+      "resources": {
+        "Demonic Qi Fragment": {
+          "dc": 20,
+          "max_qty": 1
+        },
+        "Volcanic Ore": {
+          "dc": 16,
+          "max_qty": 2
+        }
+      },
       "connections": [
         {
           "direction": "south",
@@ -110,6 +154,16 @@
       "population_density": "dense",
       "map_x": 50,
       "map_y": 70,
+      "resources": {
+        "Common Herbs": {
+          "dc": 8,
+          "max_qty": 5
+        },
+        "Iron Ore": {
+          "dc": 12,
+          "max_qty": 3
+        }
+      },
       "connections": [
         {
           "direction": "north",
@@ -133,6 +187,20 @@
       "population_density": "moderate",
       "map_x": 35,
       "map_y": 60,
+      "resources": {
+        "War Salvage": {
+          "dc": 14,
+          "max_qty": 2
+        },
+        "River Reed": {
+          "dc": 10,
+          "max_qty": 4
+        },
+        "Corrupted Qi Shard": {
+          "dc": 18,
+          "max_qty": 1
+        }
+      },
       "connections": [
         {
           "direction": "north",
@@ -160,6 +228,20 @@
       "population_density": "sparse",
       "map_x": 30,
       "map_y": 40,
+      "resources": {
+        "Rift Energy Crystal": {
+          "dc": 18,
+          "max_qty": 1
+        },
+        "Convergence Fragment": {
+          "dc": 22,
+          "max_qty": 1
+        },
+        "Void Stone": {
+          "dc": 20,
+          "max_qty": 1
+        }
+      },
       "connections": [
         {
           "direction": "north",
@@ -183,6 +265,20 @@
       "population_density": "sparse",
       "map_x": 20,
       "map_y": 30,
+      "resources": {
+        "Moonbloom": {
+          "dc": 12,
+          "max_qty": 4
+        },
+        "Silver Bark": {
+          "dc": 15,
+          "max_qty": 2
+        },
+        "Withered Heartwood": {
+          "dc": 18,
+          "max_qty": 1
+        }
+      },
       "connections": [
         {
           "direction": "south",
@@ -206,6 +302,16 @@
       "population_density": "moderate",
       "map_x": 20,
       "map_y": 50,
+      "resources": {
+        "Sky Crystal": {
+          "dc": 16,
+          "max_qty": 2
+        },
+        "Arcane Codex Page": {
+          "dc": 20,
+          "max_qty": 1
+        }
+      },
       "connections": [
         {
           "direction": "north",
@@ -229,6 +335,20 @@
       "population_density": "sparse",
       "map_x": 30,
       "map_y": 55,
+      "resources": {
+        "Blood Sand": {
+          "dc": 12,
+          "max_qty": 5
+        },
+        "Dominion Artifact Shard": {
+          "dc": 18,
+          "max_qty": 1
+        },
+        "Desert Cactus Bloom": {
+          "dc": 14,
+          "max_qty": 3
+        }
+      },
       "connections": [
         {
           "direction": "north",
@@ -256,6 +376,20 @@
       "population_density": "sparse",
       "map_x": 70,
       "map_y": 30,
+      "resources": {
+        "Soul Residue": {
+          "dc": 16,
+          "max_qty": 2
+        },
+        "Bone Dust": {
+          "dc": 12,
+          "max_qty": 4
+        },
+        "Pale Hand Sigil": {
+          "dc": 22,
+          "max_qty": 1
+        }
+      },
       "connections": [
         {
           "direction": "south",
@@ -279,6 +413,20 @@
       "population_density": "sparse",
       "map_x": 80,
       "map_y": 60,
+      "resources": {
+        "Dragon Scale Fragment": {
+          "dc": 22,
+          "max_qty": 1
+        },
+        "Volcanic Ore": {
+          "dc": 14,
+          "max_qty": 3
+        },
+        "Ember Crystal": {
+          "dc": 18,
+          "max_qty": 2
+        }
+      },
       "connections": [
         {
           "direction": "north",
@@ -302,6 +450,16 @@
       "population_density": "moderate",
       "map_x": 85,
       "map_y": 75,
+      "resources": {
+        "Coastal Salt Crystal": {
+          "dc": 10,
+          "max_qty": 5
+        },
+        "Old Bridge Stone": {
+          "dc": 8,
+          "max_qty": 6
+        }
+      },
       "connections": [
         {
           "direction": "east",
@@ -325,6 +483,20 @@
       "population_density": "sparse",
       "map_x": 90,
       "map_y": 80,
+      "resources": {
+        "Dominion Artifact": {
+          "dc": 18,
+          "max_qty": 1
+        },
+        "First Age Scroll": {
+          "dc": 22,
+          "max_qty": 1
+        },
+        "Ancient Runestone": {
+          "dc": 20,
+          "max_qty": 1
+        }
+      },
       "connections": [
         {
           "direction": "west",
@@ -344,6 +516,16 @@
       "population_density": "sparse",
       "map_x": 18,
       "map_y": 28,
+      "resources": {
+        "Pure Harmonic Essence": {
+          "dc": 20,
+          "max_qty": 1
+        },
+        "Nexus Bloom": {
+          "dc": 16,
+          "max_qty": 2
+        }
+      },
       "connections": [
         {
           "direction": "surrounding",
@@ -363,6 +545,20 @@
       "population_density": "sparse",
       "map_x": 72,
       "map_y": 32,
+      "resources": {
+        "Soul Crystal": {
+          "dc": 20,
+          "max_qty": 1
+        },
+        "Death Essence": {
+          "dc": 18,
+          "max_qty": 2
+        },
+        "Necrotic Bone": {
+          "dc": 14,
+          "max_qty": 3
+        }
+      },
       "connections": [
         {
           "direction": "up",
@@ -371,166 +567,307 @@
       ]
     }
   ],
+  "guild_config": {
+    "world_name": "The Merged Realms",
+    "world_data": {
+      "era": "Post-Merge Age",
+      "calendar": "Merged Realms Standard",
+      "currency": "Spirit Stones",
+      "magic_type": "Qi and Mana Convergence",
+      "lore": "A world born from the Rending — a cataclysm that shattered two parallel dimensions into one. Murim cultivators and arcane mages now coexist in an uneasy peace while dark forces exploit the chaos."
+    }
+  },
   "npcs": [
     {
       "name": "Song Linfeng",
       "title": "Grand Elder of the Murim Alliance",
       "race": "Human",
-      "description": "A weathered but dignified man with silver hair. The pragmatic leader who holds the Alliance together.",
-      "appearance": "White robes with gold embroidery, tired eyes.",
+      "description": "A weathered but dignified man with silver hair. The pragmatic leader who holds the Alliance together through diplomacy, willpower, and decades of political experience.",
+      "appearance": "White robes with gold embroidery, tired but sharp eyes that miss nothing.",
       "location_name": "Mount Tianlun — The Jade Palace",
       "disposition": "friendly",
-      "greeting": "Welcome to the Jade Palace. I pray you bring good news.",
+      "greeting": "Welcome to the Jade Palace. I pray you bring good news — we have little enough of it these days.",
       "dialogue_topics": {
-        "alliance": "The Alliance is all that stands between order and chaos.",
-        "war": "The Cult presses us from the west."
+        "alliance": "The Alliance is all that stands between order and chaos — never forget that.",
+        "war": "The Cult presses us from the west. The rifts open from below. We fight on two fronts with half the forces we need.",
+        "cultivation": "The path is long. Do not seek the summit before you have climbed the first peak.",
+        "merge": "When the Rending happened, we lost everything we knew. What we built since is all we have."
       },
       "image_url": "",
-      "faction_name": "Murim Alliance"
+      "faction_name": "Murim Alliance",
+      "proxy_mode": "automatic",
+      "hp_max": 120,
+      "armor_class": 16,
+      "attack_bonus": 8,
+      "damage_dice": "3d6",
+      "damage_bonus": 4,
+      "xp_value": 0,
+      "gold": 500,
+      "shop_inventory": {}
     },
     {
       "name": "Xuan Mo",
       "title": "The Crimson Demon Lord",
       "race": "Human (Corrupted)",
-      "description": "Tall, gaunt, with pale skin and crimson eyes. Ruthless leader of the Cult.",
-      "appearance": "Black-and-crimson robes embroidered with writhing souls.",
+      "description": "Tall, gaunt, with pale skin and crimson eyes that burn with a cold inner light. The ruthless leader of the Heavenly Demon Cult who has consumed the inner demons of a hundred cultivators to fuel his ascension.",
+      "appearance": "Black-and-crimson robes embroidered with writhing souls. His presence warps the air around him.",
       "location_name": "The Black Mountains — Abyss Palace",
       "disposition": "hostile",
-      "greeting": "You have come to die — or to serve.",
+      "greeting": "You have come to die — or to serve. There are no other options in my domain.",
       "dialogue_topics": {
-        "power": "Power is the only law.",
-        "ascension": "I will consume the Convergence Zones and become a god."
+        "power": "Power is the only law. Everything else is the lie weak people tell each other to sleep at night.",
+        "ascension": "I will consume the Convergence Zones and become a god. The only question is whether you will be ash or servant.",
+        "cult": "The Heavenly Demon Cult is not an organization. It is a philosophy made flesh.",
+        "merge": "The Rending was not a disaster. It was an opportunity that only I have truly understood."
       },
       "image_url": "",
-      "faction_name": "Heavenly Demon Cult"
+      "faction_name": "Heavenly Demon Cult",
+      "proxy_mode": "automatic",
+      "hp_max": 250,
+      "armor_class": 20,
+      "attack_bonus": 13,
+      "damage_dice": "3d10",
+      "damage_bonus": 8,
+      "xp_value": 5000,
+      "gold": 1000,
+      "is_hostile": true,
+      "shop_inventory": {}
     },
     {
       "name": "Seraphina Vex",
       "title": "Grand Archmage of the Arcane Council",
       "race": "Human",
-      "description": "A tall, slender woman with silver-white hair and piercing blue eyes.",
-      "appearance": "Deep blue and silver robes, crystalline staff.",
+      "description": "A tall, slender woman with silver-white hair and piercing blue eyes that seem to see through walls. The most politically powerful mage alive, ruling the Arcane Council with cold pragmatism.",
+      "appearance": "Deep blue and silver robes covered in invisible runes, crystalline staff that hums faintly.",
       "location_name": "The Spire of Convergence",
       "disposition": "neutral",
-      "greeting": "Welcome to the Spire. I trust your business is meaningful.",
+      "greeting": "Welcome to the Spire. State your business clearly — my time is not to be wasted.",
       "dialogue_topics": {
-        "merge": "The Merge was no accident.",
-        "magic": "Magic must be studied, understood, and regulated."
+        "merge": "The Merge was no accident. Someone or something engineered the Rending. I intend to find out who.",
+        "magic": "Magic must be studied, understood, and regulated. Untrained mages are more dangerous than any beast.",
+        "qi": "Qi and mana are two frequencies of the same underlying force. The first mage-cultivator hybrid will change everything.",
+        "council": "The Arcane Council is not a democracy. It is a meritocracy. Prove your worth or go home."
       },
       "image_url": "",
-      "faction_name": "Arcane Council"
+      "faction_name": "Arcane Council",
+      "proxy_mode": "automatic",
+      "hp_max": 90,
+      "armor_class": 14,
+      "attack_bonus": 9,
+      "damage_dice": "4d6",
+      "damage_bonus": 3,
+      "xp_value": 0,
+      "gold": 300,
+      "shop_inventory": {
+        "potion": 5,
+        "potion_great": 2
+      }
     },
     {
       "name": "Queen Alyndra Moonshadow",
       "title": "Sovereign of the Silverwood",
       "race": "High Elf",
-      "description": "An ethereally beautiful high elf with silver hair and luminous green eyes.",
-      "appearance": "Crown of living branches, robes of woven moonlight.",
+      "description": "An ethereally beautiful high elf with silver hair and luminous green eyes. Carries the weight of a dying civilization with quiet dignity and ancient sorrow.",
+      "appearance": "Crown of living branches that bloom or wither with her mood. Robes woven from moonlight that shift color like water.",
       "location_name": "The Heartwood Nexus",
       "disposition": "friendly",
-      "greeting": "The Silverwood welcomes you, traveler.",
+      "greeting": "The Silverwood welcomes you, traveler. Few mortals find this place — fewer still are permitted to stay.",
       "dialogue_topics": {
-        "withering": "The Withering consumes my home.",
-        "elves": "My people are all that remain of a lost world."
+        "withering": "The Withering consumes my home. Each season another grove goes dark. I watch my people diminish and cannot stop it.",
+        "elves": "My people are all that remains of a lost world. When the Rending happened, our entire civilization simply... ceased to be. We are the survivors.",
+        "nexus": "The Heartwood Nexus is sacred — the only place qi and mana exist in perfect harmony. It cannot be allowed to fall.",
+        "humans": "Humans are remarkable creatures. So brief, so desperate, so astonishingly tenacious."
       },
       "image_url": "",
-      "faction_name": "Silverwood Dominion"
+      "faction_name": "Silverwood Dominion",
+      "proxy_mode": "automatic",
+      "hp_max": 100,
+      "armor_class": 17,
+      "attack_bonus": 8,
+      "damage_dice": "2d8",
+      "damage_bonus": 4,
+      "xp_value": 0,
+      "gold": 200,
+      "shop_inventory": {}
     },
     {
       "name": "Deng Jie",
       "title": "Founder of the Rift Wardens",
       "race": "Human",
-      "description": "A stocky, scarred man with a shaved head and friendly face.",
-      "appearance": "Leather armor, steel sword, tired eyes.",
+      "description": "A stocky, scarred man with a shaved head and a face that looks like it has been punched by every species in the Merged Realms at least once. Friendly in the way that only someone very dangerous can be.",
+      "appearance": "Worn leather armor with Rift Warden insignia, a battered steel sword, and eyes that evaluate every room for exits.",
       "location_name": "The Convergence Market",
       "disposition": "friendly",
-      "greeting": "Need a job? The Wardens always have contracts.",
+      "greeting": "Need a job? The Wardens always have contracts. Pull up a chair — first round's on the guild.",
       "dialogue_topics": {
-        "wardens": "We clear rifts, hunt monsters, and get paid.",
-        "danger": "The Verdant Wound gets worse every day."
+        "wardens": "We clear rifts, hunt monsters, and get paid. No politics, no sides — just clean honest work.",
+        "danger": "The Verdant Wound gets worse every day. Whatever's on the other side wants through, badly.",
+        "jobs": "Current contracts: three open rifts in the Crimson Desert, an Alpha magi-beast near the Wound, and someone's monster problem in the Serpent River territory.",
+        "fighting": "Don't be a hero. Be smart. Know when to run."
       },
       "image_url": "",
-      "faction_name": "Rift Wardens"
+      "faction_name": "Rift Wardens",
+      "proxy_mode": "automatic",
+      "hp_max": 80,
+      "armor_class": 15,
+      "attack_bonus": 7,
+      "damage_dice": "1d10",
+      "damage_bonus": 5,
+      "xp_value": 0,
+      "gold": 250,
+      "shop_inventory": {
+        "longsword": 3,
+        "shortsword": 5,
+        "handaxe": 8,
+        "leather": 4,
+        "chain": 2,
+        "potion": 10
+      }
     },
     {
       "name": "Valthorax",
       "title": "The Ember King",
       "race": "Red Dragon",
-      "description": "A massive red dragon, scales gleaming like polished rubies.",
-      "appearance": "In human form: a tall man with ruby-red eyes.",
+      "description": "A massive red dragon, scales gleaming like polished rubies. In his human form, he presents as a tall, imperious man with ruby-red eyes and an air of absolute authority. The oldest living creature in the Merged Realms.",
+      "appearance": "Human form: fitted red-and-black robes, ruby rings on every finger. True form: a dragon so large his wingbeats create windstorms.",
       "location_name": "The Dragon's Teeth Mountains",
       "disposition": "neutral",
-      "greeting": "A mortal who dares approach my lair.",
+      "greeting": "A mortal who dares approach my lair. Either you are very brave, very foolish, or you have something interesting to say. Which is it?",
       "dialogue_topics": {
-        "merge": "The Merge is the most interesting thing in millennia.",
-        "power": "Do not mistake my patience for weakness."
+        "merge": "The Merge is the most interesting thing to happen in three thousand years. I have seen empires rise and fall. This? This is new.",
+        "power": "Do not mistake my patience for weakness. I have outlived everyone who made that mistake.",
+        "dragons": "The Ebon Scale Covenant serves one purpose: ensuring our continued survival in this new world. The dragons who refused to adapt are already dead.",
+        "mortals": "You live so briefly. It should make you reckless. Instead most of you choose to be small. Curious."
       },
       "image_url": "",
-      "faction_name": "Ebon Scale Covenant"
+      "faction_name": "Ebon Scale Covenant",
+      "proxy_mode": "automatic",
+      "hp_max": 300,
+      "armor_class": 22,
+      "attack_bonus": 15,
+      "damage_dice": "4d8",
+      "damage_bonus": 10,
+      "xp_value": 10000,
+      "gold": 5000,
+      "shop_inventory": {}
     },
     {
       "name": "Lich Lord Mortis",
       "title": "Leader of the Pale Hand",
       "race": "Undead Human",
-      "description": "A skeletal figure with cold blue pinpricks of light for eyes.",
-      "appearance": "Bones wrapped in shadow, dragon-spine staff.",
+      "description": "A skeletal figure with cold blue pinpricks of light for eyes and an aura of absolute stillness. Once a great scholar, now the most powerful necromancer in the Merged Realms, sustained by centuries of forbidden magic.",
+      "appearance": "Bones wrapped in layers of writhing shadow. A staff carved from a dragon's spine. His voice sounds like it comes from the bottom of a very old grave.",
       "location_name": "Necropolis Omega",
       "disposition": "hostile",
-      "greeting": "Ah... fresh souls.",
+      "greeting": "Ah... fresh souls. How delightful. Do come in — I have been meaning to add to my collection.",
       "dialogue_topics": {
-        "death": "Death is not an end.",
-        "necromancy": "The dead are a resource."
+        "death": "Death is not an end. It is a transition I perfected centuries ago. You, unfortunately, have not.",
+        "necromancy": "The dead are a resource. Humanity wastes its most valuable asset by burying it.",
+        "pale_hand": "The Pale Hand serves one purpose: to unlock the secrets of existence that the living are too squeamish to pursue.",
+        "outsider": "Something came through the rifts with the Merge. Something that predates both worlds. It has been speaking to me."
       },
       "image_url": "",
-      "faction_name": "Pale Hand"
+      "faction_name": "Pale Hand",
+      "proxy_mode": "automatic",
+      "hp_max": 200,
+      "armor_class": 18,
+      "attack_bonus": 10,
+      "damage_dice": "3d8",
+      "damage_bonus": 5,
+      "xp_value": 3000,
+      "gold": 800,
+      "is_hostile": true,
+      "shop_inventory": {}
     },
     {
       "name": "Kaede the Windblade",
       "title": "Leader of the Wandering Sword Association",
       "race": "Human",
-      "description": "A tall, lean woman with weather-beaten skin and sharp eyes.",
-      "appearance": "Traveler's clothes, a long curved sword.",
+      "description": "A tall, lean woman with weather-beaten skin, sharp eyes, and the kind of stillness that means she has already identified three ways to end this conversation if it goes wrong.",
+      "appearance": "Plain traveler's clothes that somehow look elegant on her. A single long curved sword at her hip that she never seems to need to draw.",
       "location_name": "The Convergence Market",
       "disposition": "friendly",
-      "greeting": "Another soul looking for purpose.",
+      "greeting": "Another soul looking for purpose. Sit — the tea is fresh. Tell me what you're looking for.",
       "dialogue_topics": {
-        "swords": "The blade is an extension of the self.",
-        "harmonized": "Qi and mana can coexist."
+        "swords": "The blade is an extension of the self. A sword without conviction is just sharp metal.",
+        "harmonized": "Qi and mana can coexist. I have met one person who achieved it — Yun Mei. She nearly destroyed a mountain by accident.",
+        "unorthodox": "The Wandering Sword serves no side. We go where honor calls. Right now, it's calling toward the Serpent River.",
+        "teaching": "I take two students per year. The selection criteria are my own. Come back when you have something worth showing me."
       },
       "image_url": "",
-      "faction_name": "Unorthodox"
+      "faction_name": "Unorthodox",
+      "proxy_mode": "automatic",
+      "hp_max": 75,
+      "armor_class": 15,
+      "attack_bonus": 9,
+      "damage_dice": "2d8",
+      "damage_bonus": 5,
+      "xp_value": 0,
+      "gold": 150,
+      "shop_inventory": {
+        "shortsword": 2,
+        "quarterstaff": 3,
+        "dagger": 5,
+        "potion": 6
+      }
     },
     {
       "name": "Yun Mei",
       "title": "The First Harmonized",
       "race": "Human",
-      "description": "A young woman with unruly black hair and ink-stained hands.",
-      "appearance": "Traveler's clothes, backpack full of books.",
+      "description": "A young woman with unruly black hair that seems to move on its own, ink-stained hands, and the tendency to explain things at length whether or not you asked. The first human to simultaneously channel qi and mana without dying.",
+      "appearance": "Traveler's clothes worn wrong (jacket inside-out, belt twisted), a backpack that is structurally impossible given how much is in it.",
       "location_name": "The Floating Isles of Aerendor",
       "disposition": "friendly",
-      "greeting": "Oh! A visitor! I love answering questions.",
+      "greeting": "Oh! A visitor! I love answering questions — what do you want to know? Actually wait, let me tell you what I found this morning first, it's important.",
       "dialogue_topics": {
-        "harmonization": "Qi and mana can flow together.",
-        "research": "I've discovered the key is in the soul."
+        "harmonization": "Qi and mana can flow together if you stop thinking of them as separate things. They're both expressions of the same force. I call it Primal Energy but that name hasn't caught on yet.",
+        "research": "I have discovered the key is in the soul itself — not the dantian, not the core, the soul. The soul can hold both. Most people just haven't tried because everyone said it was impossible.",
+        "accident": "The mountain incident was one time and I have since developed much better control. Mostly.",
+        "outsider": "I found something in the Verdant Wound. Something that wasn't qi or mana. It was... older. I think it predates both worlds."
       },
       "image_url": "",
-      "faction_name": "Unorthodox"
+      "faction_name": "Unorthodox",
+      "proxy_mode": "automatic",
+      "hp_max": 45,
+      "armor_class": 12,
+      "attack_bonus": 5,
+      "damage_dice": "2d10",
+      "damage_bonus": 2,
+      "xp_value": 0,
+      "gold": 80,
+      "shop_inventory": {
+        "potion": 8,
+        "potion_great": 3
+      }
     },
     {
       "name": "Grand Elder Feng Wei",
       "title": "Voice of the Lost Age",
       "race": "Human (Spirit)",
-      "description": "A legendary Nascent Soul cultivator who perished in the Merge. His spirit lingers.",
-      "appearance": "A translucent figure in flowing robes.",
+      "description": "A legendary Nascent Soul cultivator who reached the peak of human cultivation and then sacrificed himself to slow the Rending. His spirit lingers at the peak of Mount Tianlun, unable to fully depart and unwilling to simply fade.",
+      "appearance": "A translucent figure in flowing white-and-gold robes. His form flickers slightly, like a candle in a breeze that isn't there.",
       "location_name": "Mount Tianlun — The Jade Palace",
       "disposition": "neutral",
-      "greeting": "I am but a memory now.",
+      "greeting": "I am but a memory now. A strong memory, but a memory nonetheless. What brings you to speak with the dead?",
       "dialogue_topics": {
-        "merging": "Before the Rending, we thought we understood the sky.",
-        "sacrifice": "I pray my sacrifice was not in vain."
+        "merging": "Before the Rending, we thought we understood the heavens. We had mapped the cultivation path to the very top. And then in one night, everything we knew became... insufficient.",
+        "sacrifice": "I pray my sacrifice was not in vain. Slowing the Rending cost me my life, my body, and my chance at immortality. I hope someone is making use of the time I bought.",
+        "past": "The old world was not better than this one. It was simply ours. I miss it the way you miss a person, not a place.",
+        "advice": "Do not wait until you have nothing to lose before you commit. That is the mistake I almost made."
       },
       "image_url": "",
-      "faction_name": "Murim Alliance"
+      "faction_name": "Murim Alliance",
+      "proxy_mode": "automatic",
+      "hp_max": 1,
+      "armor_class": 0,
+      "attack_bonus": 0,
+      "damage_dice": "1d4",
+      "damage_bonus": 0,
+      "xp_value": 0,
+      "gold": 0,
+      "is_killable": false,
+      "shop_inventory": {}
     }
   ],
   "factions": [

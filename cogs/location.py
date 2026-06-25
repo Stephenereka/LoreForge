@@ -1153,6 +1153,20 @@ async def world_load_template(interaction: discord.Interaction, template_name: s
     lore_created = lore_skipped = 0
     bosses_created = bosses_skipped = 0
 
+    # ── Step 0: GuildConfig ────────────────────────────────────────────────
+    if "guild_config" in data:
+        gc_data = data["guild_config"]
+        async with get_db() as db:
+            gc_result = await db.execute(select(GuildConfig).where(GuildConfig.guild_id == guild_id))
+            gc = gc_result.scalar_one_or_none()
+            if not gc:
+                gc = GuildConfig(guild_id=guild_id)
+                db.add(gc)
+            if not gc.world_name or gc.world_name == "LoreForge World":
+                gc.world_name = gc_data.get("world_name", gc.world_name)
+            if gc_data.get("world_data"):
+                gc.world_data = {**(gc.world_data or {}), **gc_data["world_data"]}
+
     # ── Step 1: Locations ──────────────────────────────────────────────────
     loc_name_to_id: dict[str, int] = {}
     async with get_db() as db:
@@ -1181,7 +1195,7 @@ async def world_load_template(interaction: discord.Interaction, template_name: s
                 is_indoors=loc_data.get("is_indoors", False),
                 is_hidden=False,
                 danger_level=loc_data.get("danger_level", 1),
-                resources={},
+                resources=loc_data.get("resources", {}),
                 created_by=bot_user_id,
             )
             db.add(loc)
@@ -1300,6 +1314,8 @@ async def world_load_template(interaction: discord.Interaction, template_name: s
                 appearance=npc_data.get("appearance"),
                 location_id=loc_id,
                 disposition=npc_data.get("disposition", "neutral"),
+                is_hostile=npc_data.get("is_hostile", False),
+                is_killable=npc_data.get("is_killable", True),
                 greeting=npc_data.get("greeting"),
                 dialogue_topics=npc_data.get("dialogue_topics", {}),
                 image_url=npc_data.get("image_url") or None,
@@ -1308,6 +1324,13 @@ async def world_load_template(interaction: discord.Interaction, template_name: s
                 faction_id=faction_id,
                 hp_max=npc_data.get("hp_max", 30),
                 hp_current=npc_data.get("hp_max", 30),
+                armor_class=npc_data.get("armor_class", 10),
+                attack_bonus=npc_data.get("attack_bonus", 2),
+                damage_dice=npc_data.get("damage_dice", "1d6"),
+                damage_bonus=npc_data.get("damage_bonus", 0),
+                xp_value=npc_data.get("xp_value", 50),
+                gold=npc_data.get("gold", 0),
+                shop_inventory=npc_data.get("shop_inventory", {}),
                 created_by=bot_user_id,
             )
             db.add(npc)
