@@ -764,6 +764,221 @@ class AdminCog(commands.Cog, name="Admin"):
             f"*(Run `!seed_world` again to skip existing records)*"
         )
 
+    @commands.command(name="seed_bosses")
+    @commands.is_owner()
+    async def seed_bosses(self, ctx):
+        """Seed 3 pre-built D&D boss templates into this server."""
+        from database.session import get_db
+        from database.models import BossTemplate
+        from sqlalchemy import select
+
+        BOSSES = [
+            dict(
+                name="Malvaxis the Undying",
+                title="Lord of the Eternal Tomb",
+                description=(
+                    "An ancient lich who transcended death centuries ago and now rules a sprawling undead fortress "
+                    "beneath the Ashgate Ruins. His phylactery is hidden deep within his lair — defeat him without "
+                    "finding it and he simply reforms. Cold, calculating, and utterly without mercy, Malvaxis views "
+                    "living beings as raw material for his undead armies."
+                ),
+                hp_max=300,
+                armor_class=17,
+                attack_bonus=9,
+                damage_dice="3d10",
+                damage_bonus=5,
+                xp_value=15000,
+                gold_drop=500,
+                phase_count=3,
+                phase_thresholds=[0.5, 0.25],
+                phase_abilities={
+                    "2": {
+                        "name": "Awaken the Dead",
+                        "description": (
+                            "Malvaxis tears at the veil — 1d4 skeleton warriors claw from the ground at the start "
+                            "of each of his turns (AC 13, 26 HP). His eyes ignite with violet flame and his attacks "
+                            "deal an additional 2d8 necrotic damage."
+                        ),
+                    },
+                    "3": {
+                        "name": "Lichform Unbound",
+                        "description": (
+                            "The lich sheds his mortal pretense entirely. His form becomes partially incorporeal "
+                            "— he gains resistance to all non-magical damage. His legendary action count increases "
+                            "to 5. The air temperature drops 20 degrees and undead creatures in the room are healed "
+                            "for 10 HP at the start of each round."
+                        ),
+                    },
+                },
+                legendary_actions=[
+                    {"name": "Cantrip", "description": "Casts Chill Touch — target cannot regain HP until start of Malvaxis's next turn.", "cost": 0},
+                    {"name": "Soul Drain", "description": "One target takes 2d8+5 necrotic damage and loses 1d4 from their next attack roll.", "cost": 1},
+                    {"name": "Void Burst", "description": "All creatures within 20 ft take 4d10 necrotic damage, DC 16 CON save for half. The ground in the area becomes difficult terrain (bone shards).", "cost": 2},
+                ],
+                legendary_action_count=3,
+                is_lair_boss=True,
+                lair_actions=[
+                    {"name": "Necrotic Surge", "description": "Necrotic energy surges from the floor — one creature must make a DC 15 CON save or take 3d8 necrotic damage and have their max HP reduced by that amount until a long rest.", "initiative_count": 20},
+                    {"name": "Gravewalk", "description": "Malvaxis phases through walls and reappears anywhere within 60 ft of his original position. This movement does not provoke opportunity attacks.", "initiative_count": 10},
+                    {"name": "Bone Cage", "description": "Skeletal arms erupt from the ground to grapple one creature — DC 16 STR to escape. The creature is restrained until they break free.", "initiative_count": 5},
+                ],
+                loot_table=[
+                    {"item": "Phylactery Shard", "chance": 0.30, "qty_min": 1, "qty_max": 1},
+                    {"item": "Staff of the Undying", "chance": 0.10, "qty_min": 1, "qty_max": 1},
+                    {"item": "Lich Crown Fragment", "chance": 0.20, "qty_min": 1, "qty_max": 1},
+                    {"item": "Necrotic Essence", "chance": 0.80, "qty_min": 1, "qty_max": 3},
+                    {"item": "Ancient Gold Coins", "chance": 1.00, "qty_min": 200, "qty_max": 500},
+                ],
+            ),
+            dict(
+                name="Ignarok the Flame Tyrant",
+                title="Scourge of the Crimson Peaks",
+                description=(
+                    "An adult red dragon who has terrorized the Crimson Peaks for three hundred years. Ignarok's "
+                    "hoard is legendary — piled deep within a volcanic lair where the walls run with molten rock. "
+                    "He is arrogant, theatrical, and takes great pleasure in monologuing before incinerating "
+                    "anything that dares challenge him. His breath weapon can incinerate an armored knight instantly."
+                ),
+                hp_max=256,
+                armor_class=19,
+                attack_bonus=13,
+                damage_dice="2d6",
+                damage_bonus=8,
+                xp_value=12000,
+                gold_drop=1000,
+                phase_count=2,
+                phase_thresholds=[0.40],
+                phase_abilities={
+                    "2": {
+                        "name": "Volcanic Rage",
+                        "description": (
+                            "Ignarok takes to the air — he becomes immune to ground-based effects and gains the "
+                            "ability to use his Fire Breath as a bonus action (recharge 5–6). His roar shakes the "
+                            "cavern: all creatures make a DC 18 CON save or be deafened for 1 minute. Each melee "
+                            "hit against him causes 1d6 fire damage back to the attacker from his superheated scales."
+                        ),
+                    },
+                },
+                legendary_actions=[
+                    {"name": "Detect", "description": "Ignarok makes a Wisdom (Perception) check — reveals hidden creatures within 60 ft.", "cost": 0},
+                    {"name": "Tail Swipe", "description": "One creature within 15 ft takes 2d8+8 bludgeoning damage, DC 21 STR or be knocked prone.", "cost": 1},
+                    {"name": "Wing Attack", "description": "All creatures within 15 ft take 2d6+8 bludgeoning damage, DC 19 STR or be knocked back 10 ft and knocked prone. Ignarok can then fly up to half his speed.", "cost": 2},
+                    {"name": "Fire Breath (Recharge)", "description": "60-ft cone of fire — 16d6 fire damage, DC 21 DEX save for half. Can only be used if the ability is recharged (roll 5–6).", "cost": 3},
+                ],
+                legendary_action_count=3,
+                is_lair_boss=True,
+                lair_actions=[
+                    {"name": "Lava Burst", "description": "Magma erupts from fissures — 10-ft radius area of the GM's choice becomes lava terrain (5d10 fire on entry, 5 ft movement costs 10 ft). Lasts 1 minute.", "initiative_count": 20},
+                    {"name": "Volcanic Smoke", "description": "Thick volcanic smoke fills a 40-ft radius area — all creatures in it are heavily obscured and must succeed a DC 14 CON save or be poisoned (disadvantage on attacks) for 1 round.", "initiative_count": 10},
+                    {"name": "Seismic Tremor", "description": "The lair shudders — all creatures on the ground make a DC 15 DEX save or be knocked prone. Structures in the lair take 2d10 bludgeoning damage.", "initiative_count": 5},
+                ],
+                loot_table=[
+                    {"item": "Dragon Scale (Red)", "chance": 0.40, "qty_min": 2, "qty_max": 6},
+                    {"item": "Dragon Fang", "chance": 0.60, "qty_min": 1, "qty_max": 3},
+                    {"item": "Fire Gem", "chance": 0.50, "qty_min": 1, "qty_max": 2},
+                    {"item": "Ancient Hoard Coin", "chance": 1.00, "qty_min": 500, "qty_max": 1000},
+                    {"item": "Ignarok's Crown Scale", "chance": 0.15, "qty_min": 1, "qty_max": 1},
+                ],
+            ),
+            dict(
+                name="The Shadowreaver",
+                title="Blade of the Void",
+                description=(
+                    "A shadow demon fused with the soul of a master assassin — the Shadowreaver exists at the edge "
+                    "of the material plane, slipping between shadows as easily as breathing. It was summoned by a "
+                    "forgotten cult seeking to eliminate key figures in Ironhold, and has since escaped their "
+                    "control entirely. It kills for the pleasure of it now. No one has seen its true face — "
+                    "only the void-black blades that materialize from darkness."
+                ),
+                hp_max=180,
+                armor_class=18,
+                attack_bonus=10,
+                damage_dice="2d8",
+                damage_bonus=6,
+                xp_value=8000,
+                gold_drop=300,
+                phase_count=2,
+                phase_thresholds=[0.30],
+                phase_abilities={
+                    "2": {
+                        "name": "Shadow Form",
+                        "description": (
+                            "The Shadowreaver fully merges with darkness — it becomes resistant to all damage except "
+                            "radiant and force. It gains the ability to teleport up to 60 ft as a bonus action on "
+                            "each turn. All of its attacks now count as critical hits on a 19–20. The lights in the "
+                            "room go out — creatures without darkvision fight at disadvantage."
+                        ),
+                    },
+                },
+                legendary_actions=[
+                    {"name": "Shadow Step", "description": "The Shadowreaver teleports up to 60 ft to an unoccupied space it can see. Does not provoke opportunity attacks.", "cost": 0},
+                    {"name": "Poison Blade", "description": "One creature takes 1d8+6 piercing damage and 2d6 poison damage, DC 16 CON save or be Poisoned (disadvantage on attacks and ability checks) until end of their next turn.", "cost": 1},
+                    {"name": "Void Rend", "description": "A slash of void energy tears through one creature for 3d10+6 necrotic damage, DC 17 CON save or the creature's HP maximum is reduced by the damage taken until they complete a long rest.", "cost": 2},
+                ],
+                legendary_action_count=3,
+                is_lair_boss=False,
+                lair_actions=[],
+                loot_table=[
+                    {"item": "Void Dagger", "chance": 0.10, "qty_min": 1, "qty_max": 1},
+                    {"item": "Shadow Essence", "chance": 0.50, "qty_min": 1, "qty_max": 2},
+                    {"item": "Assassin's Hood", "chance": 0.25, "qty_min": 1, "qty_max": 1},
+                    {"item": "Void Crystal", "chance": 0.35, "qty_min": 1, "qty_max": 2},
+                    {"item": "Dark Coin Purse", "chance": 1.00, "qty_min": 100, "qty_max": 300},
+                ],
+            ),
+        ]
+
+        async with get_db() as db:
+            count = 0
+            for boss_data in BOSSES:
+                existing = await db.execute(
+                    select(BossTemplate).where(
+                        BossTemplate.guild_id == ctx.guild.id,
+                        BossTemplate.name == boss_data["name"],
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    continue
+                boss = BossTemplate(
+                    guild_id=ctx.guild.id,
+                    created_by=ctx.author.id,
+                    **boss_data,
+                )
+                db.add(boss)
+                count += 1
+
+        if count == 0:
+            await ctx.send("All 3 boss templates already exist — nothing to seed.")
+            return
+
+        embed = discord.Embed(
+            title="👹 Boss Templates Seeded",
+            description=f"**{count}** boss template(s) added to this server.",
+            color=0xEF4444,
+        )
+        embed.add_field(
+            name="🦴 Malvaxis the Undying",
+            value="300 HP · AC 17 · 3 phases · Lair boss · 15,000 XP\n*Ancient lich, Ashgate Ruins*",
+            inline=False,
+        )
+        embed.add_field(
+            name="🐉 Ignarok the Flame Tyrant",
+            value="256 HP · AC 19 · 2 phases · Lair boss · 12,000 XP\n*Adult red dragon, Crimson Peaks*",
+            inline=False,
+        )
+        embed.add_field(
+            name="🗡️ The Shadowreaver",
+            value="180 HP · AC 18 · 2 phases · 8,000 XP\n*Shadow assassin demon, anywhere*",
+            inline=False,
+        )
+        embed.add_field(
+            name="How to spawn",
+            value="`/gm boss spawn <name>` — spawns the boss in the current channel\n`/gm boss list` — see all templates with IDs",
+            inline=False,
+        )
+        embed.set_footer(text="LoreForge Boss System · Use !seed_bosses again to skip existing")
+        await ctx.send(embed=embed)
+
 
 async def setup(bot):
     await bot.add_cog(AdminCog(bot))
