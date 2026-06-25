@@ -190,6 +190,19 @@ class TrainingDifficultyView(discord.ui.View):
         self.bot = bot
         self.mode = mode
 
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item) -> None:
+        import traceback
+        traceback.print_exc()
+        print(f"[Training] View error on {item}: {type(error).__name__}: {error}")
+        try:
+            msg = f"Training error: `{type(error).__name__}: {error}`"
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        except Exception:
+            pass
+
     @discord.ui.button(label="Easy 😊", style=discord.ButtonStyle.success, emoji="🟢")
     async def easy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._start_training(interaction, "easy")
@@ -207,14 +220,15 @@ class TrainingDifficultyView(discord.ui.View):
         await self._start_training(interaction, "impossible")
 
     async def _start_training(self, interaction: discord.Interaction, difficulty: str):
-        if interaction.channel_id in active_training:
-            await interaction.response.send_message("Training is already active in this channel.", ephemeral=True)
-            return
-
-        # Defer IMMEDIATELY before any async work to avoid the 3-second Discord window
-        await interaction.response.defer_update()
-
+        import traceback
         try:
+            if interaction.channel_id in active_training:
+                await interaction.response.send_message("Training is already active in this channel.", ephemeral=True)
+                return
+
+            # Acknowledge the button click immediately
+            await interaction.response.defer(ephemeral=True)
+
             char = await get_active_char(interaction.user.id, interaction.guild_id)
             if not char:
                 await interaction.followup.send("You need an active living character to train.", ephemeral=True)
@@ -269,13 +283,20 @@ class TrainingDifficultyView(discord.ui.View):
                 start_content = f"📖 **RP Sparring: {difficulty.title()}** — Write your actions in chat! Type `surrender` to end."
             else:
                 start_content = f"⚔️ **Training: {difficulty.title()}** — Type your actions in chat!"
-            await interaction.edit_original_response(content=start_content, embed=embed, view=None)
+
+            # Send the arena as a fresh channel message (avoids edit_original_response issues)
+            await interaction.channel.send(content=start_content, embed=embed)
+            # Dismiss the ephemeral defer silently
+            await interaction.delete_original_response()
 
         except Exception as e:
-            import traceback
             traceback.print_exc()
+            print(f"[Training] _start_training error: {type(e).__name__}: {e}")
             try:
-                await interaction.followup.send(f"Failed to start training: `{type(e).__name__}: {e}`", ephemeral=True)
+                if interaction.response.is_done():
+                    await interaction.followup.send(f"Failed to start training: `{type(e).__name__}: {e}`", ephemeral=True)
+                else:
+                    await interaction.response.send_message(f"Failed to start training: `{type(e).__name__}: {e}`", ephemeral=True)
             except Exception:
                 pass
 
