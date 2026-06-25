@@ -1,11 +1,12 @@
 import asyncio
 import random
+import math
 import discord
 from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
 from database.session import get_db
-from database.models import Character, GuildConfig
+from database.models import Character, GuildConfig, SpawnedBoss, BossTemplate, AIConfig
 from services.combat_engine import (
     Combatant, player_attack, player_defend, roll_initiative,
     roll, modifier, resolve_named_attack, detect_attack_name,
@@ -115,10 +116,17 @@ class CombatSession:
             self.current_idx = (self.current_idx + 1) % len(self.turn_order)
             if self.current_idx == 0:
                 self.round += 1
+                self._new_round = True  # flag for boss lair action check
+            else:
+                self._new_round = False
             c = self.turn_order[self.current_idx]
             if c.is_dead:
                 continue
             break
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._new_round = False
 
     def user_id_for(self, combatant: Combatant) -> int | None:
         try:
@@ -601,6 +609,38 @@ async def _update_status_and_prompt(session: CombatSession, next_c: Combatant):
     for line in dot_lines:
         await session.status_message.channel.send(line)
 
+    # Perfect Tao Circulation — regen WIS mod Tao at start of each turn (level 10+)
+    if next_c.char_class == "Heavenly Demon Heir" and next_c.level >= 10 and next_c.is_player:
+        try:
+            from sqlalchemy.orm.attributes import flag_modified
+            async with get_db() as db:
+                result = await db.execute(
+                    select(Character).where(
+                        Character.user_id == int(next_c.id),
+                        Character.guild_id == session.guild_id,
+                        Character.is_active == True,
+                    )
+                )
+                char_row = result.scalar_one_or_none()
+                if char_row:
+                    res = char_row.class_resources or {}
+                    wis_mod = max(0, (char_row.wisdom - 10) // 2)
+                    regen = max(1, wis_mod)
+                    tao_max = res.get("tao_max", 2)
+                    cur = res.get("tao_current", 0)
+                    if cur < tao_max:
+                        new_tao = min(tao_max, cur + regen)
+                        res["tao_current"] = new_tao
+                        res["tao_exhausted"] = False
+                        char_row.class_resources = res
+                        flag_modified(char_row, "class_resources")
+                        await db.commit()
+                        await session.status_message.channel.send(
+                            f"🌀 **Perfect Tao Circulation** — {next_c.name} regains {regen} Tao ({new_tao}/{tao_max})"
+                        )
+        except Exception:
+            pass
+
     if next_c.is_dead:
         session.add_log(f"💀 {next_c.name} dies from their wounds!")
         living = session.living_players
@@ -632,6 +672,149 @@ async def _update_status_and_prompt(session: CombatSession, next_c: Combatant):
             content=f"**{next_c.name}** — it's your turn. {action_hint}",
             embed=session.status_embed(),
         )
+
+
+# ── Boss state helpers ─────────────────────────────────────────────────────────
+
+async def _check_boss_state(session: CombatSession) -> list[str]:
+    """Check active SpawnedBoss in this channel for phase changes, and return log lines."""
+    lines = []
+    channel = session.status_message.channel if session.status_message else None
+    if not channel:
+        return lines
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == session.guild_id,
+                SpawnedBoss.channel_id == session.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss:
+            return lines
+
+        if not boss.phase_thresholds:
+            return lines
+
+        pct = (boss.hp_current / boss.hp_max) * 100 if boss.hp_max > 0 else 0
+        for i, threshold in enumerate(boss.phase_thresholds):
+            if pct <= threshold:
+                new_phase = i + 2
+                if new_phase > boss.current_phase and new_phase <= (boss.phase_count or 1):
+                    boss.current_phase = new_phase
+                    phase_descriptions = {
+                        2: "The boss becomes more aggressive — new abilities unlock!",
+                        3: "The boss is enraged! Powerful attacks are unleashed!",
+                        4: "Desperate measures — the boss fights with everything it has!",
+                    }
+                    desc = phase_descriptions.get(new_phase, "The boss transforms!")
+                    embed = discord.Embed(
+                        title=f"⚡ Phase Change!",
+                        description=f"**{boss.display_name}** shifts to **Phase {new_phase}**!\n\n*{desc}*",
+                        color=0xEF4444,
+                    )
+                    await channel.send(embed=embed)
+                    lines.append(f"[BOSS] {boss.display_name} enters Phase {new_phase}!")
+
+    return lines
+
+
+async def _check_lair_action(session: CombatSession) -> list[str]:
+    """Check if a lair action should fire at initiative 20."""
+    lines = []
+    channel = session.status_message.channel if session.status_message else None
+    if not channel:
+        return lines
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == session.guild_id,
+                SpawnedBoss.channel_id == session.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss or not boss.is_lair_boss or not boss.lair_actions:
+            return lines
+
+        # Rotate through lair actions based on round
+        idx = (session.round - 1) % len(boss.lair_actions)
+        action = boss.lair_actions[idx]
+        action_name = action.get("name", "Environment Effect")
+        action_desc = action.get("description", "Something happens in the environment...") or "Something happens in the environment..."
+        action_effect = action.get("effect", "")
+
+        embed = discord.Embed(
+            title=f"🏰 Lair Action — {action_name}",
+            description=action_desc,
+            color=0x6366F1,
+        )
+        if action_effect:
+            embed.add_field(name="Effect", value=action_effect, inline=False)
+        await channel.send(embed=embed)
+        lines.append(f"[LAIR] {action_name}: {action_desc[:80]}")
+
+    return lines
+
+
+async def _check_boss_legendary(session: CombatSession) -> list[str]:
+    """After a player's turn, auto-trigger a 1-cost legendary action if available."""
+    lines = []
+    channel = session.status_message.channel if session.status_message else None
+    if not channel:
+        return lines
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == session.guild_id,
+                SpawnedBoss.channel_id == session.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss or not boss.legendary_actions:
+            return lines
+
+        if boss.legendary_actions_remaining <= 0:
+            return lines
+
+        # Find the first 1-cost action
+        one_cost = next((a for a in boss.legendary_actions if a.get("cost", 1) == 1), None)
+        if not one_cost:
+            return lines
+
+        boss.legendary_actions_remaining -= 1
+        action_name = one_cost.get("name", "Legendary Attack")
+        action_desc = one_cost.get("description", f"{boss.display_name} uses legendary power!") or f"{boss.display_name} uses legendary power!"
+
+        embed = discord.Embed(
+            title=f"⚡ Legendary Action — {action_name}",
+            description=action_desc,
+            color=0xEF4444,
+        )
+        embed.set_footer(text=f"Legendary actions remaining: {boss.legendary_actions_remaining}/{boss.legendary_action_count}")
+        await channel.send(embed=embed)
+        lines.append(f"[LEGENDARY] {boss.display_name} uses {action_name}")
+
+    return lines
+
+
+async def _reset_boss_legendary(session: CombatSession):
+    """Reset legendary actions at the start of the boss's turn."""
+    async with get_db() as db:
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == session.guild_id,
+                SpawnedBoss.channel_id == session.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if boss:
+            boss.legendary_actions_remaining = boss.legendary_action_count
+
+
+_BOSS_INITIATIVE = 15  # Boss acts on initiative 15
 
 
 async def _resolve_player_action(session: CombatSession, action_data: dict):
@@ -763,7 +946,38 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
         healed = player.heal(roll(4) + 2)
         session.add_log(f"🧪 {player.name} uses a potion — healed **{healed} HP**!")
 
+    # ── Boss integration: legendary action after player turn ──
+    try:
+        boss_legendary_lines = await _check_boss_legendary(session)
+        for line in boss_legendary_lines:
+            session.add_log(line)
+    except Exception:
+        pass
+
+    # ── Boss integration: check phase changes after damage ──
+    try:
+        boss_phase_lines = await _check_boss_state(session)
+        for line in boss_phase_lines:
+            session.add_log(line)
+    except Exception:
+        pass
+
     session.advance_turn()
+
+    # ── Boss integration: lair action at start of new round ──
+    if getattr(session, '_new_round', False):
+        try:
+            boss_lair_lines = await _check_lair_action(session)
+            for line in boss_lair_lines:
+                session.add_log(line)
+        except Exception:
+            pass
+        # Reset legendary actions for new round
+        try:
+            await _reset_boss_legendary(session)
+        except Exception:
+            pass
+
     await _update_status_and_prompt(session, session.current_combatant)
 
 

@@ -309,26 +309,6 @@ class HeavenlyDemonCog(commands.Cog):
         e = _hd_embed("🌀 Tao Restored", f"**{char.name}**'s Tao has been fully restored.\n**{tao_mx}/{tao_mx}** Tao · All cooldowns reset.")
         await interaction.response.send_message(embed=e, ephemeral=True)
 
-    @tao_group.command(name="tick", description="Apply Perfect Tao Circulation regen (level 10+)")
-    async def tao_tick(self, interaction: discord.Interaction):
-        if interaction.user.id != OWNER_ID:
-            return
-        char = await _get_hd_char(interaction)
-        if not char:
-            await interaction.response.send_message("No active Heavenly Demon Heir found.", ephemeral=True)
-            return
-        if char.level < 10:
-            await interaction.response.send_message("Perfect Tao Circulation unlocks at level 10.", ephemeral=True)
-            return
-        res = _res(char)
-        cur = res.get("tao_current", 0)
-        tao_mx = _tao_max(char)
-        regen = max(1, _mod(char.wisdom))
-        new_tao = min(tao_mx, cur + regen)
-        await _update_resources(char.id, {"tao_current": new_tao, "tao_exhausted": False})
-        e = _hd_embed("🌀 Perfect Tao Circulation", f"Tao regened from **{cur}** → **{new_tao}/{tao_mx}**\n*(+{regen} from WIS modifier)*")
-        await interaction.response.send_message(embed=e, ephemeral=True)
-
     # ── /form group ──────────────────────────────────────────────────────────
 
     form_group = app_commands.Group(name="form", description="Demonic Sword Forms")
@@ -548,24 +528,6 @@ class HeavenlyDemonCog(commands.Cog):
         else:
             e = _hd_embed("🗡️ Demonic Dual Wield Stance — Deactivated",
                 "You sheathe your off-hand blade and return to standard combat posture.")
-        await interaction.response.send_message(embed=e, ephemeral=True)
-
-    @hd_group.command(name="flight", description="Activate Sword Flight (level 2+)")
-    async def hd_flight(self, interaction: discord.Interaction):
-        if interaction.user.id != OWNER_ID:
-            return
-        char = await _get_hd_char(interaction)
-        if not char:
-            await interaction.response.send_message("No active Heavenly Demon Heir found.", ephemeral=True)
-            return
-        if char.level < 2:
-            await interaction.response.send_message("Sword Flight unlocks at level 2.", ephemeral=True)
-            return
-        e = _hd_embed("⚔️✈️ Sword Flight Active",
-            f"**{char.name}** channels Tao into their blade and rises into the air.\n\n"
-            f"Flying speed: **{30} ft** (equal to walking speed).\n"
-            "Concentration required — if incapacitated, the sword falls.")
-        e.set_footer(text="At level 7, this evolves into Tao Sword Control — command multiple blades telekinetically.")
         await interaction.response.send_message(embed=e, ephemeral=True)
 
     @hd_group.command(name="phantom", description="Use Phantom Step — spend 1 Tao to teleport 30 ft (level 4+)")
@@ -871,54 +833,6 @@ class HeavenlyDemonCog(commands.Cog):
         e.add_field(name="🌀 Tao", value=f"{cur} → **0** 💀 Tao Exhausted", inline=False)
         e.set_footer(text="1/long rest · When the Heavenly Demon gazes upon the battlefield, even the sky trembles.")
         await interaction.followup.send(embed=e, ephemeral=True)
-
-    @hd_group.command(name="sheet", description="View your full Heavenly Demon Heir class sheet")
-    async def hd_sheet(self, interaction: discord.Interaction):
-        if interaction.user.id != OWNER_ID:
-            return
-        char = await _get_hd_char(interaction)
-        if not char:
-            await interaction.response.send_message("No active Heavenly Demon Heir found.", ephemeral=True)
-            return
-        res = _res(char)
-        pb = _PROF_BONUS.get(char.level, 2)
-        dex_mod = _mod(char.dexterity)
-        wis_mod = _mod(char.wisdom)
-        tao_mx = _tao_max(char)
-        cur = res.get("tao_current", 0)
-        dc = 8 + pb + wis_mod
-        cnt, sides = _sword_die(char.level)
-        dmg_die = f"{cnt}d{sides}"
-        e = _hd_embed(f"📜 {char.name} — Heavenly Demon Heir",
-            f"Level {char.level} {char.race} | {char.hp_current}/{char.hp_max} HP | AC {char.armor_class}")
-        e.add_field(name="🌀 Tao", value=f"{cur}/{tao_mx}", inline=True)
-        e.add_field(name="⚔️ Path", value=res.get("hd_path") or "None", inline=True)
-        e.add_field(name="🗡️ Swords", value=f"{res.get('controlled_swords',0)} active", inline=True)
-        e.add_field(name="📊 Combat Stats", value=
-            f"Attack: d20 +{pb + dex_mod} | Sword Die: {dmg_die} +{dex_mod}\n"
-            f"Save DC: {dc} | Crit: {'18-20' if char.level >= 20 else '20'}", inline=False)
-        # Unlocked forms
-        unlocked = [n for n, f in FORMS.items() if char.level >= f["unlock"]]
-        e.add_field(name=f"✅ Unlocked Forms ({len(unlocked)}/24)",
-            value=", ".join(unlocked[:12]) + (f" *(+{len(unlocked)-12} more)*" if len(unlocked) > 12 else ""),
-            inline=False)
-        # Key features
-        features = ["Nano System (advantage on initiative, reroll 1 atk/turn)"]
-        if char.level >= 2: features.append("Sword Flight")
-        if char.level >= 4: features.append("Phantom Step (1 Tao, 30 ft teleport)")
-        if char.level >= 5: features.append("Extra Attack")
-        if char.level >= 6: features.append("Tao Empowered Strikes (magical attacks)")
-        if char.level >= 7: features.append("Tao Sword Control")
-        if char.level >= 10: features.append("Perfect Tao Circulation (regen WIS mod/turn)")
-        if char.level >= 15: features.append("Heavenly Demon Body")
-        if char.level >= 20: features.append("Heavenly Demon Ascension (crit 18-20, free bonus attack)")
-        e.add_field(name="✨ Class Features", value="\n".join(f"• {f}" for f in features), inline=False)
-        if res.get("elemental_type"):
-            emoji = ELEMENT_EMOJI.get(res["elemental_type"], "")
-            e.add_field(name="🌪️ Element", value=f"{emoji} {res['elemental_type']}", inline=True)
-        stance = "🗡️🗡️ Active" if res.get("hd_dual_wield") else "Off"
-        e.add_field(name="⚔️ Dual Wield Stance", value=stance, inline=True)
-        await interaction.response.send_message(embed=e, ephemeral=True)
 
     # ── Comprehensive Codex Viewer ──────────────────────────────────────────
 
