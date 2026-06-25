@@ -211,64 +211,73 @@ class TrainingDifficultyView(discord.ui.View):
             await interaction.response.send_message("Training is already active in this channel.", ephemeral=True)
             return
 
-        char = await get_active_char(interaction.user.id, interaction.guild_id)
-        if not char:
-            await interaction.response.send_message("You need an active living character.", ephemeral=True)
-            return
-
-        # Defer so we have time to create the webhook
+        # Defer IMMEDIATELY before any async work to avoid the 3-second Discord window
         await interaction.response.defer_update()
 
-        dummy = TrainingDummy(difficulty)
-
-        player_combatant = Combatant(
-            id=str(interaction.user.id),
-            name=char.name,
-            is_player=True,
-            level=char.level,
-            char_class=char.char_class,
-            hp_max=char.hp_max,
-            hp_current=char.hp_current,
-            hp_temp=char.hp_temp,
-            strength=char.strength, dexterity=char.dexterity,
-            constitution=char.constitution, intelligence=char.intelligence,
-            wisdom=char.wisdom, charisma=char.charisma,
-            armor_class=char.armor_class,
-            is_dead=False, is_unconscious=False,
-            death_saves_success=0, death_saves_failure=0,
-            conditions=[],
-            class_resources=dict(char.class_resources or {}),
-            weapon="unarmed",
-        )
-
-        session = TrainingSessionData(
-            channel_id=interaction.channel_id,
-            user_id=interaction.user.id,
-            guild_id=interaction.guild_id,
-            character_id=char.id,
-            difficulty=difficulty,
-            player=player_combatant,
-            dummy=dummy,
-            mode=self.mode,
-        )
-
-        # Create webhook so dummy speaks with its own identity
         try:
-            session.webhook = await interaction.channel.create_webhook(
-                name=_DIFFICULTY_LABEL.get(difficulty, "Training Dummy"),
-                reason="LoreForge training dummy",
+            char = await get_active_char(interaction.user.id, interaction.guild_id)
+            if not char:
+                await interaction.followup.send("You need an active living character to train.", ephemeral=True)
+                return
+
+            dummy = TrainingDummy(difficulty)
+
+            player_combatant = Combatant(
+                id=str(interaction.user.id),
+                name=char.name,
+                is_player=True,
+                level=char.level,
+                char_class=char.char_class,
+                hp_max=char.hp_max,
+                hp_current=char.hp_current,
+                hp_temp=char.hp_temp,
+                strength=char.strength, dexterity=char.dexterity,
+                constitution=char.constitution, intelligence=char.intelligence,
+                wisdom=char.wisdom, charisma=char.charisma,
+                armor_class=char.armor_class,
+                is_dead=False, is_unconscious=False,
+                death_saves_success=0, death_saves_failure=0,
+                conditions=[],
+                class_resources=dict(char.class_resources or {}),
+                weapon="unarmed",
             )
+
+            session = TrainingSessionData(
+                channel_id=interaction.channel_id,
+                user_id=interaction.user.id,
+                guild_id=interaction.guild_id,
+                character_id=char.id,
+                difficulty=difficulty,
+                player=player_combatant,
+                dummy=dummy,
+                mode=self.mode,
+            )
+
+            # Create webhook so dummy speaks with its own identity
+            try:
+                session.webhook = await interaction.channel.create_webhook(
+                    name=_DIFFICULTY_LABEL.get(difficulty, "Training Dummy"),
+                    reason="LoreForge training dummy",
+                )
+            except Exception as e:
+                print(f"[Training] Webhook creation failed: {e}")
+
+            active_training[interaction.channel_id] = session
+
+            embed = session.arena_embed()
+            if self.mode == "rp":
+                start_content = f"📖 **RP Sparring: {difficulty.title()}** — Write your actions in chat! Type `surrender` to end."
+            else:
+                start_content = f"⚔️ **Training: {difficulty.title()}** — Type your actions in chat!"
+            await interaction.edit_original_response(content=start_content, embed=embed, view=None)
+
         except Exception as e:
-            print(f"[Training] Webhook creation failed: {e}")
-
-        active_training[interaction.channel_id] = session
-
-        embed = session.arena_embed()
-        if self.mode == "rp":
-            start_content = f"📖 **RP Sparring: {difficulty.title()}** — Write your actions in chat! Type `surrender` to end."
-        else:
-            start_content = f"⚔️ **Training: {difficulty.title()}** — Type your actions in chat!"
-        await interaction.edit_original_response(content=start_content, embed=embed, view=None)
+            import traceback
+            traceback.print_exc()
+            try:
+                await interaction.followup.send(f"Failed to start training: `{type(e).__name__}: {e}`", ephemeral=True)
+            except Exception:
+                pass
 
 
 async def get_active_char(user_id: int, guild_id: int):
