@@ -98,9 +98,9 @@ async def characters_page(
 
     except Exception as e:
         return templates.TemplateResponse(
+            request,
             "error.html",
             {
-                "request": request,
                 "session": session,
                 "title": "Database Error",
                 "message": f"Could not load characters: {str(e)}",
@@ -151,9 +151,9 @@ async def characters_page(
         })
 
     return templates.TemplateResponse(
+        request,
         "characters.html",
         {
-            "request": request,
             "session": session,
             "world_name": world_name,
             "characters": char_list,

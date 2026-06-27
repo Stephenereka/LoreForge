@@ -100,9 +100,9 @@ async def lore_page(
 
     except Exception as e:
         return templates.TemplateResponse(
+            request,
             "error.html",
             {
-                "request": request,
                 "session": session,
                 "title": "Library Access Denied",
                 "message": f"The archives could not be reached: {str(e)}",
@@ -140,9 +140,9 @@ async def lore_page(
         }
 
     return templates.TemplateResponse(
+        request,
         "lore.html",
         {
-            "request": request,
             "session": session,
             "entries": entry_list,
             "selected_entry": selected_data,

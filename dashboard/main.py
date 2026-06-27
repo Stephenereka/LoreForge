@@ -90,9 +90,9 @@ app.include_router(bestiary.router)
 async def not_found(request: Request, exc):
     session = get_session(request)
     return templates.TemplateResponse(
+        request,
         "error.html",
         {
-            "request": request,
             "session": session or {},
             "title": "The Path is Lost in Shadows...",
             "message": "404 — The page you seek does not exist in this realm.",
@@ -106,9 +106,9 @@ async def not_found(request: Request, exc):
 async def server_error(request: Request, exc):
     session = get_session(request)
     return templates.TemplateResponse(
+        request,
         "error.html",
         {
-            "request": request,
             "session": session or {},
             "title": "The Weave is Broken",
             "message": "500 — A great disturbance in the weave. Try again later.",

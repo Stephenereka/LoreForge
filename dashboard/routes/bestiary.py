@@ -53,9 +53,9 @@ async def bestiary_page(
 
     except Exception as e:
         return templates.TemplateResponse(
+            request,
             "error.html",
             {
-                "request": request,
                 "session": session,
                 "title": "Bestiary Error",
                 "message": f"The bestiary could not be opened: {str(e)}",
@@ -110,9 +110,9 @@ async def bestiary_page(
         })
 
     return templates.TemplateResponse(
+        request,
         "bestiary.html",
         {
-            "request": request,
             "session": session,
             "bosses": boss_list,
             "npcs": npc_list,

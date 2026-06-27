@@ -47,9 +47,9 @@ async def map_page(request: Request):
 
     except Exception as e:
         return templates.TemplateResponse(
+            request,
             "error.html",
             {
-                "request": request,
                 "session": session,
                 "title": "Cartography Error",
                 "message": f"The map could not be loaded: {str(e)}",
@@ -86,9 +86,9 @@ async def map_page(request: Request):
         })
 
     return templates.TemplateResponse(
+        request,
         "map.html",
         {
-            "request": request,
             "session": session,
             "world_map_url": world_map_url,
             "world_name": guild_config.world_name if guild_config else "LoreForge World",

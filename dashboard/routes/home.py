@@ -28,8 +28,9 @@ async def login_page(request: Request):
     if session:
         return RedirectResponse(url="/dashboard/", status_code=302)
     return templates.TemplateResponse(
+        request,
         "login.html",
-        {"request": request, "session": {}, "oauth_url": OAUTH2_URL},
+        {"session": {}, "oauth_url": OAUTH2_URL},
     )
 
 
@@ -46,9 +47,9 @@ async def oauth_callback(request: Request, code: str = None, error: str = None):
     """Handle Discord OAuth2 redirect."""
     if error or not code:
         return templates.TemplateResponse(
+            request,
             "error.html",
             {
-                "request": request,
                 "session": {},
                 "title": "OAuth Error",
                 "message": f"Discord login failed: {error or 'No code received'}",
@@ -60,9 +61,9 @@ async def oauth_callback(request: Request, code: str = None, error: str = None):
     token_data = await exchange_code(code)
     if not token_data:
         return templates.TemplateResponse(
+            request,
             "error.html",
             {
-                "request": request,
                 "session": {},
                 "title": "Token Exchange Failed",
                 "message": "Could not complete login. Please try again.",
@@ -74,9 +75,9 @@ async def oauth_callback(request: Request, code: str = None, error: str = None):
     user = await get_discord_user(access_token)
     if not user:
         return templates.TemplateResponse(
+            request,
             "error.html",
             {
-                "request": request,
                 "session": {},
                 "title": "User Fetch Failed",
                 "message": "Could not fetch your Discord profile. Please try again.",
@@ -133,9 +134,9 @@ async def home_page(request: Request):
                 guilds = []
     except Exception as e:
         return templates.TemplateResponse(
+            request,
             "error.html",
             {
-                "request": request,
                 "session": session,
                 "title": "Database Error",
                 "message": f"Could not load your guilds: {str(e)}",
@@ -144,8 +145,9 @@ async def home_page(request: Request):
         )
 
     return templates.TemplateResponse(
+        request,
         "home.html",
-        {"request": request, "session": session, "guilds": guilds},
+        {"session": session, "guilds": guilds},
     )
 
 
@@ -202,6 +204,7 @@ async def select_guild_form(request: Request):
         guilds = []
 
     return templates.TemplateResponse(
+        request,
         "home.html",
-        {"request": request, "session": session, "guilds": guilds},
+        {"session": session, "guilds": guilds},
     )

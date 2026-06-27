@@ -56,9 +56,9 @@ async def sessions_page(
 
     except Exception as e:
         return templates.TemplateResponse(
+            request,
             "error.html",
             {
-                "request": request,
                 "session": session,
                 "title": "Chronicles Error",
                 "message": f"The chronicles could not be read: {str(e)}",
@@ -103,9 +103,9 @@ async def sessions_page(
         })
 
     return templates.TemplateResponse(
+        request,
         "sessions.html",
         {
-            "request": request,
             "session": session,
             "sessions": session_list,
             "events": event_list,
