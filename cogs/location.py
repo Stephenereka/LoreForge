@@ -327,13 +327,13 @@ async def cmd_map(ctx):
                     )
                     for l in bucket
                 ]
-                select = discord.ui.Select(
+                dropdown = discord.ui.Select(
                     placeholder=cat_label,
                     options=options,
                     row=row_idx,
                 )
-                select.callback = _map_select_callback
-                map_view.add_item(select)
+                dropdown.callback = _map_select_callback
+                map_view.add_item(dropdown)
                 row_idx += 1
 
         await ctx.send(embed=embed, file=file, view=map_view)
