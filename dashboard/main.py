@@ -1,13 +1,14 @@
 """LoreForge Web Dashboard — FastAPI application."""
 
 import os
+import traceback
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from database.session import init_db
 from dashboard.auth import get_session, RedirectException
@@ -17,8 +18,6 @@ from dashboard.auth import get_session, RedirectException
 templates = Jinja2Templates(
     directory=os.path.join(os.path.dirname(__file__), "templates")
 )
-
-from datetime import datetime
 templates.env.globals["now"] = datetime.utcnow
 
 
@@ -26,7 +25,6 @@ templates.env.globals["now"] = datetime.utcnow
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize DB tables on startup."""
     try:
         await init_db()
         print("[Dashboard] DB initialized.")
@@ -39,7 +37,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="LoreForge Dashboard",
-    description="Web dashboard for the LoreForge Discord RPG bot.",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -52,27 +49,55 @@ os.makedirs(static_dir, exist_ok=True)
 app.mount("/dashboard/static", StaticFiles(directory=static_dir), name="dashboard_static")
 
 
-# ── Session injection middleware ───────────────────────────────────────────
-
-class SessionMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        session = get_session(request)
-        request.state.session = session or {}
-        response = await call_next(request)
-        return response
-
-
-app.add_middleware(SessionMiddleware)
-
-
-# ── Redirect exception handler ─────────────────────────────────────────────
+# ── Exception handlers ─────────────────────────────────────────────────────
 
 @app.exception_handler(RedirectException)
 async def redirect_exception_handler(request: Request, exc: RedirectException):
     return RedirectResponse(url=exc.url, status_code=exc.status_code)
 
 
-# ── Import and register routers ────────────────────────────────────────────
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    print(f"[Dashboard] Unhandled exception on {request.url}:\n{tb}")
+    try:
+        session = get_session(request)
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "session": session or {},
+                "title": "The Weave is Broken",
+                "message": f"500 — {type(exc).__name__}: {exc}",
+                "code": 500,
+            },
+            status_code=500,
+        )
+    except Exception as inner:
+        print(f"[Dashboard] Error handler also failed: {inner}")
+        return PlainTextResponse(f"500 — {type(exc).__name__}: {exc}\n\nHandler error: {inner}", status_code=500)
+
+
+@app.exception_handler(404)
+async def not_found(request: Request, exc):
+    try:
+        session = get_session(request)
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "session": session or {},
+                "title": "The Path is Lost in Shadows...",
+                "message": "404 — The page you seek does not exist in this realm.",
+                "code": 404,
+            },
+            status_code=404,
+        )
+    except Exception as e:
+        return PlainTextResponse(f"404 — {request.url.path}", status_code=404)
+
+
+# ── Routers ────────────────────────────────────────────────────────────────
 
 from dashboard.routes import home, characters, lore, map as map_route, sessions, bestiary
 
@@ -82,37 +107,3 @@ app.include_router(lore.router)
 app.include_router(map_route.router)
 app.include_router(sessions.router)
 app.include_router(bestiary.router)
-
-
-# ── 404 handler ────────────────────────────────────────────────────────────
-
-@app.exception_handler(404)
-async def not_found(request: Request, exc):
-    session = get_session(request)
-    return templates.TemplateResponse(
-        request,
-        "error.html",
-        {
-            "session": session or {},
-            "title": "The Path is Lost in Shadows...",
-            "message": "404 — The page you seek does not exist in this realm.",
-            "code": 404,
-        },
-        status_code=404,
-    )
-
-
-@app.exception_handler(500)
-async def server_error(request: Request, exc):
-    session = get_session(request)
-    return templates.TemplateResponse(
-        request,
-        "error.html",
-        {
-            "session": session or {},
-            "title": "The Weave is Broken",
-            "message": "500 — A great disturbance in the weave. Try again later.",
-            "code": 500,
-        },
-        status_code=500,
-    )
