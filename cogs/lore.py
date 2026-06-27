@@ -455,11 +455,16 @@ async def lore_submit(interaction: discord.Interaction, title: str):
 
 # ── Template-based lore creation ─────────────────────────────────────────────
 
+_TEMPLATE_TYPES = ["character", "item", "creature", "religion", "event", "organization", "magic"]
+
+
+async def _template_type_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    return [app_commands.Choice(name=t, value=t) for t in _TEMPLATE_TYPES if current.lower() in t.lower()]
+
+
 @lore_group.command(name="add-template", description="Create a lore entry using a structured template")
 @app_commands.describe(template_type="Template type", title="Entry title")
-@app_commands.autocomplete(template_type=lambda i, c: [
-    app_commands.Choice(name=t, value=t) for t in ["character", "item", "creature", "religion", "event", "organization", "magic"] if c.lower() in t.lower()
-])
+@app_commands.autocomplete(template_type=_template_type_autocomplete)
 async def lore_add_template(interaction: discord.Interaction, template_type: str, title: str):
     if not await is_gm(interaction):
         await interaction.response.send_message("Only GMs can add lore.", ephemeral=True)

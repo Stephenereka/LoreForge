@@ -4,6 +4,329 @@ from discord.ext import commands
 
 # ── /help pages ───────────────────────────────────────────────────────────────
 
+def _home_embed() -> discord.Embed:
+    e = discord.Embed(
+        title="⚔️ LoreForge — Getting Started",
+        description=(
+            "LoreForge turns your Discord server into a living RPG world.\n\n"
+            "**New player? Start here:**\n"
+            "1️⃣ `/classes browse` — pick your class\n"
+            "2️⃣ `/character create <name>` — build your hero\n"
+            "3️⃣ `/look` — see where you are\n"
+            "4️⃣ `/travel <direction>` — explore the world\n\n"
+            "**Select a category below to browse commands.**"
+        ),
+        color=0x8B5CF6,
+    )
+    e.add_field(
+        name="📚 Categories",
+        value=(
+            "🧙 **Character** — create, edit, sheet, HD class\n"
+            "⚔️ **Combat** — fight, conditions, training, titles\n"
+            "🌍 **World & Travel** — explore, locations, NPCs, map\n"
+            "📜 **Quests & Lore** — missions, codex, factions\n"
+            "🔮 **Economy** — Spirit Stones, shop, housing, market\n"
+            "🔍 **Investigations & Languages** — mysteries, language, religion\n"
+            "🤖 **Sessions & AI** — session logs, AI features, bosses\n"
+            "🎯 **Party & Events** — party up, train, schedule events\n"
+            "🛡️ **GM Tools** — world management *(GMs only)*"
+        ),
+        inline=False,
+    )
+    e.set_footer(text="LoreForge — Use the dropdown below to browse all commands")
+    return e
+
+
+def _build_pages(show_gm: bool) -> dict[str, discord.Embed]:
+    pages: dict[str, discord.Embed] = {}
+
+    # ── Character ──────────────────────────────────────────────────────────────
+    e = discord.Embed(title="🧙 Character", color=0x8B5CF6)
+    e.add_field(name="Creating Your Hero", value=(
+        "`/classes browse` — browse all classes (stats, attacks, milestones)\n"
+        "`/character create <name>` — build your character\n"
+        "• Roll **two stat sets** (4d6 drop lowest) and pick your favorite\n"
+        "• Choose **2 starting attacks** from 6 class options\n"
+        "• Receive a **class tutorial via DM** after creation"
+    ), inline=False)
+    e.add_field(name="Managing Your Character", value=(
+        "`/character sheet` — view your stats (private)\n"
+        "`/character show` — post your sheet publicly\n"
+        "`/character use / unuse` — set or clear your active character\n"
+        "`/character list` — all your characters including retired ones\n"
+        "`/character edit_cosmetic` — change name, backstory, avatar, proxy *(instant)*\n"
+        "`/character edit_stats <field> <value>` — request stat change *(GM approval)*\n"
+        "`/character proxy / proxy_remove` — set roleplay proxy brackets\n"
+        "• React ❌ on any proxy message to delete it"
+    ), inline=False)
+    e.add_field(name="🌌 Heavenly Demon Heir (HD Class)", value=(
+        "`/hd codex` — full compendium: 24 forms, 3 paths, Tao/Nano system\n"
+        "`/hd sheet` — your HD class sheet\n"
+        "`/hd path` — choose subclass (Heavenly/Blood/Elemental, Lv3+)\n"
+        "`/hd burst / manifest / ascend / catastrophe` — high-level abilities\n"
+        "`/form use` — activate a Demonic Sword Form\n"
+        "`/tao status / restore / tick` — manage your Tao resource"
+    ), inline=False)
+    e.add_field(name="Other", value=(
+        "`/character wildshape` — Druids transform (Wolf/Bear/Eagle)\n"
+        "• At each level-up a **DM arrives** to unlock a new attack"
+    ), inline=False)
+    e.set_footer(text="LoreForge — Character")
+    pages["character"] = e
+
+    # ── Combat ─────────────────────────────────────────────────────────────────
+    e = discord.Embed(title="⚔️ Combat", color=0xEF4444)
+    e.add_field(name="Starting a Fight", value=(
+        "`/combat start <title> <type> [@invite]` — open a lobby (DnD or Manual)\n"
+        "`/combat join` — join an open lobby\n"
+        "`/combat invite @user` — invite someone mid-fight\n"
+        "**DnD fights:** type your action as RP — bot reads, confirms, rolls dice\n"
+        "**Manual fights:** declare freely — GM resolves via `/combat hp`"
+    ), inline=False)
+    e.add_field(name="During Combat", value=(
+        "`/combat status` — check state (private)\n"
+        "`/combat overview` — post live status embed publicly\n"
+        "`/combat hp <amount> [@target]` — update HP: `+5`, `-10`, or `25` (absolute)\n"
+        "`/combat edit <field> <value>` — edit Temp HP or conditions\n"
+        "`/combat log` — recent action log\n"
+        "`/combat forfeit` — leave mid-fight\n"
+        "`/combat end` — end fight (GM or host)\n"
+        "`/combat pause / resume` — pause a manual fight"
+    ), inline=False)
+    e.add_field(name="⚡ Conditions", value=(
+        "**DoT:** 🤢 Poisoned · 🔥 Burning · 🩸 Bleeding\n"
+        "**Status:** ⭐ Stunned · 🫥 Blinded · 😨 Frightened · ⬇️ Prone · 🤜 Grappled\n"
+        "**Buffs:** 🛡️ Parrying (+2 AC) · ✨ Shielded (+5 AC) · 💢 Raging · 👁️ Hidden\n"
+        "**Debuffs:** 🔮 Hexed (+1d6 on hits) · 🔴 Reckless (−2 AC)"
+    ), inline=False)
+    e.add_field(name="Titles & Rolling", value=(
+        "`/title list / set / clear` — earn and display titles above your name\n"
+        "`/training start` — practice vs an AI dummy (Easy→Impossible)\n"
+        "`/roll 2d6+3` — roll dice with standard RPG notation"
+    ), inline=False)
+    e.set_footer(text="LoreForge — Combat")
+    pages["combat"] = e
+
+    # ── World & Travel ─────────────────────────────────────────────────────────
+    e = discord.Embed(title="🌍 World & Travel", color=0x22C55E)
+    e.add_field(name="Exploration", value=(
+        "`/look` — see your location: description, time, weather, exits, NPCs\n"
+        "`/travel <direction/location>` — move to a connected location\n"
+        "`/travel fast <location>` — fast travel to a discovered location\n"
+        "`/map` — world map with your position highlighted\n"
+        "`/players-here` — list everyone at your location\n"
+        "`/search` — roll d20+WIS to find secrets or hidden items\n"
+        "`/gather` — collect resources from this location\n"
+        "`/discoveries` — log of all locations you've visited"
+    ), inline=False)
+    e.add_field(name="NPCs", value=(
+        "`/npc nearby` — see NPCs at your location\n"
+        "`/npc talk <name> [message]` — talk to an NPC (keyword or AI dialogue)\n"
+        "`/npc look <name>` — NPC description and appearance\n"
+        "`/npc list [location]` — paginated NPC list"
+    ), inline=False)
+    e.add_field(name="Time & Weather", value=(
+        "`/time` — world time, season, and day\n"
+        "`/weather` — check current weather"
+    ), inline=False)
+    e.set_footer(text="LoreForge — World & Travel")
+    pages["world"] = e
+
+    # ── Quests & Lore ──────────────────────────────────────────────────────────
+    e = discord.Embed(title="📜 Quests · Lore · Factions", color=0xA855F7)
+    e.add_field(name="Quests", value=(
+        "`/quest list` — available quests (filtered by level)\n"
+        "`/quest accept <name>` — accept a quest\n"
+        "`/quest status` — active quests with progress bars\n"
+        "`/quest complete <name>` — submit for GM approval\n"
+        "`/quest journal` — full quest history"
+    ), inline=False)
+    e.add_field(name="Lore & Codex", value=(
+        "`/codex <query>` — search **everything** at once: lore, NPCs, locations, factions, bestiary\n"
+        "`/lore search <query>` — top 5 lore matches with relevance score\n"
+        "`/lore view <title>` — full lore entry\n"
+        "`/lore list [category]` — browse all lore\n"
+        "`/lore random` — random lore entry"
+    ), inline=False)
+    e.add_field(name="Factions", value=(
+        "`/faction list` — all factions + your current tier with each\n"
+        "`/faction status <name>` — reputation, progress bar, and perks\n"
+        "`/faction history <name>` — last 20 reputation change events"
+    ), inline=False)
+    e.set_footer(text="LoreForge — Quests, Lore & Factions")
+    pages["quests"] = e
+
+    # ── Economy ────────────────────────────────────────────────────────────────
+    e = discord.Embed(title="🔮 Economy · 🏪 Shop · 🏠 Housing · 🛒 Market", color=0x6B21A8)
+    e.add_field(name="Spirit Stones (Currency)", value=(
+        "`/economy balance` — your current balance\n"
+        "`/economy daily` — daily reward with streak bonus (200→350→500→750)\n"
+        "`/economy pay @user <amount>` — send Spirit Stones\n"
+        "`/economy leaderboard` — top 10 richest cultivators"
+    ), inline=False)
+    e.add_field(name="Shop & Inventory", value=(
+        "`/shop browse` — weapons, armor, and potions\n"
+        "`/shop buy <item>` — purchase\n"
+        "`/shop sell <item>` — sell for half price\n"
+        "`/inventory view` — your items\n"
+        "`/inventory equip <item>` — equip gear\n"
+        "`/inventory use <item>` — use a potion"
+    ), inline=False)
+    e.add_field(name="Housing", value=(
+        "`/house buy` — Cave Dwelling (Tier 1 — 500 Spirit Stones)\n"
+        "`/house upgrade` — upgrade (up to Tier 5 Sovereign Palace)\n"
+        "`/house view` — your dwelling and XP bonus\n"
+        "`/house browse` — all tiers, costs, and bonuses"
+    ), inline=False)
+    e.add_field(name="Player Market & Auctions", value=(
+        "`/market post <item> <price>` — list an item for sale\n"
+        "`/market browse / buy <id>` — browse and purchase listings\n"
+        "`/auction create <item> <price> <hours>` — start an auction (1–72h)\n"
+        "`/auction bid <id> <amount>` — place a bid (outbid refunds previous bidder)\n"
+        "`/auction browse` — all active auctions\n"
+        "`/trade request @user` — open a direct player trade"
+    ), inline=False)
+    e.add_field(name="💤 Rest", value=(
+        "`/rest short` — roll hit dice to recover HP\n"
+        "`/rest long` — full HP + all class resources restored"
+    ), inline=False)
+    e.set_footer(text="LoreForge — Economy & Commerce")
+    pages["economy"] = e
+
+    # ── Deep Lore ──────────────────────────────────────────────────────────────
+    e = discord.Embed(title="🔍 Investigations · 🗣️ Languages · ⛪ Religion", color=0x7C3AED)
+    e.add_field(name="Investigations (Mystery System)", value=(
+        "`/investigation clue <name> <text>` — add a clue you discovered\n"
+        "`/investigation board [name]` — evidence board with connected clues\n"
+        "`/investigation connect <id_a> <id_b>` — link two clues\n"
+        "`/investigation theory <name> <text>` — submit a theory (DMs the GM)\n"
+        "`/investigation list` — all open investigations"
+    ), inline=False)
+    e.add_field(name="Languages", value=(
+        "`/language learn <name>` — learn a language (500 Spirit Stones)\n"
+        "`/language list` — all languages with speaker counts\n"
+        "`/language speak <name> <msg>` — speak in a language\n"
+        "*(Others see scrambled text if they don't know the language)*"
+    ), inline=False)
+    e.add_field(name="Religion & Prayer", value=(
+        "`/religion list` — all religions\n"
+        "`/religion view <name>` — full details (deity, domains, tenets, followers)\n"
+        "`/religion worship <name>` — set your character's religion\n"
+        "`/prayer` — 1/day divine blessing (1d20+WIS, 15+: gain 2d6 temp HP)"
+    ), inline=False)
+    e.add_field(name="📜 Timeline & Visions", value=(
+        "`/timeline view` — chronological world history (10 events per page)\n"
+        "`/character visions` — your character's received visions\n"
+        "`/notifications configure` — toggle DMs for faction, quest, and world events\n"
+        "*Visions appear automatically after long rests (20% chance)*"
+    ), inline=False)
+    e.set_footer(text="LoreForge — Investigations, Languages & Religion")
+    pages["deep_lore"] = e
+
+    # ── Sessions & AI ──────────────────────────────────────────────────────────
+    e = discord.Embed(title="🤖 AI System · 📋 Sessions · 👹 Bosses", color=0x4F46E5)
+    e.add_field(name="AI System", value=(
+        "`/ai toggle narration` — AI combat narration (on/off)\n"
+        "`/ai toggle npc` — AI NPC dialogue generation\n"
+        "`/ai toggle summary` — AI session summaries\n"
+        "`/ai style <epic|gritty|comedic|minimal>` — narration style\n"
+        "`/ai status` — view all current AI settings\n"
+        "*All AI features are **OFF** by default — enable per guild*"
+    ), inline=False)
+    e.add_field(name="Sessions (GM only)", value=(
+        "`/session start [title]` — start a session log (pins embed)\n"
+        "`/session end` — end session + auto AI recap posted to recap channel\n"
+        "`/session summary` — regenerate the AI summary\n"
+        "`/session log` — paginated list of past sessions"
+    ), inline=False)
+    e.add_field(name="Bosses (GM only)", value=(
+        "`/gm boss spawn <name>` — deploy a boss to this channel\n"
+        "`/gm boss list` — all boss templates\n"
+        "`/gm boss force-attack / force-ability / legendary` — control the fight\n"
+        "`/gm boss hp / set-phase / summon-minions` — manage boss state\n"
+        "`/gm boss kill / flee` — end the encounter"
+    ), inline=False)
+    e.set_footer(text="LoreForge — AI, Sessions & Bosses")
+    pages["sessions_ai"] = e
+
+    # ── Social & Party ─────────────────────────────────────────────────────────
+    e = discord.Embed(title="🎯 Training · 👥 Party · 📅 Events", color=0x6366F1)
+    e.add_field(name="Training", value=(
+        "`/training start` — practice vs an AI dummy (Easy/Medium/Hard/Impossible)\n"
+        "`/training stop` — end training early"
+    ), inline=False)
+    e.add_field(name="Party", value=(
+        "`/party create [name]` — form a group\n"
+        "`/party invite @user` — invite a player\n"
+        "`/party leave / disband` — leave or disband\n"
+        "`/party status` — all members, locations, and HP\n"
+        "`/party travel <direction>` — leader travels, party follows"
+    ), inline=False)
+    e.add_field(name="Events & Other", value=(
+        "`/event list` — upcoming server events\n"
+        "`/event rsvp <id> <status>` — mark your attendance\n"
+        "`/tutorial` — 6-step new player tutorial"
+    ), inline=False)
+    e.set_footer(text="LoreForge — Party & Events")
+    pages["social"] = e
+
+    # ── GM Tools ───────────────────────────────────────────────────────────────
+    if show_gm:
+        e = discord.Embed(
+            title="🛡️ GM Tools",
+            description="🔒 Visible to GMs and server administrators only.",
+            color=0xDC2626,
+        )
+        e.add_field(name="Setup & Config", value=(
+            "`/server setup <world_name> <gm_role>` — configure LoreForge\n"
+            "`/config set-recap-channel <#ch>` — AI session recap channel\n"
+            "`/combat config log-channel <#ch>` — audit log channel"
+        ), inline=False)
+        e.add_field(name="Characters & Approvals", value=(
+            "`/gm edit [@user]` — full edit panel (all stats in one modal, instant)\n"
+            "`/gm xp @user <amount>` — award XP (triggers level-up if threshold hit)\n"
+            "`/gm revive <name>` — revive dead character at 1 HP\n"
+            "`/gm pending` — pending stat change requests\n"
+            "`/gm approve <id> / deny <id> [reason]` — approve or deny requests"
+        ), inline=False)
+        e.add_field(name="World Building", value=(
+            "`/world generate / map / load-template / validate` — world tools\n"
+            "`/world set-map / clear-map / annotate` — custom map management\n"
+            "`/location create / edit / connect / hide / reveal / lock` — locations\n"
+            "`/npc create / edit / move / kill / speak / possess / act` — NPCs\n"
+            "`/faction create / edit / delete` — factions\n"
+            "`/gm faction award <faction> <@user> <amount>` — award rep\n"
+            "`/quest create` — build quests\n"
+            "`/lore add / edit / delete` — lore entries\n"
+            "`/lore add-template <type> <title>` — structured lore template\n"
+            "`/weather set / time advance / announce` — world state"
+        ), inline=False)
+        e.add_field(name="AI Generation & Phase 6 Tools", value=(
+            "`/gm generate quest/npc/encounter` — AI-generate content (preview + Save/Regen)\n"
+            "`/gm world-pulse` — manually trigger the living world simulation\n"
+            "`/gm vision <@user> <text>` — send a custom vision to a player\n"
+            "`/npc-letter <@user> <content>` — send an in-character letter via DM\n"
+            "`/investigation start / reveal` — manage mystery investigations\n"
+            "`/language create / add-phrase` — create languages\n"
+            "`/religion create / edit / set-deity / add-tenet` — manage religions\n"
+            "`/timeline add <title> <desc> / era <name>` — timeline management"
+        ), inline=False)
+        e.add_field(name="Other GM Tools", value=(
+            "`/embed create / template <type>` — embed builder\n"
+            "`/gm title create / award / revoke / delete` — title management\n"
+            "`/gm add / remove / list` — GM roster *(server owner only)*\n"
+            "`/gm dashboard` — world overview\n"
+            "`/gm quest approve / deny` — approve quest completions\n"
+            "`/auction end <id>` — force-end an auction\n"
+            "`/tutorial reset @user` — reset a player's tutorial"
+        ), inline=False)
+        e.set_footer(text="LoreForge — GM Tools")
+        pages["gm"] = e
+
+    return pages
+
+
+# kept for compatibility — not used by the new HelpView
 def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     pages = []
 
@@ -601,27 +924,40 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
 
 
 class HelpView(discord.ui.View):
-    def __init__(self, pages: list[discord.Embed], page: int = 0):
+    def __init__(self, show_gm: bool = False):
         super().__init__(timeout=600)
-        self.page = page
-        self.pages = pages
-        self._update_buttons()
+        self.show_gm = show_gm
+        self.pages = _build_pages(show_gm)
+        self._add_select()
 
-    def _update_buttons(self):
-        self.prev_btn.disabled = self.page == 0
-        self.next_btn.disabled = self.page == len(self.pages) - 1
+    def _add_select(self):
+        options = [
+            discord.SelectOption(label="Getting Started", value="home", emoji="🏠", description="Quick start guide for new players"),
+            discord.SelectOption(label="Character", value="character", emoji="🧙", description="Create, edit, and manage your character"),
+            discord.SelectOption(label="Combat", value="combat", emoji="⚔️", description="Fight mechanics, conditions, training"),
+            discord.SelectOption(label="World & Travel", value="world", emoji="🌍", description="Explore, travel, NPCs, map"),
+            discord.SelectOption(label="Quests, Lore & Factions", value="quests", emoji="📜", description="Missions, codex search, factions"),
+            discord.SelectOption(label="Economy & Market", value="economy", emoji="🔮", description="Spirit Stones, shop, housing, auctions"),
+            discord.SelectOption(label="Investigations, Languages & Religion", value="deep_lore", emoji="🔍", description="Mystery system, languages, religion, timeline"),
+            discord.SelectOption(label="Sessions & AI", value="sessions_ai", emoji="🤖", description="Session logs, AI features, bosses"),
+            discord.SelectOption(label="Training, Party & Events", value="social", emoji="🎯", description="Party up, train, schedule events"),
+        ]
+        if self.show_gm:
+            options.append(discord.SelectOption(label="GM Tools", value="gm", emoji="🛡️", description="World management (GM only)"))
 
-    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
-    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page -= 1
-        self._update_buttons()
-        await interaction.response.edit_message(embed=self.pages[self.page], view=self)
+        select = discord.ui.Select(
+            placeholder="📖 Browse categories...",
+            options=options,
+            min_values=1,
+            max_values=1,
+        )
+        select.callback = self._on_select
+        self.add_item(select)
 
-    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
-    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page += 1
-        self._update_buttons()
-        await interaction.response.edit_message(embed=self.pages[self.page], view=self)
+    async def _on_select(self, interaction: discord.Interaction):
+        value = interaction.data["values"][0]
+        embed = _home_embed() if value == "home" else self.pages.get(value, _home_embed())
+        await interaction.response.edit_message(embed=embed, view=self)
 
 # ── /server group ─────────────────────────────────────────────────────────────
 
@@ -732,9 +1068,8 @@ class AdminCog(commands.Cog, name="Admin"):
     async def help(self, interaction: discord.Interaction):
         from services.utils import is_gm
         gm = await is_gm(interaction)
-        pages = _help_pages(show_gm=gm)
-        view = HelpView(pages=pages, page=0)
-        await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
+        view = HelpView(show_gm=gm)
+        await interaction.response.send_message(embed=_home_embed(), view=view, ephemeral=True)
 
     @commands.command(name="seed_world")
     @commands.is_owner()
