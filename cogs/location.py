@@ -267,7 +267,7 @@ async def cmd_map(ctx):
                 embed.set_footer(text=f"⭐ You are in {current.name}")
         embed.set_image(url="attachment://world_map.png")
 
-        # Clickable map buttons — show up to 25 discovered locations
+        # Categorised location dropdowns — scalable to 100+ locations (25 per category)
         _LOC_EMOJI = {
             'city': '🏙️', 'town': '🏘️', 'village': '🏡', 'tavern': '🍺',
             'shrine': '⛩️', 'temple': '🛕', 'dungeon': '💀', 'ruins': '🏚️',
@@ -275,73 +275,66 @@ async def cmd_map(ctx):
             'arena': '⚔️', 'market': '🛒', 'port': '⚓', 'bridge': '🌉',
             'forest': '🌲', 'mountain': '⛰️', 'lake': '🌊', 'wilderness': '🗺️',
         }
-        _SAFE_TYPES = {'city', 'town', 'village', 'tavern', 'shrine', 'temple', 'market', 'library'}
-        _DANGER_TYPES = {'dungeon', 'ruins', 'cave', 'arena'}
+        _CATEGORIES = [
+            ('🏙️ Settlements',     {'city', 'town', 'village', 'tavern'}),
+            ('⚔️ Danger Zones',    {'dungeon', 'ruins', 'cave', 'arena', 'fortress'}),
+            ('🌿 Wilderness',      {'forest', 'mountain', 'lake', 'wilderness', 'bridge'}),
+            ('🏛️ Points of Interest', {'shrine', 'temple', 'market', 'library', 'port', 'tower'}),
+        ]
 
-        def _map_button_label(name: str, loc_type: str) -> str:
-            emoji = _LOC_EMOJI.get(loc_type, '📍')
-            # Smart truncate at word boundary, max 22 chars for the name part
-            display = name
-            if len(display) > 22:
-                truncated = display[:22].rsplit(' ', 1)[0]
-                display = truncated + '…' if truncated else display[:22] + '…'
-            return f"{emoji} {display}"
+        async def _map_select_callback(interaction: discord.Interaction):
+            loc_id = int(interaction.data["values"][0])
+            async with get_db() as db:
+                loc_result = await db.execute(
+                    select(Location).where(Location.id == loc_id, Location.guild_id == interaction.guild_id)
+                )
+                loc = loc_result.scalar_one_or_none()
+                if not loc:
+                    await interaction.response.send_message("Location not found.", ephemeral=True)
+                    return
+                npc_result = await db.execute(
+                    select(NPC).where(
+                        NPC.guild_id == interaction.guild_id,
+                        NPC.location_id == loc.id,
+                        NPC.is_dead == False,
+                    )
+                )
+                npcs = list(npc_result.scalars().all())
+            exits = await get_exits(loc.id, interaction.guild_id)
+            time_info = await get_world_time(interaction.guild_id)
+            weather_info = await get_weather(interaction.guild_id)
+            loc_embed = location_embed(loc, exits, time_info, weather_info, loc.is_indoors)
+            if npcs:
+                npc_lines = [f"**{n.name}**" + (f" — *{n.title}*" if n.title else "") for n in npcs[:5]]
+                loc_embed.add_field(name="👥 People Here", value="\n".join(npc_lines), inline=False)
+            await interaction.response.send_message(embed=loc_embed, ephemeral=True)
 
-        def _map_button_style(loc_type: str) -> discord.ButtonStyle:
-            if loc_type in _SAFE_TYPES:
-                return discord.ButtonStyle.success
-            if loc_type in _DANGER_TYPES:
-                return discord.ButtonStyle.danger
-            return discord.ButtonStyle.secondary
-
-        discovered_locs = [l for l in all_locs if not l.is_hidden and l.map_x is not None and l.map_y is not None][:25]
+        discovered_locs = [l for l in all_locs if not l.is_hidden and l.map_x is not None and l.map_y is not None]
         map_view = None
         if discovered_locs:
             map_view = discord.ui.View(timeout=120)
-            for i in range(0, min(len(discovered_locs), 25), 5):
-                row_locs = discovered_locs[i:i+5]
-                for loc in row_locs:
-                    button = discord.ui.Button(
-                        label=_map_button_label(loc.name, loc.location_type),
-                        style=_map_button_style(loc.location_type),
-                        custom_id=f"map_loc_{loc.id}",
-                        row=i // 5,
+            row_idx = 0
+            for cat_label, cat_types in _CATEGORIES:
+                bucket = [l for l in discovered_locs if l.location_type in cat_types][:25]
+                if not bucket or row_idx >= 5:
+                    continue
+                options = [
+                    discord.SelectOption(
+                        label=l.name[:100],
+                        value=str(l.id),
+                        emoji=_LOC_EMOJI.get(l.location_type, '📍'),
+                        description=l.location_type.capitalize(),
                     )
-                    map_view.add_item(button)
-
-            async def map_button_callback(interaction: discord.Interaction):
-                custom_id = interaction.data.get("custom_id", "")
-                if not custom_id.startswith("map_loc_"):
-                    return
-                loc_id = int(custom_id.replace("map_loc_", ""))
-                async with get_db() as db:
-                    loc_result = await db.execute(
-                        select(Location).where(Location.id == loc_id, Location.guild_id == interaction.guild_id)
-                    )
-                    loc = loc_result.scalar_one_or_none()
-                    if not loc:
-                        await interaction.response.send_message("Location not found.", ephemeral=True)
-                        return
-                    npc_result = await db.execute(
-                        select(NPC).where(
-                            NPC.guild_id == interaction.guild_id,
-                            NPC.location_id == loc.id,
-                            NPC.is_dead == False,
-                        )
-                    )
-                    npcs = list(npc_result.scalars().all())
-                exits = await get_exits(loc.id, interaction.guild_id)
-                time_info = await get_world_time(interaction.guild_id)
-                weather_info = await get_weather(interaction.guild_id)
-                loc_embed = location_embed(loc, exits, time_info, weather_info, loc.is_indoors)
-                if npcs:
-                    npc_lines = [f"**{n.name}**" + (f" — *{n.title}*" if n.title else "") for n in npcs[:5]]
-                    loc_embed.add_field(name="👥 People Here", value="\n".join(npc_lines), inline=False)
-                await interaction.response.send_message(embed=loc_embed, ephemeral=True)
-
-            for item in map_view.children:
-                if isinstance(item, discord.ui.Button):
-                    item.callback = map_button_callback
+                    for l in bucket
+                ]
+                select = discord.ui.Select(
+                    placeholder=cat_label,
+                    options=options,
+                    row=row_idx,
+                )
+                select.callback = _map_select_callback
+                map_view.add_item(select)
+                row_idx += 1
 
         await ctx.send(embed=embed, file=file, view=map_view)
     except Exception as e:
