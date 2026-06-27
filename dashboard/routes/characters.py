@@ -116,6 +116,11 @@ async def characters_page(
         max_xp_for_level = c.level * 100  # simplified XP threshold display
         xp_pct = min(round((c.xp / max(max_xp_for_level, 1)) * 100, 1), 100.0)
 
+        conditions = c.conditions if isinstance(c.conditions, list) else []
+        skills = c.skill_proficiencies if isinstance(c.skill_proficiencies, list) else []
+        languages = c.languages if isinstance(c.languages, list) else []
+        relationships = c.relationships if isinstance(c.relationships, list) else []
+
         char_list.append({
             "id": c.id,
             "name": c.name,
@@ -125,11 +130,15 @@ async def characters_page(
             "xp": c.xp,
             "hp_current": c.hp_current,
             "hp_max": c.hp_max,
+            "hp_temp": c.hp_temp or 0,
             "hp_pct": hp_pct,
             "hp_bar_color": get_hp_bar_color(hp_pct),
             "armor_class": c.armor_class,
             "is_dead": c.is_dead,
+            "is_unconscious": c.is_unconscious,
             "is_active": c.is_active,
+            "death_saves_success": c.death_saves_success or 0,
+            "death_saves_failure": c.death_saves_failure or 0,
             "avatar_url": avatar,
             "strength": c.strength,
             "dexterity": c.dexterity,
@@ -145,10 +154,26 @@ async def characters_page(
             "cha_mod": calc_modifier(c.charisma),
             "background": c.background or "Unknown",
             "backstory": c.backstory or "",
-            "inventory": c.inventory or [],
+            "inventory": c.inventory if isinstance(c.inventory, list) else [],
+            "conditions": conditions,
+            "skill_proficiencies": skills,
+            "languages": languages,
+            "relationships": relationships,
+            "religion": c.religion or "",
+            "age": c.age or 0,
+            "lifespan": c.lifespan or 80,
             "gold": c.gold,
             "balance": c.balance,
             "xp_pct": xp_pct,
+            "proxy_open": c.proxy_open or "",
+            "proxy_close": c.proxy_close or "",
+            "proxy_count": c.proxy_count or 0,
+            "ki_points": c.ki_points or 0,
+            "ki_max": c.ki_max or 0,
+            "bardic_inspiration_dice": c.bardic_inspiration_dice or 0,
+            "wild_shape_active": c.wild_shape_active,
+            "wild_shape_form": c.wild_shape_form or "",
+            "is_owner": str(c.user_id) == str(user_id),
         })
 
     return templates.TemplateResponse(

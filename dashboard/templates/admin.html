@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}GM Admin — LoreForge{% endblock %}
+
+{% block head %}
+<style>
+  .tab-btn { transition:all 0.15s; border-bottom: 2px solid transparent; }
+  .tab-btn.on { color:#8B5CF6; border-color:#8B5CF6; }
+  .tab-pane { display:none; }
+  .tab-pane.on { display:block; }
+  .toggle-wrap { position:relative; display:inline-block; width:44px; height:24px; }
+  .toggle-wrap input { opacity:0; width:0; height:0; }
+  .slider { position:absolute; inset:0; background:#374151; border-radius:24px; transition:.3s; cursor:pointer; }
+  .slider:before { content:''; position:absolute; height:18px; width:18px; left:3px; bottom:3px; background:white; border-radius:50%; transition:.3s; }
+  input:checked + .slider { background:#8B5CF6; }
+  input:checked + .slider:before { transform:translateX(20px); }
+  .field-row { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+  @media(max-width:640px){ .field-row { grid-template-columns:1fr; } }
+  .toast { position:fixed; bottom:24px; right:24px; background:#22c55e; color:white; padding:10px 20px; border-radius:8px; font-size:0.85rem; z-index:999; opacity:0; transform:translateY(10px); transition:all 0.3s; }
+  .toast.show { opacity:1; transform:translateY(0); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <div class="flex items-center gap-3">
+    <h1 class="text-3xl font-bold" style="font-family:'Crimson Text',serif;">⚙️ GM Admin Panel</h1>
+    <span class="text-xs bg-[#8B5CF6]/20 text-[#8B5CF6] px-2 py-0.5 rounded-full">GM Only</span>
+  </div>
+
+  {% if request.query_params.get('saved') %}
+  <div class="bg-green-900/30 border border-green-600/40 text-green-300 rounded-xl px-4 py-3 text-sm">
+    ✅ Settings saved successfully.
+  </div>
+  {% endif %}
+
+  <!-- Tab Bar -->
+  <div class="flex gap-6 border-b border-[#4a3f6b]/50">
+    <button class="tab-btn on pb-3 text-sm font-medium text-[#94a3b8]" data-tab="world">🌍 World</button>
+    <button class="tab-btn pb-3 text-sm font-medium text-[#94a3b8]" data-tab="ai">🤖 AI Controls</button>
+    <button class="tab-btn pb-3 text-sm font-medium text-[#94a3b8]" data-tab="approvals" id="tab-approvals">
+      ✅ Approvals
+      {% if pending %}<span class="ml-1 bg-red-500 text-white text-xs rounded-full px-1.5">{{ pending|length }}</span>{% endif %}
+    </button>
+  </div>
+
+  <!-- ══ World Settings ══ -->
+  <div class="tab-pane on" id="pane-world">
+    <form action="/dashboard/admin/world" method="post" class="space-y-6">
+      <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-6 space-y-5">
+        <h2 class="font-semibold text-[#8B5CF6]">World Identity</h2>
+        <div class="field-row">
+          <div>
+            <label class="text-xs text-[#94a3b8] block mb-1">World Name</label>
+            <input name="world_name" value="{{ world.world_name }}" placeholder="LoreForge World"
+                   class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+          </div>
+          <div>
+            <label class="text-xs text-[#94a3b8] block mb-1">Current Era</label>
+            <input name="current_era" value="{{ world.current_era or '' }}" placeholder="e.g. The Age of Shadows"
+                   class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+          </div>
+        </div>
+        <div>
+          <label class="text-xs text-[#94a3b8] block mb-1">World Map Image URL</label>
+          <input name="world_map_url" value="{{ world.world_map_url or '' }}" placeholder="https://... (direct image link)"
+                 class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+          <p class="text-xs text-[#64748b] mt-1">This appears on the Map page. Use a direct image URL (jpg, png, webp).</p>
+          {% if world.world_map_url %}
+          <img src="{{ world.world_map_url }}" class="mt-2 h-20 rounded-lg object-cover border border-[#4a3f6b]" onerror="this.style.display='none'">
+          {% endif %}
+        </div>
+        <div class="flex items-center gap-3">
+          <label class="toggle-wrap">
+            <input type="checkbox" name="ai_mode_enabled" {% if world.ai_mode_enabled %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+          <div>
+            <div class="text-sm font-medium">AI Mode</div>
+            <div class="text-xs text-[#64748b]">Master switch for all AI features</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-6 space-y-5">
+        <h2 class="font-semibold text-[#8B5CF6]">Discord Channels <span class="text-xs text-[#64748b] font-normal">(paste channel IDs)</span></h2>
+        <div class="field-row">
+          <div>
+            <label class="text-xs text-[#94a3b8] block mb-1">GM Channel ID</label>
+            <input name="gm_channel_id" value="{{ world.gm_channel_id or '' }}" placeholder="Channel ID"
+                   class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+          </div>
+          <div>
+            <label class="text-xs text-[#94a3b8] block mb-1">Audit Log Channel ID</label>
+            <input name="log_channel_id" value="{{ world.log_channel_id or '' }}" placeholder="Channel ID"
+                   class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+          </div>
+          <div>
+            <label class="text-xs text-[#94a3b8] block mb-1">Combat Channel ID</label>
+            <input name="combat_channel_id" value="{{ world.combat_channel_id or '' }}" placeholder="Channel ID"
+                   class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+          </div>
+          <div>
+            <label class="text-xs text-[#94a3b8] block mb-1">Session Recap Channel ID</label>
+            <input name="session_recap_channel_id" value="{{ world.session_recap_channel_id or '' }}" placeholder="Channel ID"
+                   class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+          </div>
+          <div>
+            <label class="text-xs text-[#94a3b8] block mb-1">GM Role ID</label>
+            <input name="gm_role_id" value="{{ world.gm_role_id or '' }}" placeholder="Role ID"
+                   class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="px-6 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-lg text-sm font-medium transition-colors">
+        💾 Save World Settings
+      </button>
+    </form>
+  </div>
+
+  <!-- ══ AI Controls ══ -->
+  <div class="tab-pane" id="pane-ai">
+    <form action="/dashboard/admin/ai" method="post" class="space-y-6">
+      <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-6 space-y-5">
+        <h2 class="font-semibold text-[#8B5CF6]">AI Feature Toggles</h2>
+        <p class="text-xs text-[#64748b]">All AI features are OFF by default. The human GM is always in control.</p>
+
+        {% set toggles = [
+          ("narration_enabled", "Combat Narration", "AI narrates combat hits, crits, kills — 2 sentences, lore-aware", ai.narration_enabled),
+          ("npc_ai_enabled", "NPC AI Dialogue", "NPCs respond via DeepSeek instead of keyword matching", ai.npc_ai_enabled),
+          ("session_summary_enabled", "Session Auto-Summary", "AI generates session recap when /session end is called", ai.session_summary_enabled),
+        ] %}
+
+        {% for key, label, desc, val in toggles %}
+        <div class="flex items-center justify-between py-3 border-b border-[#4a3f6b]/30">
+          <div>
+            <div class="text-sm font-medium">{{ label }}</div>
+            <div class="text-xs text-[#64748b]">{{ desc }}</div>
+          </div>
+          <label class="toggle-wrap">
+            <input type="checkbox" name="{{ key }}" {% if val %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+        </div>
+        {% endfor %}
+
+        <div class="pt-2">
+          <label class="text-xs text-[#94a3b8] block mb-2">Narration Style</label>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {% for style in ["epic", "gritty", "comedic", "minimal"] %}
+            <label class="cursor-pointer">
+              <input type="radio" name="narration_style" value="{{ style }}" class="sr-only"
+                     {% if ai.narration_style == style %}checked{% endif %}>
+              <div class="style-opt border border-[#4a3f6b] rounded-lg px-3 py-2 text-center text-xs transition-all
+                           {% if ai.narration_style == style %}bg-[#8B5CF6]/20 border-[#8B5CF6] text-[#8B5CF6]{% else %}text-[#94a3b8] hover:border-[#8B5CF6]/50{% endif %}">
+                {{ style|title }}
+              </div>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="px-6 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-lg text-sm font-medium transition-colors">
+        💾 Save AI Settings
+      </button>
+    </form>
+  </div>
+
+  <!-- ══ Approval Queue ══ -->
+  <div class="tab-pane" id="pane-approvals" id="approvals">
+    {% if pending %}
+    <div class="space-y-3">
+      {% for p in pending %}
+      <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-5">
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <span class="font-semibold">{{ p.character_name }}</span>
+              <span class="text-xs text-[#8B5CF6] bg-[#8B5CF6]/10 px-2 py-0.5 rounded-full">{{ p.field_name }}</span>
+            </div>
+            <div class="text-sm text-[#94a3b8]">
+              <span class="text-red-400">{{ p.old_value }}</span>
+              <span class="mx-2">→</span>
+              <span class="text-green-400">{{ p.new_value }}</span>
+            </div>
+            {% if p.reason %}
+            <div class="text-xs text-[#64748b] mt-1 italic">"{{ p.reason }}"</div>
+            {% endif %}
+            <div class="text-xs text-[#4a3f6b] mt-1">{{ p.requested_at }}</div>
+          </div>
+          <div class="flex gap-2">
+            <form action="/dashboard/admin/approve/{{ p.id }}" method="post">
+              <button type="submit" class="px-4 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs rounded-lg font-medium transition-colors">
+                ✅ Approve
+              </button>
+            </form>
+            <form action="/dashboard/admin/deny/{{ p.id }}" method="post">
+              <button type="submit" class="px-4 py-1.5 bg-red-700 hover:bg-red-600 text-white text-xs rounded-lg font-medium transition-colors">
+                ❌ Deny
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-10 text-center text-[#4a3f6b]">
+      <div class="text-4xl mb-3">✅</div>
+      <p class="text-sm">No pending approvals. All caught up!</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+// Tabs
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('on'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('on'));
+    btn.classList.add('on');
+    document.getElementById('pane-' + btn.dataset.tab).classList.add('on');
+  });
+});
+
+// Style radio highlight
+document.querySelectorAll('input[name="narration_style"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    document.querySelectorAll('.style-opt').forEach(d => {
+      d.classList.remove('bg-[#8B5CF6]/20', 'border-[#8B5CF6]', 'text-[#8B5CF6]');
+      d.classList.add('text-[#94a3b8]');
+    });
+    const sel = radio.nextElementSibling;
+    sel.classList.add('bg-[#8B5CF6]/20', 'border-[#8B5CF6]', 'text-[#8B5CF6]');
+    sel.classList.remove('text-[#94a3b8]');
+  });
+});
+
+// Jump to approvals tab if hash
+if(window.location.hash === '#approvals') {
+  document.querySelector('[data-tab="approvals"]').click();
+}
+</script>
+{% endblock %}

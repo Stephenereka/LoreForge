@@ -38,6 +38,11 @@
                     <a href="/dashboard/bestiary" class="nav-link text-sm font-medium text-[#94a3b8] hover:text-[#8B5CF6] transition-colors {% if request.url.path == '/dashboard/bestiary' %}active{% endif %}">
                         Bestiary
                     </a>
+                    {% if session.get("is_gm") %}
+                    <a href="/dashboard/admin" class="nav-link text-sm font-medium text-[#8B5CF6] hover:text-[#7C3AED] transition-colors {% if '/dashboard/admin' in request.url.path %}active{% endif %}">
+                        ⚙️ Admin
+                    </a>
+                    {% endif %}
                 </div>
                 {% endif %}
 
@@ -69,6 +74,9 @@
                 <a href="/dashboard/map" class="text-xs font-medium text-[#94a3b8] hover:text-[#8B5CF6] whitespace-nowrap {% if request.url.path == '/dashboard/map' %}text-[#8B5CF6]{% endif %}">Map</a>
                 <a href="/dashboard/sessions" class="text-xs font-medium text-[#94a3b8] hover:text-[#8B5CF6] whitespace-nowrap {% if request.url.path == '/dashboard/sessions' %}text-[#8B5CF6]{% endif %}">Sessions</a>
                 <a href="/dashboard/bestiary" class="text-xs font-medium text-[#94a3b8] hover:text-[#8B5CF6] whitespace-nowrap {% if request.url.path == '/dashboard/bestiary' %}text-[#8B5CF6]{% endif %}">Bestiary</a>
+                {% if session.get("is_gm") %}
+                <a href="/dashboard/admin" class="text-xs font-medium text-[#8B5CF6] hover:text-[#7C3AED] whitespace-nowrap">⚙️ Admin</a>
+                {% endif %}
             </div>
             {% endif %}
         </div>

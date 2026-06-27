@@ -1,148 +1,251 @@
 {% extends "base.html" %}
-{% block title %}Map — {{ world_name }}{% endblock %}
+{% block title %}World Map — {{ world_name }}{% endblock %}
+
+{% block head %}
+<style>
+  .map-container { position: relative; overflow: hidden; background: #0a0a1a; border-radius: 12px; border: 1px solid #4a3f6b; }
+  .map-img { width: 100%; display: block; min-height: 420px; object-fit: cover; }
+  .map-no-img { width: 100%; min-height: 420px; background: radial-gradient(ellipse at center, #1a1240 0%, #0d0d0d 100%); }
+  .pin { position: absolute; transform: translate(-50%,-50%); cursor: pointer; z-index: 10; transition: transform 0.15s; }
+  .pin:hover { transform: translate(-50%,-50%) scale(1.5); z-index: 20; }
+  .pin-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.5); box-shadow: 0 0 6px currentColor; }
+  .pin.sel .pin-dot { transform: scale(1.4); border-color: white; box-shadow: 0 0 12px currentColor; }
+  .pin-label { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 10px; color: #e2e8f0; background: rgba(0,0,0,0.8); padding: 2px 6px; border-radius: 4px; pointer-events: none; opacity: 0; transition: opacity 0.15s; }
+  .pin:hover .pin-label, .pin.sel .pin-label { opacity: 1; }
+  .loc-card { cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
+  .loc-card:hover { border-color: #8B5CF6; background: #1a1a2e !important; }
+  .loc-card.sel { border-color: #8B5CF6; background: #1a1040 !important; }
+  .fb { transition: all 0.15s; }
+  .fb.on { background: #8B5CF6; color: white; border-color: #8B5CF6; }
+  .dg { color:#22c55e } .db { color:#3b82f6 } .dy { color:#eab308 } .do { color:#f97316 } .dr { color:#ef4444 }
+  .pg { color:#22c55e } .pb { color:#3b82f6 } .py { color:#eab308 } .po { color:#f97316 } .pr { color:#ef4444 }
+  .df { color:#22c55e } .dn { color:#94a3b8 } .du { color:#f97316 } .dh { color:#ef4444 }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="page-enter">
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-        <div>
-            <h1 class="text-3xl font-bold" style="font-family: 'Crimson Text', serif;">
-                <span class="text-[#8B5CF6]">🗺️</span> World Map
-            </h1>
-            <p class="text-[#94a3b8] text-sm mt-1">{{ world_name }}</p>
+<div class="space-y-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="text-3xl font-bold" style="font-family:'Crimson Text',serif;">🗺️ World Map</h1>
+      <p class="text-[#94a3b8] text-sm mt-1">{{ world_name }}{% if is_gm %} <span class="ml-2 text-xs bg-[#8B5CF6]/20 text-[#8B5CF6] px-2 py-0.5 rounded-full">GM — all locations visible</span>{% endif %}</p>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap" id="fbrow">
+      <button class="fb on text-xs px-3 py-1 rounded-full border border-[#4a3f6b] text-[#94a3b8]" data-f="all">All ({{ locations|length }})</button>
+      {% set types_seen = [] %}
+      {% for loc in locations %}{% if loc.location_type not in types_seen %}{% set _ = types_seen.append(loc.location_type) %}
+      <button class="fb text-xs px-3 py-1 rounded-full border border-[#4a3f6b] text-[#94a3b8]" data-f="{{ loc.location_type }}">{{ loc.type_icon }} {{ loc.location_type|title }}</button>
+      {% endif %}{% endfor %}
+    </div>
+  </div>
+
+  <!-- Map + Detail Panel -->
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+
+    <!-- Map -->
+    <div class="xl:col-span-2">
+      <div class="map-container" id="mapwrap">
+        {% if world_map_url %}
+        <img src="{{ world_map_url }}" alt="World Map" class="map-img" id="mapimg"
+             onerror="this.style.display='none';document.getElementById('mapfb').style.display='flex'">
+        <div id="mapfb" class="map-no-img items-center justify-center text-center" style="display:none;">
+          <div class="text-[#4a3f6b]"><div class="text-4xl mb-2">🌍</div><p class="text-sm">Map image unavailable.</p></div>
         </div>
-        {% if not world_map_url %}
-        <a href="/dashboard/sessions" class="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors">
-            ← Back
-        </a>
+        {% else %}
+        <div class="map-no-img flex items-center justify-center text-center" id="mapfb">
+          <div class="text-[#4a3f6b]">
+            <div class="text-5xl mb-3">🌍</div>
+            <p class="text-sm">No world map image set.</p>
+            {% if is_gm %}<p class="text-xs mt-1">Set one in <a href="/dashboard/admin" class="text-[#8B5CF6] underline">Admin → World Settings</a></p>{% endif %}
+          </div>
+        </div>
         {% endif %}
+        <!-- Pins -->
+        <div class="absolute inset-0" id="pinslay" style="pointer-events:none;">
+          {% for loc in locations %}
+          {% if loc.map_x > 0 or loc.map_y > 0 %}
+          <div class="pin p{{ loc.danger_color[0] }}" id="pin{{ loc.id }}"
+               style="left:{{ loc.map_x }}%;top:{{ loc.map_y }}%;pointer-events:all;"
+               data-id="{{ loc.id }}" data-type="{{ loc.location_type }}"
+               onclick="selLoc({{ loc.id }})">
+            <div class="pin-dot bg-current"></div>
+            <div class="pin-label">{{ loc.type_icon }} {{ loc.name }}</div>
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      <!-- Legend -->
+      <div class="mt-2 flex flex-wrap gap-4 text-xs text-[#94a3b8]">
+        <span><span class="dg">●</span> Safe 0-2</span>
+        <span><span class="db">●</span> Low 3-4</span>
+        <span><span class="dy">●</span> Moderate 5-6</span>
+        <span><span class="do">●</span> High 7-8</span>
+        <span><span class="dr">●</span> Deadly 9-10</span>
+      </div>
     </div>
 
-    {% if world_map_url %}
-    <!-- ═══ Map with Location Pins ═══ -->
-    <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-4 mb-8">
-        <div class="relative w-full" style="position: relative;">
-            <img id="world-map" src="{{ world_map_url }}" alt="World Map of {{ world_name }}"
-                 class="w-full rounded-lg" style="display: block;">
-            {% for loc in locations %}
-            <div class="location-pin" style="left: {{ loc.map_x }}%; top: {{ loc.map_y }}%"
-                 data-location-id="{{ loc.id }}" title="{{ loc.name }}">
-                <span class="pin-dot {% if loc.is_hidden %}hidden-pin{% elif loc.is_safe %}safe-pin{% endif %}"></span>
-                <div class="pin-tooltip">
-                    <strong>{{ loc.name }}</strong>
-                    <span class="text-xs block text-[#94a3b8]">{{ loc.location_type | title }}</span>
-                    {% if loc.danger_level > 0 %}
-                    <span class="text-xs block text-{{ loc.danger_color }}">⚠ Danger: {{ loc.danger_level }}/10</span>
-                    {% endif %}
-                    {% if loc.short_description %}
-                    <span class="text-xs block text-[#64748b] mt-1 max-w-[200px] whitespace-normal">{{ loc.short_description }}</span>
-                    {% endif %}
-                    {% if loc.is_hidden %}
-                    <span class="text-xs block text-red-400 mt-1">🔒 Hidden Location</span>
-                    {% endif %}
-                </div>
+    <!-- Detail Panel -->
+    <div class="xl:col-span-1">
+      <div id="panel" class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-5 sticky top-24" style="min-height:420px;">
+        <div id="pempty" class="h-full flex items-center justify-center text-center text-[#4a3f6b] py-16">
+          <div><div class="text-4xl mb-3">📍</div><p class="text-sm">Click a pin or a location card<br>to see details here.</p></div>
+        </div>
+        <div id="pcontent" class="hidden space-y-4"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search + Grid -->
+  <div>
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+      <h2 class="text-lg font-semibold" style="font-family:'Crimson Text',serif;">
+        Known Locations <span class="text-[#94a3b8] text-sm font-normal" id="loccnt">({{ locations|length }})</span>
+      </h2>
+      <input type="text" id="locsearch" placeholder="Search…" oninput="applyF()"
+             class="bg-[#16213e] border border-[#4a3f6b] rounded-lg px-3 py-1.5 text-sm text-[#e2e8f0] placeholder-[#4a3f6b] focus:outline-none focus:border-[#8B5CF6] w-48">
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="locgrid">
+      {% for loc in locations %}
+      <div class="loc-card rounded-xl bg-[#0d0d1a] p-4"
+           id="card{{ loc.id }}" data-id="{{ loc.id }}" data-type="{{ loc.location_type }}"
+           data-name="{{ loc.name|lower }}" onclick="selLoc({{ loc.id }})">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5 mb-0.5">
+              <span>{{ loc.type_icon }}</span>
+              <span class="font-semibold text-sm truncate">{{ loc.name }}</span>
+              {% if loc.is_hidden %}<span class="text-[#8B5CF6] text-xs" title="Hidden">👁</span>{% endif %}
             </div>
-            {% endfor %}
+            <div class="text-xs text-[#64748b]">{{ loc.location_type|title }} · {{ loc.biome }}</div>
+          </div>
+          <div class="text-right shrink-0">
+            <div class="text-xs font-bold d{{ loc.danger_color[0] }}">{{ loc.danger_level }}/10</div>
+            {% if loc.is_safe %}<div class="text-xs text-green-400">✓ Safe</div>{% endif %}
+          </div>
         </div>
-
-        <!-- Map Legend -->
-        <div class="flex flex-wrap items-center gap-4 mt-4 text-xs text-[#94a3b8]">
-            <span class="flex items-center gap-1">
-                <span class="inline-block w-3 h-3 rounded-full bg-[#8B5CF6] border border-[#e2e8f0]"></span>
-                Standard
-            </span>
-            <span class="flex items-center gap-1">
-                <span class="inline-block w-3 h-3 rounded-full bg-[#22C55E] border border-[#14532D]"></span>
-                Safe
-            </span>
-            <span class="flex items-center gap-1">
-                <span class="inline-block w-3 h-3 rounded-full bg-[#EF4444] border border-[#7F1D1D]"></span>
-                Hidden
-            </span>
-            <span class="text-[#64748b]">Hover over pins for details</span>
-        </div>
-    </div>
-
-    {% else %}
-    <!-- No Map Message -->
-    <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-8 text-center mb-8">
-        <div class="text-5xl mb-4">🌍</div>
-        <h2 class="text-2xl font-bold mb-3" style="font-family: 'Crimson Text', serif;">No World Map Generated</h2>
-        <p class="text-[#94a3b8] max-w-md mx-auto">
-            No world map has been generated yet for this realm.
-            A GM can use <code class="text-[#8B5CF6] bg-[#1a1a2e] px-2 py-0.5 rounded">/world generate</code>
-            in Discord to create one.
-        </p>
-    </div>
-    {% endif %}
-
-    <!-- ═══ Location List ═══ -->
-    <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl overflow-hidden">
-        <div class="px-6 py-4 border-b border-[#4a3f6b]/50">
-            <h2 class="font-bold" style="font-family: 'Crimson Text', serif;">
-                Known Locations
-                <span class="text-sm text-[#94a3b8] font-normal">({{ locations|length }})</span>
-            </h2>
-        </div>
-        <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead>
-                    <tr class="bg-[#1a1a2e] text-[#94a3b8] text-xs uppercase tracking-wider">
-                        <th class="text-left px-6 py-3">Name</th>
-                        <th class="text-left px-6 py-3">Type</th>
-                        <th class="text-left px-6 py-3">Biome</th>
-                        <th class="text-center px-6 py-3">Danger</th>
-                        <th class="text-center px-6 py-3">Safe</th>
-                        {% if is_gm %}
-                        <th class="text-center px-6 py-3">Hidden</th>
-                        {% endif %}
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-[#4a3f6b]/30">
-                    {% for loc in locations %}
-                    <tr class="hover:bg-[#1a1a2e]/50 transition-colors">
-                        <td class="px-6 py-3 font-medium">{{ loc.name }}</td>
-                        <td class="px-6 py-3 text-[#94a3b8]">{{ loc.location_type | title }}</td>
-                        <td class="px-6 py-3 text-[#94a3b8]">{{ loc.biome | title }}</td>
-                        <td class="px-6 py-3 text-center">
-                            {% if loc.danger_level > 0 %}
-                            <span class="font-medium
-                                {% if loc.danger_level >= 8 %}text-red-400
-                                {% elif loc.danger_level >= 5 %}text-yellow-400
-                                {% elif loc.danger_level >= 3 %}text-orange-400
-                                {% else %}text-green-400{% endif %}">
-                                {{ loc.danger_level }}/10
-                            </span>
-                            {% else %}
-                            <span class="text-[#64748b]">—</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-3 text-center">
-                            {% if loc.is_safe %}
-                            <span class="text-green-400">✓</span>
-                            {% else %}
-                            <span class="text-[#64748b]">✗</span>
-                            {% endif %}
-                        </td>
-                        {% if is_gm %}
-                        <td class="px-6 py-3 text-center">
-                            {% if loc.is_hidden %}
-                            <span class="text-red-400">🔒</span>
-                            {% else %}
-                            <span class="text-[#64748b]">—</span>
-                            {% endif %}
-                        </td>
-                        {% endif %}
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% if not locations %}
-        <div class="px-6 py-8 text-center text-[#94a3b8] text-sm">
-            No locations discovered yet.
-        </div>
+        {% if loc.short_description %}
+        <p class="text-xs text-[#94a3b8] mt-2 line-clamp-2">{{ loc.short_description }}</p>
         {% endif %}
+        <div class="flex gap-3 mt-2 text-xs text-[#4a3f6b]">
+          {% if loc.npcs %}<span>👤 {{ loc.npcs|length }}</span>{% endif %}
+          {% if loc.connections %}<span>🚪 {{ loc.connections|length }}</span>{% endif %}
+          {% if loc.characters_here %}<span>🧙 {{ loc.characters_here|length }}</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
     </div>
+  </div>
 </div>
+
+<script>
+const LOCS = {{ locations | tojson }};
+const IS_GM = {{ "true" if is_gm else "false" }};
+const lmap = {};
+LOCS.forEach(l => lmap[l.id] = l);
+let curId = null, curFilter = 'all';
+
+function dcls(level) {
+  if(level<=2) return 'dg'; if(level<=4) return 'db'; if(level<=6) return 'dy'; if(level<=8) return 'do'; return 'dr';
+}
+function dlabel(level) {
+  const cls=dcls(level), labels=['','Safe','Safe','Low','Low','Moderate','Moderate','High','High','Deadly','Deadly'];
+  return `<span class="${cls}">● ${labels[level]||'Unknown'} (${level}/10)</span>`;
+}
+function dcolor(disp) {
+  return {friendly:'df',neutral:'dn',unfriendly:'du',hostile:'dh'}[disp]||'dn';
+}
+
+function selLoc(id) {
+  if(curId!==null) {
+    const op=document.getElementById('pin'+curId); if(op) op.classList.remove('sel');
+    const oc=document.getElementById('card'+curId); if(oc) oc.classList.remove('sel');
+  }
+  curId=id;
+  const pin=document.getElementById('pin'+id); if(pin) pin.classList.add('sel');
+  const card=document.getElementById('card'+id);
+  if(card) { card.classList.add('sel'); card.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+
+  const loc=lmap[id]; if(!loc) return;
+  document.getElementById('pempty').classList.add('hidden');
+  const pc=document.getElementById('pcontent');
+  pc.classList.remove('hidden');
+
+  const connH=loc.connections.length?loc.connections.map(c=>`
+    <div class="flex items-center gap-2 text-sm">
+      <span class="text-xs text-[#64748b] uppercase w-14 shrink-0">${c.direction}</span>
+      <span class="text-[#e2e8f0] flex-1 truncate">${c.to_name}</span>
+      ${c.is_locked?'<span title="Locked" class="text-orange-400 text-xs">🔒</span>':''}
+      ${c.is_secret?'<span title="Secret" class="text-[#8B5CF6] text-xs">🔍</span>':''}
+    </div>`).join(''):'<p class="text-xs text-[#4a3f6b]">No exits recorded.</p>';
+
+  const npcH=loc.npcs.length?loc.npcs.map(n=>`
+    <div class="flex items-center gap-2">
+      <span class="${dcolor(n.disposition)} text-xs">●</span>
+      <span class="text-sm">${n.name}${n.title?` <span class="text-xs text-[#64748b]">${n.title}</span>`:''}</span>
+      ${n.is_hostile?'<span class="text-xs text-red-400 ml-auto">⚔ Hostile</span>':''}
+    </div>`).join(''):'<p class="text-xs text-[#4a3f6b]">No NPCs here.</p>';
+
+  const charH=loc.characters_here.length?
+    `<div class="flex flex-wrap gap-1">${loc.characters_here.map(n=>`<span class="text-xs bg-[#8B5CF6]/20 text-[#8B5CF6] px-2 py-0.5 rounded-full">${n}</span>`).join('')}</div>`
+    :'<p class="text-xs text-[#4a3f6b]">No characters here.</p>';
+
+  pc.innerHTML=`
+    ${loc.image_url?`<img src="${loc.image_url}" class="w-full h-28 object-cover rounded-lg" onerror="this.remove()">` : ''}
+    <div class="flex items-start gap-2">
+      <span class="text-2xl">${loc.type_icon||'📍'}</span>
+      <div>
+        <h3 class="font-bold" style="font-family:'Crimson Text',serif;font-size:1.1rem">${loc.name}</h3>
+        <div class="text-xs text-[#64748b]">${loc.location_type} · ${loc.biome}</div>
+      </div>
+    </div>
+    <div class="text-xs flex flex-wrap gap-x-4 gap-y-1">
+      ${dlabel(loc.danger_level)}
+      ${loc.is_safe?'<span class="text-green-400">✓ Safe Zone</span>':''}
+      ${loc.is_indoors?'<span class="text-blue-400">🏠 Indoors</span>':''}
+      ${loc.is_hidden&&IS_GM?'<span class="text-[#8B5CF6]">👁 Hidden</span>':''}
+    </div>
+    ${loc.ambient_sounds?`<p class="text-xs text-[#64748b] italic">"${loc.ambient_sounds}"</p>`:''}
+    <p class="text-sm text-[#c4b5c8] leading-relaxed line-clamp-4">${loc.description||loc.short_description||'<em class="text-[#4a3f6b]">No description.</em>'}</p>
+    <div class="text-xs text-[#64748b] flex gap-4">
+      <span>Pop: ${loc.population_density}</span>
+      <span>Light: ${loc.lighting}</span>
+    </div>
+    <div><div class="text-xs text-[#64748b] uppercase tracking-wider mb-1.5">Exits</div><div class="space-y-1">${connH}</div></div>
+    <div><div class="text-xs text-[#64748b] uppercase tracking-wider mb-1.5">NPCs</div><div class="space-y-1">${npcH}</div></div>
+    <div><div class="text-xs text-[#64748b] uppercase tracking-wider mb-1.5">Characters Present</div>${charH}</div>
+    ${IS_GM?`<div class="pt-2 border-t border-[#4a3f6b]/30"><a href="/dashboard/admin/location/${loc.id}" class="block text-center text-xs bg-[#8B5CF6]/20 hover:bg-[#8B5CF6]/40 text-[#8B5CF6] border border-[#8B5CF6]/30 rounded-lg py-2 transition-colors">✏️ Edit Location</a></div>`:''}
+  `;
+}
+
+// Filter buttons
+document.querySelectorAll('.fb').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.fb').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    curFilter=btn.dataset.f;
+    applyF();
+  });
+});
+
+function applyF() {
+  const s=(document.getElementById('locsearch').value||'').toLowerCase().trim();
+  let cnt=0;
+  document.querySelectorAll('#locgrid [data-id]').forEach(card=>{
+    const tm=curFilter==='all'||card.dataset.type===curFilter;
+    const nm=!s||card.dataset.name.includes(s);
+    const show=tm&&nm;
+    card.style.display=show?'':'none';
+    if(show) cnt++;
+  });
+  document.getElementById('loccnt').textContent=`(${cnt})`;
+  document.querySelectorAll('#pinslay .pin').forEach(pin=>{
+    const c=document.getElementById('card'+pin.dataset.id);
+    pin.style.display=(c&&c.style.display!=='none')?'':'none';
+  });
+}
+</script>
 {% endblock %}

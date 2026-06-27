@@ -99,7 +99,7 @@ async def not_found(request: Request, exc):
 
 # ── Routers ────────────────────────────────────────────────────────────────
 
-from dashboard.routes import home, characters, lore, map as map_route, sessions, bestiary
+from dashboard.routes import home, characters, lore, map as map_route, sessions, bestiary, admin
 
 app.include_router(home.router)
 app.include_router(characters.router)
@@ -107,3 +107,4 @@ app.include_router(lore.router)
 app.include_router(map_route.router)
 app.include_router(sessions.router)
 app.include_router(bestiary.router)
+app.include_router(admin.router)

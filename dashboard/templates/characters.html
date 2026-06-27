@@ -1,209 +1,544 @@
 {% extends "base.html" %}
 {% block title %}Characters — {{ world_name }}{% endblock %}
 
+{% block head %}
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  /* ── Bar styles ──────────────────────────────────────── */
+  .hp-bar { height:6px; background:#1e293b; border-radius:99px; overflow:hidden; }
+  .hp-bar-fill { height:100%; border-radius:99px; transition:width .4s ease; }
+  .hp-bar-fill.high  { background: linear-gradient(90deg,#16a34a,#4ade80); }
+  .hp-bar-fill.medium{ background: linear-gradient(90deg,#ca8a04,#fbbf24); }
+  .hp-bar-fill.low   { background: linear-gradient(90deg,#dc2626,#f87171); }
+  .xp-bar { height:4px; background:#1e293b; border-radius:99px; overflow:hidden; }
+  .xp-bar-fill { height:100%; background:linear-gradient(90deg,#7c3aed,#a78bfa); border-radius:99px; transition:width .4s ease; }
+
+  /* ── Card ────────────────────────────────────────────── */
+  .char-card { transition: transform .15s, box-shadow .15s; }
+  .char-card:hover { transform:translateY(-2px); box-shadow:0 8px 32px rgba(139,92,246,.15); }
+  .active-border { border-color: #8B5CF6 !important; }
+  .dead-overlay { filter: grayscale(0.7); }
+
+  /* ── Stat block ──────────────────────────────────────── */
+  .stat-block { background:#0d0d1a; border:1px solid #2d2b4e; border-radius:8px; padding:6px 4px; text-align:center; }
+  .stat-mod { font-size:1.05rem; font-weight:700; color:#e2e8f0; }
+  .stat-label { font-size:0.6rem; letter-spacing:.08em; color:#64748b; text-transform:uppercase; }
+
+  /* ── Condition badge ─────────────────────────────────── */
+  .cond-badge { display:inline-block; font-size:0.6rem; font-weight:600; letter-spacing:.04em;
+    text-transform:uppercase; padding:2px 7px; border-radius:99px; border:1px solid currentColor; }
+  .cond-poisoned   { color:#4ade80; }
+  .cond-blinded    { color:#94a3b8; }
+  .cond-frightened { color:#f87171; }
+  .cond-stunned    { color:#fbbf24; }
+  .cond-restrained { color:#f59e0b; }
+  .cond-exhausted  { color:#e879f9; }
+  .cond-prone      { color:#94a3b8; }
+  .cond-default    { color:#a78bfa; }
+
+  /* ── Death saves ─────────────────────────────────────── */
+  .save-dot { width:12px; height:12px; border-radius:50%; border:1px solid #4a3f6b; display:inline-block; }
+  .save-dot.success { background:#22c55e; border-color:#22c55e; }
+  .save-dot.failure { background:#ef4444; border-color:#ef4444; }
+
+  /* ── Modal ───────────────────────────────────────────── */
+  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:100; display:flex;
+    align-items:center; justify-content:center; padding:16px; opacity:0; pointer-events:none; transition:opacity .2s; }
+  .modal-backdrop.open { opacity:1; pointer-events:all; }
+  .modal-box { background:#0f0f1f; border:1px solid #4a3f6b; border-radius:16px;
+    width:100%; max-width:720px; max-height:90vh; overflow-y:auto; position:relative;
+    transform:translateY(20px); transition:transform .25s; }
+  .modal-backdrop.open .modal-box { transform:translateY(0); }
+  .modal-close { position:sticky; top:12px; float:right; margin:12px 12px 0 0;
+    background:#1a1a2e; border:1px solid #4a3f6b; border-radius:8px;
+    color:#94a3b8; font-size:1rem; width:32px; height:32px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; z-index:2; }
+  .modal-close:hover { color:#fff; border-color:#8B5CF6; }
+  .sheet-section { border-top:1px solid #1e2a45; padding-top:12px; margin-top:12px; }
+  .sheet-section h3 { font-size:.7rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    color:#8B5CF6; margin-bottom:8px; }
+
+  /* ── Expand btn ──────────────────────────────────────── */
+  .expand-btn { cursor:pointer; font-size:.72rem; color:#8B5CF6; background:transparent;
+    border:1px solid #4a3f6b; border-radius:6px; padding:3px 10px; transition:all .15s; }
+  .expand-btn:hover { background:#8B5CF6; color:#fff; border-color:#8B5CF6; }
+
+  /* ── Resource pips ───────────────────────────────────── */
+  .pip { width:10px; height:10px; border-radius:50%; background:#8B5CF6; display:inline-block; margin:0 1px; }
+  .pip.empty { background:transparent; border:1px solid #4a3f6b; }
+
+  /* Tab navigation */
+  .char-tab-btn { padding:6px 14px; font-size:.8rem; font-weight:500; border-radius:6px;
+    border:1px solid transparent; color:#94a3b8; cursor:pointer; transition:all .15s; }
+  .char-tab-btn.active { background:#8B5CF6; color:#fff; }
+  .char-tab-btn:hover:not(.active) { border-color:#4a3f6b; color:#e2e8f0; }
+  .char-tab-pane { display:none; }
+  .char-tab-pane.show { display:block; }
+
+  /* Scrollbar styling for modal */
+  .modal-box::-webkit-scrollbar { width:6px; }
+  .modal-box::-webkit-scrollbar-track { background:#0d0d1a; }
+  .modal-box::-webkit-scrollbar-thumb { background:#4a3f6b; border-radius:3px; }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="page-enter">
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-        <div>
-            <h1 class="text-3xl font-bold" style="font-family: 'Crimson Text', serif;">
-                <span class="text-[#8B5CF6]">✦</span> Characters
-            </h1>
-            <p class="text-[#94a3b8] text-sm mt-1">{{ world_name }}</p>
-        </div>
-        <div class="flex items-center gap-3">
-            {% if is_gm %}
-            <span class="text-xs bg-[#8B5CF6]/20 text-[#8B5CF6] px-3 py-1 rounded-full">GM View — All Characters</span>
-            {% endif %}
-            <a href="/dashboard/" class="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors">
-                ← Change Realm
-            </a>
-        </div>
-    </div>
+<div class="space-y-6">
 
-    <!-- Search Bar (GM only) -->
+  <!-- Header -->
+  <div class="flex items-center justify-between flex-wrap gap-4">
+    <div>
+      <h1 class="text-3xl font-bold" style="font-family:'Crimson Text',serif;">
+        ⚔️ {% if is_gm %}All Characters{% else %}Your Characters{% endif %}
+      </h1>
+      <p class="text-sm text-[#64748b] mt-1">{{ world_name }}{% if total %} &bull; {{ total }} {{ "character" if total == 1 else "characters" }}{% endif %}</p>
+    </div>
     {% if is_gm %}
-    <form method="GET" action="/dashboard/characters" class="mb-6">
-        <div class="flex gap-2">
-            <input type="text" name="search" value="{{ search }}" placeholder="Search characters by name..."
-                   class="search-input flex-1" maxlength="100">
-            <button type="submit" class="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                Search
-            </button>
-            {% if search %}
-            <a href="/dashboard/characters" class="bg-[#1a1a2e] border border-[#4a3f6b] text-[#94a3b8] px-4 py-2 rounded-lg text-sm transition-colors hover:border-[#EF4444]">
-                Clear
-            </a>
+    <div class="flex items-center gap-2 text-xs text-[#64748b] bg-[#16213e] border border-[#4a3f6b] rounded-lg px-3 py-1.5">
+      <span class="text-[#8B5CF6]">👁</span> GM View — all characters visible
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Search (GM only) -->
+  {% if is_gm %}
+  <form method="get" class="flex gap-2 max-w-sm">
+    <input name="search" value="{{ search }}" placeholder="Search by name…"
+           class="flex-1 bg-[#16213e] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+    <button type="submit" class="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+      Search
+    </button>
+    {% if search %}
+    <a href="/dashboard/characters" class="bg-[#1a1a2e] border border-[#4a3f6b] text-[#94a3b8] px-4 py-2 rounded-lg text-sm hover:border-[#EF4444] transition-colors">
+      Clear
+    </a>
+    {% endif %}
+  </form>
+  {% endif %}
+
+  {% if characters %}
+  <!-- Character Grid -->
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+    {% for char in characters %}
+    <div class="char-card bg-[#16213e] border border-[#4a3f6b] rounded-xl overflow-hidden
+                {% if char.is_active %}active-border{% endif %}
+                {% if char.is_dead %}dead-overlay opacity-70{% endif %}">
+
+      <!-- Card Header -->
+      <div class="p-4">
+        <div class="flex items-start gap-3">
+          <div class="relative flex-shrink-0">
+            <img src="{{ char.avatar_url }}" alt="{{ char.name }}"
+                 class="w-14 h-14 rounded-full border-2 border-[#4a3f6b] object-cover">
+            {% if char.is_active %}
+            <span class="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-[#16213e]" title="Active"></span>
             {% endif %}
+            {% if char.is_dead %}
+            <span class="absolute -bottom-1 -right-1 text-sm" title="Dead">💀</span>
+            {% endif %}
+            {% if char.wild_shape_active %}
+            <span class="absolute -top-1 -right-1 text-sm" title="Wild Shape: {{ char.wild_shape_form }}">🐺</span>
+            {% endif %}
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="text-base font-bold truncate" style="font-family:'Crimson Text',serif;">{{ char.name }}</h3>
+            <div class="flex flex-wrap gap-1.5 mt-1">
+              <span class="text-xs bg-[#1a1a2e] text-[#94a3b8] px-2 py-0.5 rounded">{{ char.race }}</span>
+              <span class="text-xs bg-[#8B5CF6]/20 text-[#8B5CF6] px-2 py-0.5 rounded">{{ char.char_class }}</span>
+              <span class="text-xs bg-[#F59E0B]/20 text-[#F59E0B] px-2 py-0.5 rounded">Lv.{{ char.level }}</span>
+              {% if char.is_owner %}
+              <span class="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded">You</span>
+              {% endif %}
+            </div>
+          </div>
         </div>
-    </form>
-    {% endif %}
 
-    <!-- Character Grid -->
-    {% if characters %}
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {% for char in characters %}
-        <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl overflow-hidden card-glow
-                    {% if char.is_active %}active-border{% endif %}
-                    {% if char.is_dead %}dead-overlay opacity-70{% endif %}">
-            <!-- Card Header -->
-            <div class="p-5">
-                <div class="flex items-start gap-4">
-                    <img src="{{ char.avatar_url }}" alt="{{ char.name }}"
-                         class="w-16 h-16 rounded-full border-2 border-[#4a3f6b] object-cover">
-                    <div class="flex-1 min-w-0">
-                        <h3 class="text-lg font-bold truncate" style="font-family: 'Crimson Text', serif;">{{ char.name }}</h3>
-                        <div class="flex flex-wrap gap-2 mt-1">
-                            <span class="text-xs bg-[#1a1a2e] text-[#94a3b8] px-2 py-0.5 rounded">{{ char.race }}</span>
-                            <span class="text-xs bg-[#8B5CF6]/20 text-[#8B5CF6] px-2 py-0.5 rounded">{{ char.char_class }}</span>
-                            <span class="text-xs bg-[#F59E0B]/20 text-[#F59E0B] px-2 py-0.5 rounded">Lv.{{ char.level }}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- HP & XP Bars -->
-            <div class="px-5 pb-3 space-y-2">
-                <!-- HP -->
-                <div>
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-[#94a3b8]">HP</span>
-                        <span class="{% if char.hp_current < char.hp_max * 0.25 %}text-red-400{% else %}text-green-400{% endif %}">
-                            {{ char.hp_current }} / {{ char.hp_max }}
-                        </span>
-                    </div>
-                    <div class="hp-bar">
-                        <div class="hp-bar-fill {{ 'high' if char.hp_pct > 50 else 'medium' if char.hp_pct > 25 else 'low' }}"
-                             style="width: {{ char.hp_pct }}%"></div>
-                    </div>
-                </div>
-                <!-- XP -->
-                <div>
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-[#94a3b8]">XP</span>
-                        <span class="text-[#8B5CF6]">{{ char.xp }}</span>
-                    </div>
-                    <div class="xp-bar">
-                        <div class="xp-bar-fill" style="width: {{ char.xp_pct }}%"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Stats Grid (expandable — shown by default on desktop) -->
-            <div class="px-5 pb-5">
-                <div class="grid grid-cols-3 gap-2 mb-3">
-                    <div class="stat-block">
-                        <div class="stat-mod">{{ char.str_mod }}</div>
-                        <div class="stat-label">STR</div>
-                        <div class="text-xs text-[#64748b]">{{ char.strength }}</div>
-                    </div>
-                    <div class="stat-block">
-                        <div class="stat-mod">{{ char.dex_mod }}</div>
-                        <div class="stat-label">DEX</div>
-                        <div class="text-xs text-[#64748b]">{{ char.dexterity }}</div>
-                    </div>
-                    <div class="stat-block">
-                        <div class="stat-mod">{{ char.con_mod }}</div>
-                        <div class="stat-label">CON</div>
-                        <div class="text-xs text-[#64748b]">{{ char.constitution }}</div>
-                    </div>
-                    <div class="stat-block">
-                        <div class="stat-mod">{{ char.int_mod }}</div>
-                        <div class="stat-label">INT</div>
-                        <div class="text-xs text-[#64748b]">{{ char.intelligence }}</div>
-                    </div>
-                    <div class="stat-block">
-                        <div class="stat-mod">{{ char.wis_mod }}</div>
-                        <div class="stat-label">WIS</div>
-                        <div class="text-xs text-[#64748b]">{{ char.wisdom }}</div>
-                    </div>
-                    <div class="stat-block">
-                        <div class="stat-mod">{{ char.cha_mod }}</div>
-                        <div class="stat-label">CHA</div>
-                        <div class="text-xs text-[#64748b]">{{ char.charisma }}</div>
-                    </div>
-                </div>
-
-                <!-- AC & Gold -->
-                <div class="flex justify-between items-center text-sm">
-                    <span class="text-[#94a3b8]">AC: <strong class="text-[#e2e8f0]">{{ char.armor_class }}</strong></span>
-                    <span class="text-[#94a3b8]">💰 <strong class="text-[#F59E0B]">{{ char.gold }}g</strong></span>
-                </div>
-
-                <!-- Background -->
-                <div class="mt-2 text-xs text-[#64748b]">
-                    {{ char.background }}
-                </div>
-
-                <!-- Backstory (collapsible) -->
-                {% if char.backstory %}
-                <details class="mt-3">
-                    <summary class="text-xs text-[#8B5CF6] cursor-pointer hover:text-[#7C3AED]">Backstory</summary>
-                    <p class="text-xs text-[#94a3b8] mt-2 leading-relaxed">{{ char.backstory }}</p>
-                </details>
-                {% endif %}
-
-                <!-- Inventory (collapsible) -->
-                {% if char.inventory %}
-                <details class="mt-2">
-                    <summary class="text-xs text-[#8B5CF6] cursor-pointer hover:text-[#7C3AED]">
-                        Inventory ({{ char.inventory|length }} items)
-                    </summary>
-                    <ul class="mt-2 space-y-1">
-                        {% for item in char.inventory %}
-                        <li class="text-xs text-[#94a3b8] flex items-center gap-2">
-                            <span class="text-[#4a3f6b]">•</span>
-                            {% if item is mapping %}
-                                {{ item.get('name', item) }}
-                            {% else %}
-                                {{ item }}
-                            {% endif %}
-                        </li>
-                        {% endfor %}
-                    </ul>
-                </details>
-                {% endif %}
-            </div>
+        <!-- Conditions -->
+        {% if char.conditions %}
+        <div class="flex flex-wrap gap-1 mt-2">
+          {% for cond in char.conditions %}
+          {% set cls_map = {
+            'poisoned':'cond-poisoned','blinded':'cond-blinded','frightened':'cond-frightened',
+            'stunned':'cond-stunned','restrained':'cond-restrained','exhausted':'cond-exhausted','prone':'cond-prone'
+          } %}
+          <span class="cond-badge {{ cls_map.get(cond|lower, 'cond-default') }}">{{ cond }}</span>
+          {% endfor %}
         </div>
-        {% endfor %}
-    </div>
+        {% endif %}
+      </div>
 
-    <!-- Pagination -->
-    {% if total_pages > 1 %}
-    <div class="flex justify-center items-center gap-4 mt-8">
-        {% if page > 1 %}
-        <a href="?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}"
-           class="bg-[#1a1a2e] border border-[#4a3f6b] text-[#e2e8f0] px-4 py-2 rounded-lg text-sm hover:border-[#8B5CF6] transition-colors">
-            ← Previous
-        </a>
+      <!-- Bars -->
+      <div class="px-4 pb-3 space-y-2">
+        <!-- HP -->
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-[#94a3b8]">HP{% if char.hp_temp > 0 %} <span class="text-cyan-400">(+{{ char.hp_temp }} temp)</span>{% endif %}</span>
+            <span class="{{ 'text-red-400' if char.hp_pct < 25 else 'text-green-400' }}">
+              {{ char.hp_current }} / {{ char.hp_max }}
+            </span>
+          </div>
+          <div class="hp-bar">
+            <div class="hp-bar-fill {{ 'high' if char.hp_pct > 50 else 'medium' if char.hp_pct > 25 else 'low' }}"
+                 style="width:{{ char.hp_pct }}%"></div>
+          </div>
+        </div>
+        <!-- XP -->
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-[#94a3b8]">XP</span>
+            <span class="text-[#8B5CF6]">{{ char.xp }}</span>
+          </div>
+          <div class="xp-bar">
+            <div class="xp-bar-fill" style="width:{{ char.xp_pct }}%"></div>
+          </div>
+        </div>
+        <!-- Death saves if relevant -->
+        {% if char.is_unconscious or char.death_saves_success > 0 or char.death_saves_failure > 0 %}
+        <div class="flex items-center gap-2 mt-1">
+          <span class="text-xs text-green-400">✓</span>
+          {% for i in range(3) %}
+          <span class="save-dot {{ 'success' if i < char.death_saves_success else '' }}"></span>
+          {% endfor %}
+          <span class="text-xs text-red-400 ml-1">✗</span>
+          {% for i in range(3) %}
+          <span class="save-dot {{ 'failure' if i < char.death_saves_failure else '' }}"></span>
+          {% endfor %}
+        </div>
         {% endif %}
-        <span class="text-sm text-[#94a3b8]">
-            Page {{ page }} of {{ total_pages }}
-            <span class="text-[#64748b]">({{ total }} total)</span>
-        </span>
-        {% if page < total_pages %}
-        <a href="?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}"
-           class="bg-[#1a1a2e] border border-[#4a3f6b] text-[#e2e8f0] px-4 py-2 rounded-lg text-sm hover:border-[#8B5CF6] transition-colors">
-            Next →
-        </a>
-        {% endif %}
+      </div>
+
+      <!-- Stat Grid -->
+      <div class="px-4 pb-4">
+        <div class="grid grid-cols-6 gap-1.5 mb-3">
+          {% for abbr, val, mod in [
+            ("STR", char.strength, char.str_mod),
+            ("DEX", char.dexterity, char.dex_mod),
+            ("CON", char.constitution, char.con_mod),
+            ("INT", char.intelligence, char.int_mod),
+            ("WIS", char.wisdom, char.wis_mod),
+            ("CHA", char.charisma, char.cha_mod),
+          ] %}
+          <div class="stat-block">
+            <div class="stat-mod">{{ mod }}</div>
+            <div class="stat-label">{{ abbr }}</div>
+            <div class="text-[10px] text-[#4a3f6b]">{{ val }}</div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <!-- AC / Gold / Class resources -->
+        <div class="flex flex-wrap justify-between items-center text-xs text-[#94a3b8] mb-3 gap-2">
+          <span>🛡 AC <strong class="text-[#e2e8f0]">{{ char.armor_class }}</strong></span>
+          <span>💰 <strong class="text-[#F59E0B]">{{ char.gold }}g</strong></span>
+          {% if char.ki_max > 0 %}
+          <span>☯ Ki <strong class="text-cyan-300">{{ char.ki_points }}/{{ char.ki_max }}</strong></span>
+          {% endif %}
+          {% if char.bardic_inspiration_dice > 0 %}
+          <span>🎵 <strong class="text-[#a78bfa]">{{ char.bardic_inspiration_dice }} Insp</strong></span>
+          {% endif %}
+        </div>
+
+        <!-- Background -->
+        <div class="text-xs text-[#64748b] mb-3">{{ char.background }}</div>
+
+        <!-- Full Sheet button -->
+        <button class="expand-btn w-full" onclick="openSheet({{ char | tojson | forceescape }})">
+          📋 Full Character Sheet
+        </button>
+      </div>
     </div>
+    {% endfor %}
+  </div>
+
+  <!-- Pagination -->
+  {% if total_pages > 1 %}
+  <div class="flex justify-center items-center gap-4 mt-8">
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}"
+       class="bg-[#1a1a2e] border border-[#4a3f6b] text-[#e2e8f0] px-4 py-2 rounded-lg text-sm hover:border-[#8B5CF6] transition-colors">
+      ← Prev
+    </a>
     {% endif %}
+    <span class="text-sm text-[#94a3b8]">Page {{ page }} / {{ total_pages }} <span class="text-[#64748b]">({{ total }} total)</span></span>
+    {% if page < total_pages %}
+    <a href="?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}"
+       class="bg-[#1a1a2e] border border-[#4a3f6b] text-[#e2e8f0] px-4 py-2 rounded-lg text-sm hover:border-[#8B5CF6] transition-colors">
+      Next →
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
 
+  {% else %}
+  <!-- Empty state -->
+  <div class="text-center py-20">
+    <div class="text-6xl mb-4">📜</div>
+    <h2 class="text-2xl font-bold mb-3" style="font-family:'Crimson Text',serif;">No Characters Found</h2>
+    {% if search %}
+    <p class="text-[#94a3b8]">No characters match "{{ search }}".</p>
+    <a href="/dashboard/characters" class="inline-block mt-4 text-[#8B5CF6] text-sm hover:underline">Clear Search</a>
     {% else %}
-    <!-- No characters -->
-    <div class="text-center py-16">
-        <div class="text-5xl mb-4">📜</div>
-        <h2 class="text-2xl font-bold mb-3" style="font-family: 'Crimson Text', serif;">
-            No Characters Found
-        </h2>
-        {% if search %}
-        <p class="text-[#94a3b8]">No characters match "{{ search }}". Try a different name.</p>
-        <a href="/dashboard/characters" class="inline-block mt-4 text-[#8B5CF6] text-sm hover:underline">Clear Search</a>
-        {% else %}
-        <p class="text-[#94a3b8]">No heroes walk this realm yet. Use <code class="text-[#8B5CF6] bg-[#1a1a2e] px-2 py-0.5 rounded">/create</code> in Discord to begin.</p>
-        {% endif %}
-    </div>
+    <p class="text-[#94a3b8]">No heroes walk this realm yet.</p>
+    <p class="text-[#64748b] text-sm mt-1">Use <code class="text-[#8B5CF6] bg-[#1a1a2e] px-2 py-0.5 rounded">/create</code> in Discord to begin your legend.</p>
     {% endif %}
+  </div>
+  {% endif %}
+
 </div>
+
+<!-- ═══════════ FULL CHARACTER SHEET MODAL ═══════════ -->
+<div id="sheetModal" class="modal-backdrop" onclick="closeSheetOutside(event)">
+  <div class="modal-box" id="sheetBox">
+    <button class="modal-close" onclick="closeSheet()">✕</button>
+
+    <!-- Banner -->
+    <div class="relative h-28 bg-gradient-to-br from-[#1a0533] to-[#0d0d2b] flex-shrink-0 rounded-t-2xl overflow-hidden">
+      <img id="sheetAvatarBg" src="" alt="" class="absolute inset-0 w-full h-full object-cover opacity-15 blur-sm scale-110">
+      <div class="absolute inset-0 flex items-end px-5 pb-3 gap-4">
+        <img id="sheetAvatar" src="" alt="" class="w-16 h-16 rounded-full border-2 border-[#8B5CF6] object-cover shadow-xl flex-shrink-0">
+        <div class="flex-1 min-w-0">
+          <div id="sheetName" class="text-xl font-bold leading-tight" style="font-family:'Crimson Text',serif;"></div>
+          <div id="sheetSubtitle" class="text-xs text-[#94a3b8]"></div>
+        </div>
+        <div id="sheetStatusBadges" class="flex gap-1 flex-wrap justify-end"></div>
+      </div>
+    </div>
+
+    <!-- Sheet tabs -->
+    <div class="px-5 pt-4 flex gap-2 flex-wrap border-b border-[#1e2a45] pb-3">
+      <button class="char-tab-btn active" data-tab="overview" onclick="switchTab(this,'overview')">Overview</button>
+      <button class="char-tab-btn" data-tab="combat" onclick="switchTab(this,'combat')">Combat</button>
+      <button class="char-tab-btn" data-tab="lore" onclick="switchTab(this,'lore')">Lore</button>
+      <button class="char-tab-btn" data-tab="inventory" onclick="switchTab(this,'inventory')">Inventory</button>
+    </div>
+
+    <!-- Tab: Overview -->
+    <div id="tab-overview" class="char-tab-pane show px-5 py-4 space-y-4">
+      <div class="space-y-2">
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-[#94a3b8]">HP <span id="ovHpTemp" class="text-cyan-400"></span></span>
+            <span id="ovHpNum" class="text-green-400 text-xs"></span>
+          </div>
+          <div class="hp-bar"><div id="ovHpBar" class="hp-bar-fill high" style="width:0%"></div></div>
+        </div>
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-[#94a3b8]">XP</span>
+            <span id="ovXpNum" class="text-[#8B5CF6] text-xs"></span>
+          </div>
+          <div class="xp-bar"><div id="ovXpBar" class="xp-bar-fill" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div>
+        <h3 class="text-[.7rem] font-semibold text-[#8B5CF6] uppercase tracking-widest mb-2">Ability Scores</h3>
+        <div class="grid grid-cols-6 gap-2" id="ovStats"></div>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="ovQuick"></div>
+      <div id="ovResources" class="space-y-2"></div>
+      <div id="ovConditions"></div>
+      <div id="ovDeathSaves"></div>
+    </div>
+
+    <!-- Tab: Combat -->
+    <div id="tab-combat" class="char-tab-pane px-5 py-4 space-y-4">
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3" id="combatGrid"></div>
+      <div id="combatSkills"></div>
+    </div>
+
+    <!-- Tab: Lore -->
+    <div id="tab-lore" class="char-tab-pane px-5 py-4 space-y-4">
+      <div id="loreBackstory"></div>
+      <div id="loreDetails"></div>
+      <div id="loreRelationships"></div>
+      <div id="loreProxy"></div>
+    </div>
+
+    <!-- Tab: Inventory -->
+    <div id="tab-inventory" class="char-tab-pane px-5 py-4">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="text-[.7rem] font-semibold text-[#8B5CF6] uppercase tracking-widest">Inventory</h3>
+        <div class="flex gap-3 text-sm">
+          <span class="text-[#94a3b8]">💰 <span id="invGold" class="text-[#F59E0B] font-bold"></span>g</span>
+          <span class="text-[#94a3b8]">🏦 <span id="invBalance" class="text-[#a78bfa] font-bold"></span></span>
+        </div>
+      </div>
+      <div id="invList"></div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function switchTab(btn, name) {
+  document.querySelectorAll('.char-tab-pane').forEach(p => p.classList.remove('show'));
+  document.querySelectorAll('.char-tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('show');
+  btn.classList.add('active');
+}
+
+function openSheet(char) {
+  populateSheet(char);
+  // Reset to overview
+  document.querySelectorAll('.char-tab-pane').forEach(p => p.classList.remove('show'));
+  document.querySelectorAll('.char-tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-overview').classList.add('show');
+  document.querySelector('[data-tab="overview"]').classList.add('active');
+  document.getElementById('sheetModal').classList.add('open');
+}
+
+function closeSheet() { document.getElementById('sheetModal').classList.remove('open'); }
+function closeSheetOutside(e) { if (e.target.id === 'sheetModal') closeSheet(); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+
+function pct(cur, max) { return max > 0 ? Math.min(100, Math.round(cur / max * 100)) : 0; }
+function condColor(c) {
+  return {poisoned:'#4ade80',blinded:'#94a3b8',frightened:'#f87171',stunned:'#fbbf24',
+          restrained:'#f59e0b',exhausted:'#e879f9',prone:'#94a3b8'}[c.toLowerCase()] || '#a78bfa';
+}
+function statBlock(abbr, val, mod) {
+  return `<div class="stat-block"><div class="stat-mod">${mod}</div><div class="stat-label">${abbr}</div><div class="text-[10px] text-[#4a3f6b]">${val}</div></div>`;
+}
+function qCard(icon, label, val, color='#e2e8f0') {
+  return `<div class="bg-[#0d0d1a] border border-[#2d2b4e] rounded-lg px-3 py-2 text-center">
+    <div class="text-[10px] text-[#64748b] uppercase tracking-wider">${icon} ${label}</div>
+    <div class="text-sm font-bold mt-0.5" style="color:${color}">${val}</div>
+  </div>`;
+}
+
+function populateSheet(c) {
+  // Banner
+  document.getElementById('sheetAvatar').src = c.avatar_url;
+  document.getElementById('sheetAvatarBg').src = c.avatar_url;
+  document.getElementById('sheetName').textContent = c.name;
+  document.getElementById('sheetSubtitle').textContent = `${c.race} ${c.char_class} · Level ${c.level} · ${c.background}`;
+  let badges = '';
+  if (c.is_dead) badges += '<span class="text-xs bg-red-900/50 text-red-400 px-2 py-0.5 rounded-full border border-red-700">💀 Dead</span>';
+  else if (c.is_active) badges += '<span class="text-xs bg-green-900/50 text-green-400 px-2 py-0.5 rounded-full border border-green-700">● Active</span>';
+  if (c.is_unconscious) badges += '<span class="text-xs bg-yellow-900/50 text-yellow-400 px-2 py-0.5 rounded-full border border-yellow-700">😵 Unconscious</span>';
+  if (c.wild_shape_active) badges += `<span class="text-xs bg-emerald-900/50 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-700">🐺 ${c.wild_shape_form || 'Wild Shape'}</span>`;
+  document.getElementById('sheetStatusBadges').innerHTML = badges;
+
+  // Overview — HP/XP
+  const hp_pct = pct(c.hp_current, c.hp_max);
+  const bar = document.getElementById('ovHpBar');
+  bar.style.width = hp_pct + '%';
+  bar.className = 'hp-bar-fill ' + (hp_pct > 50 ? 'high' : hp_pct > 25 ? 'medium' : 'low');
+  document.getElementById('ovHpNum').textContent = `${c.hp_current} / ${c.hp_max}`;
+  document.getElementById('ovHpNum').style.color = hp_pct < 25 ? '#f87171' : '#4ade80';
+  document.getElementById('ovHpTemp').textContent = c.hp_temp > 0 ? `(+${c.hp_temp} temp)` : '';
+  document.getElementById('ovXpBar').style.width = c.xp_pct + '%';
+  document.getElementById('ovXpNum').textContent = `${c.xp} XP`;
+
+  // Ability scores
+  document.getElementById('ovStats').innerHTML = [
+    ['STR',c.strength,c.str_mod],['DEX',c.dexterity,c.dex_mod],
+    ['CON',c.constitution,c.con_mod],['INT',c.intelligence,c.int_mod],
+    ['WIS',c.wisdom,c.wis_mod],['CHA',c.charisma,c.cha_mod],
+  ].map(([a,v,m]) => statBlock(a,v,m)).join('');
+
+  // Quick cards
+  const prof = '+' + Math.ceil(1 + c.level / 4);
+  document.getElementById('ovQuick').innerHTML = [
+    qCard('🛡','AC', c.armor_class),
+    qCard('💰','Gold', c.gold+'g', '#F59E0B'),
+    qCard('⚡','Prof Bonus', prof),
+    qCard('📅','Age', c.age > 0 ? c.age : '—'),
+  ].join('');
+
+  // Class resources
+  let res = '';
+  if (c.ki_max > 0) {
+    let pips = Array.from({length: c.ki_max}, (_,i) => `<span class="pip${i<c.ki_points?'':' empty'}"></span>`).join('');
+    res += `<div class="flex items-center gap-2"><span class="text-xs text-[#64748b] w-20">☯ Ki</span><div class="flex">${pips}</div><span class="text-xs text-cyan-300 ml-1">${c.ki_points}/${c.ki_max}</span></div>`;
+  }
+  if (c.bardic_inspiration_dice > 0)
+    res += `<div class="text-xs text-[#94a3b8]">🎵 Bardic Inspiration: <strong class="text-[#a78bfa]">${c.bardic_inspiration_dice} dice</strong></div>`;
+  document.getElementById('ovResources').innerHTML = res;
+
+  // Conditions
+  document.getElementById('ovConditions').innerHTML = (c.conditions && c.conditions.length)
+    ? `<div class="sheet-section"><h3>Conditions</h3><div class="flex flex-wrap gap-2">${
+        c.conditions.map(cd => `<span class="cond-badge" style="color:${condColor(cd)};border-color:${condColor(cd)}">${cd}</span>`).join('')
+      }</div></div>` : '';
+
+  // Death saves
+  const needDS = c.is_unconscious || c.death_saves_success > 0 || c.death_saves_failure > 0;
+  if (needDS) {
+    const succ = Array.from({length:3},(_,i)=>`<span class="save-dot${i<c.death_saves_success?' success':''}"></span>`).join('');
+    const fail = Array.from({length:3},(_,i)=>`<span class="save-dot${i<c.death_saves_failure?' failure':''}"></span>`).join('');
+    document.getElementById('ovDeathSaves').innerHTML =
+      `<div class="sheet-section"><h3>Death Saves</h3><div class="flex items-center gap-2">
+        <span class="text-xs text-green-400">✓</span>${succ}
+        <span class="text-xs text-red-400 ml-2">✗</span>${fail}
+      </div></div>`;
+  } else { document.getElementById('ovDeathSaves').innerHTML = ''; }
+
+  // Combat tab
+  const initMod = Math.floor((c.dexterity - 10) / 2);
+  document.getElementById('combatGrid').innerHTML = [
+    qCard('🛡','AC', c.armor_class),
+    qCard('❤️','Max HP', c.hp_max),
+    qCard('❤️‍🩹','Current HP', c.hp_current, hp_pct < 25 ? '#f87171' : '#4ade80'),
+    qCard('✨','Temp HP', c.hp_temp > 0 ? '+'+c.hp_temp : '—', '#67e8f9'),
+    qCard('⚡','Prof Bonus', prof),
+    qCard('🎲','Initiative', (initMod >= 0 ? '+' : '') + initMod),
+  ].join('');
+  document.getElementById('combatSkills').innerHTML = (c.skill_proficiencies && c.skill_proficiencies.length)
+    ? `<div class="sheet-section"><h3>Skill Proficiencies</h3><div class="flex flex-wrap gap-1.5">${
+        c.skill_proficiencies.map(s=>`<span class="text-xs bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#a78bfa] px-2 py-0.5 rounded-full">${s}</span>`).join('')
+      }</div></div>` : '';
+
+  // Lore tab
+  document.getElementById('loreBackstory').innerHTML = c.backstory
+    ? `<div><h3 class="text-[.7rem] font-semibold text-[#8B5CF6] uppercase tracking-widest mb-2">Backstory</h3><p class="text-sm text-[#94a3b8] leading-relaxed whitespace-pre-wrap">${c.backstory}</p></div>` : '';
+
+  let details = '<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">';
+  if (c.religion) details += qCard('🙏','Religion', c.religion);
+  if (c.age > 0) details += qCard('📅','Age / Lifespan', `${c.age} / ${c.lifespan}`);
+  details += '</div>';
+  if (c.languages && c.languages.length)
+    details += `<div class="sheet-section"><h3>Languages</h3><div class="flex flex-wrap gap-1.5">${
+      c.languages.map(l=>`<span class="text-xs bg-[#1a1a2e] border border-[#4a3f6b] text-[#94a3b8] px-2 py-0.5 rounded-full">${l}</span>`).join('')
+    }</div></div>`;
+  document.getElementById('loreDetails').innerHTML = details;
+
+  document.getElementById('loreRelationships').innerHTML = (c.relationships && c.relationships.length)
+    ? `<div class="sheet-section"><h3>Relationships</h3><div class="space-y-1">${
+        c.relationships.map(r => {
+          if (typeof r === 'string') return `<div class="text-sm text-[#94a3b8]">• ${r}</div>`;
+          const n = r.name||r.target||''; const t = r.type||''; const d = r.description||'';
+          return `<div class="text-sm text-[#94a3b8]">• <strong class="text-[#e2e8f0]">${n}</strong>${t?' — '+t:''}${d?': '+d:''}</div>`;
+        }).join('')
+      }</div></div>` : '';
+
+  document.getElementById('loreProxy').innerHTML = (c.proxy_open || c.proxy_close)
+    ? `<div class="sheet-section"><h3>Proxy Settings</h3><div class="flex flex-wrap gap-4 text-sm text-[#94a3b8]">
+        <span>Open: <code class="text-[#8B5CF6] bg-[#0d0d1a] px-2 py-0.5 rounded">${c.proxy_open||'—'}</code></span>
+        <span>Close: <code class="text-[#8B5CF6] bg-[#0d0d1a] px-2 py-0.5 rounded">${c.proxy_close||'—'}</code></span>
+        <span>Used <strong class="text-[#e2e8f0]">${c.proxy_count}</strong>×</span>
+      </div></div>` : '';
+
+  // Inventory tab
+  document.getElementById('invGold').textContent = c.gold;
+  document.getElementById('invBalance').textContent = c.balance;
+  if (c.inventory && c.inventory.length) {
+    document.getElementById('invList').innerHTML = '<div class="space-y-1.5">' + c.inventory.map(item => {
+      if (typeof item === 'string')
+        return `<div class="flex items-center gap-2 text-sm text-[#94a3b8]"><span class="text-[#4a3f6b]">▸</span>${item}</div>`;
+      const name = item.name || JSON.stringify(item);
+      const qty  = item.quantity || item.qty || '';
+      const desc = item.description || item.desc || '';
+      return `<div class="bg-[#0d0d1a] border border-[#2d2b4e] rounded-lg px-3 py-2">
+        <div class="flex justify-between text-sm"><span class="text-[#e2e8f0]">${name}</span>${qty?`<span class="text-xs text-[#64748b]">×${qty}</span>`:''}</div>
+        ${desc?`<div class="text-xs text-[#64748b] mt-0.5">${desc}</div>`:''}
+      </div>`;
+    }).join('') + '</div>';
+  } else {
+    document.getElementById('invList').innerHTML = '<p class="text-center text-[#4a3f6b] py-8 text-sm">No items in inventory.</p>';
+  }
+}
+</script>
 {% endblock %}

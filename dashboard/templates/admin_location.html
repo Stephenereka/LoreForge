@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Edit Location — {{ loc.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div class="flex items-center gap-3">
+    <a href="/dashboard/map" class="text-[#94a3b8] hover:text-[#8B5CF6] text-sm">← Back to Map</a>
+  </div>
+  <h1 class="text-2xl font-bold" style="font-family:'Crimson Text',serif;">✏️ Edit Location: {{ loc.name }}</h1>
+
+  <form action="/dashboard/admin/location/{{ loc.id }}" method="post" class="space-y-5">
+    <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-6 space-y-4">
+      <h2 class="text-sm font-semibold text-[#8B5CF6] uppercase tracking-wider">Basic Info</h2>
+      <div>
+        <label class="text-xs text-[#94a3b8] block mb-1">Name *</label>
+        <input name="name" value="{{ loc.name }}" required class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+      </div>
+      <div>
+        <label class="text-xs text-[#94a3b8] block mb-1">Short Description (shown in cards)</label>
+        <input name="short_description" value="{{ loc.short_description }}" maxlength="200"
+               class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+      </div>
+      <div>
+        <label class="text-xs text-[#94a3b8] block mb-1">Full Description</label>
+        <textarea name="description" rows="4" class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">{{ loc.description }}</textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="text-xs text-[#94a3b8] block mb-1">Type</label>
+          <select name="location_type" class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+            {% for t in ["city","dungeon","wilderness","tavern","shop","room","landmark","ruins","port","mountain","forest","cave","castle","village","temple","quest_instance"] %}
+            <option value="{{ t }}" {% if loc.location_type == t %}selected{% endif %}>{{ t|title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-[#94a3b8] block mb-1">Biome</label>
+          <select name="biome" class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+            <option value="">— None —</option>
+            {% for b in ["forest","desert","tundra","mountain","swamp","ocean","plains","urban","coastal","underground","volcanic"] %}
+            <option value="{{ b }}" {% if loc.biome|lower == b %}selected{% endif %}>{{ b|title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-6 space-y-4">
+      <h2 class="text-sm font-semibold text-[#8B5CF6] uppercase tracking-wider">Map & Visuals</h2>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="text-xs text-[#94a3b8] block mb-1">Map X (0–100%)</label>
+          <input type="number" name="map_x" value="{{ loc.map_x }}" min="0" max="100" step="0.1"
+                 class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+        </div>
+        <div>
+          <label class="text-xs text-[#94a3b8] block mb-1">Map Y (0–100%)</label>
+          <input type="number" name="map_y" value="{{ loc.map_y }}" min="0" max="100" step="0.1"
+                 class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+        </div>
+      </div>
+      <div>
+        <label class="text-xs text-[#94a3b8] block mb-1">Location Image URL</label>
+        <input name="image_url" value="{{ loc.image_url }}" placeholder="https://..."
+               class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+        {% if loc.image_url %}
+        <img src="{{ loc.image_url }}" class="mt-2 h-20 rounded-lg object-cover border border-[#4a3f6b]" onerror="this.style.display='none'">
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-6 space-y-4">
+      <h2 class="text-sm font-semibold text-[#8B5CF6] uppercase tracking-wider">Attributes</h2>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="text-xs text-[#94a3b8] block mb-1">Danger Level (0–10)</label>
+          <input type="number" name="danger_level" value="{{ loc.danger_level }}" min="0" max="10"
+                 class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+        </div>
+        <div>
+          <label class="text-xs text-[#94a3b8] block mb-1">Population Density</label>
+          <select name="population_density" class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+            {% for pd in ["deserted","sparse","moderate","bustling","crowded"] %}
+            <option value="{{ pd }}" {% if loc.population_density == pd %}selected{% endif %}>{{ pd|title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-[#94a3b8] block mb-1">Lighting</label>
+          <select name="lighting" class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+            {% for l in ["pitch_black","dim","bright"] %}
+            <option value="{{ l }}" {% if loc.lighting == l %}selected{% endif %}>{{ l|replace("_"," ")|title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-[#94a3b8] block mb-1">Ambient Sounds</label>
+          <input name="ambient_sounds" value="{{ loc.ambient_sounds }}" placeholder="crackling fire, distant bells..."
+                 class="w-full bg-[#0d0d1a] border border-[#4a3f6b] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]">
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-6 pt-2">
+        {% for fname, flabel, fdesc in [
+          ("is_safe","Safe Zone","No combat allowed here"),
+          ("is_hidden","Hidden","Players can't see or travel here"),
+          ("is_indoors","Indoors","Sheltered from weather"),
+        ] %}
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" name="{{ fname }}" {% if loc[fname] %}checked{% endif %}
+                 class="w-4 h-4 rounded border-[#4a3f6b] bg-[#0d0d1a] accent-[#8B5CF6]">
+          <div><div class="text-sm">{{ flabel }}</div><div class="text-xs text-[#64748b]">{{ fdesc }}</div></div>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="flex gap-3">
+      <button type="submit" class="px-6 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-lg text-sm font-medium transition-colors">
+        💾 Save Changes
+      </button>
+      <a href="/dashboard/map" class="px-6 py-2.5 bg-[#16213e] border border-[#4a3f6b] text-[#94a3b8] hover:text-white rounded-lg text-sm font-medium transition-colors">
+        Cancel
+      </a>
+    </div>
+  </form>
+</div>
+{% endblock %}
