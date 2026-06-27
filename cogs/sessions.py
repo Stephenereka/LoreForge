@@ -140,7 +140,7 @@ async def session_end(interaction: discord.Interaction):
     elif log.summary_text:
         embed.add_field(name="📖 Summary", value=log.summary_text, inline=False)
     else:
-        embed.add_field(name="📖 Summary", value="*No AI summary available. Toggle summaries with `/ai toggle summary`.*", inline=False)
+        embed.add_field(name="📖 Summary", value="*No AI summary available — DeepSeek may be offline, or summaries are disabled (`/ai toggle summary`).*", inline=False)
 
     embed.set_footer(text="LoreForge Session Log")
     await interaction.followup.send(embed=embed)
@@ -206,7 +206,7 @@ async def session_summary(interaction: discord.Interaction):
     if summary:
         embed.add_field(name="📖 Narrative", value=summary, inline=False)
     else:
-        embed.add_field(name="📖 Narrative", value="*AI summary unavailable.*", inline=False)
+        embed.add_field(name="📖 Narrative", value="*AI summary unavailable — DeepSeek service may be offline. Try again later or add manual notes.*", inline=False)
 
     embed.set_footer(text="Use /session log to view past sessions")
     await interaction.followup.send(embed=embed)

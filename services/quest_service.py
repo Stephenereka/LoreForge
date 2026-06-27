@@ -92,41 +92,10 @@ async def check_quest_objectives(db, guild_id: int, character_id: int, trigger_t
             for o in objectives if not o.is_optional
         )
         if all_complete and pq.status == "accepted":
-            pq.status = "completed"
+            pq.status = "pending_approval"
             pq.completed_at = datetime.utcnow()
             completed_quest_names.append(quest.name)
-
-            # Auto-award rewards
-            char_result = await db.execute(
-                select(Character).where(Character.id == character_id)
-            )
-            char = char_result.scalar_one_or_none()
-            if char:
-                if quest.reward_xp > 0:
-                    char.xp = (char.xp or 0) + quest.reward_xp
-                    new_level = check_level_up(char.xp, char.level)
-                    if new_level:
-                        hp_gain = hp_gain_on_level(char.char_class, char.constitution)
-                        char.level = new_level
-                        char.hp_max = char.hp_max + hp_gain
-                        char.hp_current = min(char.hp_current + hp_gain, char.hp_max)
-                if quest.reward_gold > 0:
-                    char.gold = (char.gold or 0) + quest.reward_gold
-                # Items
-                reward_items = quest.reward_items or []
-                for item_entry in reward_items:
-                    inv = list(char.inventory or [])
-                    inv.append({"key": item_entry.get("item_name", "unknown"), "qty": item_entry.get("qty", 1), "type": "item"})
-                    char.inventory = inv
-                # Faction rep
-                faction_rep = quest.reward_faction_rep or {}
-                for faction_name, rep_amount in faction_rep.items():
-                    faction_result = await db.execute(
-                        select(Faction).where(Faction.name == faction_name, Faction.guild_id == guild_id)
-                    )
-                    faction = faction_result.scalar_one_or_none()
-                    if faction:
-                        await change_reputation(character_id, guild_id, faction.id, rep_amount, f"Quest: {quest.name}")
+            # DO NOT award rewards here — GM must approve first (FIX 16)
 
     return completed_quest_names
 

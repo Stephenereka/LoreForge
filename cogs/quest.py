@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
+from datetime import datetime
 from database.session import get_db
 from database.models import (
     Quest, QuestObjective, PlayerQuest, Character,
@@ -347,7 +348,7 @@ async def quest_complete(interaction: discord.Interaction, name: str):
             select(PlayerQuest).where(
                 PlayerQuest.character_id == char.id,
                 PlayerQuest.quest_id == quest.id,
-                PlayerQuest.status == "accepted",
+                PlayerQuest.status.in_(["accepted", "pending_approval"]),
             )
         )
         pq = pq_result.scalar_one_or_none()
@@ -375,12 +376,17 @@ class QuestCompleteView(discord.ui.View):
         self.quest_id = quest_id
         self.pq_id = pq_id
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        from services.utils import is_gm
+        if not await is_gm(interaction):
+            await interaction.response.send_message(
+                "Only GMs can approve or deny quest completions.", ephemeral=True
+            )
+            return False
+        return True
+
     @discord.ui.button(label="Approve ✅", style=discord.ButtonStyle.success)
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await is_gm(interaction):
-            await interaction.response.send_message("Only GMs can approve quests.", ephemeral=True)
-            return
-
         await award_quest_rewards(self.char_id, self.guild_id, self.quest_id)
 
         async with get_db() as db:
@@ -388,6 +394,7 @@ class QuestCompleteView(discord.ui.View):
             pq = result.scalar_one_or_none()
             if pq:
                 pq.status = "completed"
+                pq.completed_at = datetime.utcnow()
 
         embed = discord.Embed(
             title="✅ Quest Completed!",
@@ -399,10 +406,6 @@ class QuestCompleteView(discord.ui.View):
 
     @discord.ui.button(label="Deny ❌", style=discord.ButtonStyle.danger)
     async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await is_gm(interaction):
-            await interaction.response.send_message("Only GMs can deny quests.", ephemeral=True)
-            return
-
         embed = discord.Embed(
             title="❌ Quest Completion Denied",
             description=f"Denied by {interaction.user.mention}",

@@ -18,7 +18,6 @@ from services.leveling import pvp_xp_reward, check_level_up, hp_gain_on_level, f
 from cogs.character import resolve_character, CharacterPickView, pick_embed, _offer_attack_unlock
 from services.title_service import get_active_title
 from services.utils import is_gm
-from discord.ext import commands
 
 # Module-level bot reference — set when cog loads
 _bot_instance: commands.Bot | None = None
@@ -953,8 +952,35 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
         session.add_log(f"🤝 **{player.name}** takes the Help action — granting an ally advantage on their next move!")
 
     elif action == "ITEM":
-        healed = player.heal(roll(4) + 2)
-        session.add_log(f"🧪 {player.name} uses a potion — healed **{healed} HP**!")
+        # FIX 11: Check inventory for a potion before healing
+        player_uid = session.user_id_for(player)
+        has_potion = False
+        if player_uid and isinstance(player_uid, int):
+            async with get_db() as db:
+                char_result = await db.execute(
+                    select(Character).where(
+                        Character.user_id == player_uid,
+                        Character.guild_id == session.guild_id,
+                    )
+                )
+                char_row = char_result.scalar_one_or_none()
+                if char_row:
+                    inv = list(char_row.inventory or [])
+                    potion_idx = next(
+                        (i for i, it in enumerate(inv)
+                         if "potion" in it.get("name", "").lower()
+                         or "bandage" in it.get("name", "").lower()),
+                        None
+                    )
+                    if potion_idx is not None:
+                        has_potion = True
+                        inv.pop(potion_idx)
+                        char_row.inventory = inv
+        if not has_potion:
+            session.add_log(f"❌ **{player.name}** reaches for a potion but has none!")
+        else:
+            healed = player.heal(roll(4) + 2)
+            session.add_log(f"🧪 {player.name} drinks a potion — recovered **{healed} HP**!")
 
     # ── Boss integration: legendary action after player turn ──
     try:
@@ -1021,7 +1047,6 @@ async def _end_combat(session: CombatSession, winner: Combatant | None):
     losers  = [p for p in session.players if p.is_dead or p.is_unconscious]
 
     if winners and losers:
-        total_xp_per_winner = sum(pvp_xp_reward(loser.level, len(winners)) for loser in losers)
         total_stones_per_winner = sum(random.randint(10, 50) for loser in losers)
 
         level_up_embeds: list[discord.Embed] = []
@@ -1030,6 +1055,12 @@ async def _end_combat(session: CombatSession, winner: Combatant | None):
                 if p not in winners:
                     continue
                 uid = session.player_user_ids[i]
+
+                # FIX 14: Calculate XP per-winner based on actual levels
+                total_xp_per_winner = sum(
+                    pvp_xp_reward(p.level, loser.level) for loser in losers
+                )
+
                 result = await db.execute(
                     select(Character).where(Character.user_id == uid, Character.guild_id == session.guild_id)
                 )
@@ -1061,10 +1092,9 @@ async def _end_combat(session: CombatSession, winner: Combatant | None):
         channel = session.status_message.channel if session.status_message else None
         if channel:
             stone_lines = [f"• **{p.name}** earned **{total_stones_per_winner}** 🔮 Spirit Stones" for p in winners]
-            xp_lines = [f"• **{p.name}** earned **{total_xp_per_winner} XP**" for p in winners]
             xp_embed = discord.Embed(
                 title="⚔️ PvP Awards",
-                description="\n".join(xp_lines) + "\n\n" + "\n".join(stone_lines),
+                description="\n".join(stone_lines),
                 color=0xF59E0B,
             )
             await channel.send(embed=xp_embed)
@@ -1286,6 +1316,24 @@ async def combat_end(interaction: discord.Interaction):
         )
         return
 
+    # FIX 10: Sync all players' current HP to DB before ending
+    async with get_db() as db:
+        for uid, combatant in zip(session.player_user_ids, session.players):
+            if not isinstance(uid, int) or uid == 0:
+                continue
+            result = await db.execute(
+                select(Character).where(
+                    Character.user_id == uid,
+                    Character.guild_id == session.guild_id,
+                    Character.is_dead == False,
+                )
+            )
+            char = result.scalar_one_or_none()
+            if char:
+                char.hp_current = max(0, combatant.hp_current)
+                char.hp_temp = combatant.hp_temp
+                char.is_unconscious = combatant.is_unconscious
+
     session.state = "over"
     _sessions.pop(session.channel_id, None)
     await _set_combat_active(session.guild_id, None)
@@ -1313,6 +1361,22 @@ async def combat_forfeit(interaction: discord.Interaction):
 
     idx = session.player_user_ids.index(interaction.user.id)
     player = session.players[idx]
+
+    # FIX 10: Sync HP to DB before removing player
+    async with get_db() as db:
+        result = await db.execute(
+            select(Character).where(
+                Character.user_id == interaction.user.id,
+                Character.guild_id == session.guild_id,
+                Character.is_dead == False,
+            )
+        )
+        char = result.scalar_one_or_none()
+        if char:
+            char.hp_current = max(0, player.hp_current)
+            char.hp_temp = player.hp_temp
+            char.is_unconscious = player.is_unconscious
+
     session.players.pop(idx)
     session.player_user_ids.pop(idx)
     session.turn_order = [c for c in session.turn_order if c is not player]

@@ -273,7 +273,8 @@ async def faction_status(interaction: discord.Interaction, name: str):
 
         # Find tier bounds for progress bar
         progress_bar = ""
-        for tier_name, (low, high, emoji) in REPUTATION_TIERS.items():
+        for tier_name, tier_data in REPUTATION_TIERS.items():
+            low, high, emoji = tier_data["min"], tier_data["max"], tier_data["icon"]
             if low <= rep_value <= high:
                 pct = (rep_value - low) / (high - low) if high != low else 1.0
                 filled = max(0, min(10, int(pct * 10)))
@@ -288,7 +289,7 @@ async def faction_status(interaction: discord.Interaction, name: str):
             )
         )
         perks = perks_result.scalars().all()
-        unlocked = [p for p in perks if REPUTATION_TIERS.get(p.required_tier, (0, 0, ""))[0] <= rep_value]
+        unlocked = [p for p in perks if REPUTATION_TIERS.get(p.required_tier, {"min": 0})["min"] <= rep_value]
 
         embed = discord.Embed(
             title=f"{faction.icon_emoji or ''} {faction.name} — Status",

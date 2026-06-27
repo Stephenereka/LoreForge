@@ -67,7 +67,7 @@ def _get_client() -> AsyncOpenAI:
     if _client is None:
         _client = AsyncOpenAI(
             api_key=DEEPSEEK_API_KEY,
-            base_url="https://api.deepseek.com",
+            base_url=DEEPSEEK_API_URL,
         )
     return _client
 

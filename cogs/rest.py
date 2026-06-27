@@ -14,6 +14,8 @@ import math
 HIT_DICE = {
     "Fighter": 10, "Barbarian": 12, "Rogue": 8,
     "Cleric": 8, "Wizard": 6, "Warlock": 8,
+    "Paladin": 10, "Ranger": 10, "Druid": 8,
+    "Bard": 8, "Monk": 8, "Sorcerer": 6,
 }
 
 def _full_resources(char_class: str, level: int) -> dict:
@@ -25,13 +27,22 @@ def _full_resources(char_class: str, level: int) -> dict:
         "Cleric":    {"channel_divinity": 1},
         "Wizard":    {"spell_slots": 2 + (level // 4), "arcane_recovery": 1},
         "Rogue":     {"sneak_attack_dice": math.ceil(level / 2)},
+        "Paladin":   {"spell_slots": max(1, level // 3), "divine_smite_slots": 1 + level // 5},
+        "Ranger":    {"spell_slots": max(1, level // 3), "hunter_mark_uses": 3},
+        "Druid":     {"spell_slots": max(1, level // 3), "wild_shape_uses": 2},
+        "Bard":      {"spell_slots": max(1, level // 3), "bardic_inspiration": level // 3 + 1},
+        "Monk":      {"ki_points": level},
+        "Sorcerer":  {"spell_slots": max(1, level // 3), "sorcery_points": level},
     }.get(char_class, {})
 
 def _short_rest_resources(char_class: str, level: int, current: dict) -> dict:
     updated = dict(current)
-    # Only Warlocks recover spell slots on short rest
+    # Warlocks recover spell slots on short rest
     if char_class == "Warlock":
         updated["spell_slots"] = math.ceil(level / 4)
+    # Monks recover ki on short rest
+    if char_class == "Monk":
+        updated["ki_points"] = min(current.get("ki_points", 0) + level // 2, level)
     return updated
 
 rest_group = app_commands.Group(name="rest", description="Rest to recover HP and class resources")

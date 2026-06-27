@@ -131,6 +131,23 @@ class ProxyCog(commands.Cog, name="Proxy"):
                 _proxy_msg_channels.pop(oldest_id, None)
             _proxy_msg_authors[msg.id] = message.author.id
             _proxy_msg_channels[msg.id] = message.channel.id
+        except discord.NotFound:
+            # Webhook was deleted — clear cache and recreate
+            _webhook_cache.pop(message.channel.id, None)
+            webhook = await _get_or_create_webhook(message.channel)
+            if webhook:
+                try:
+                    msg = await webhook.send(
+                        content=inner,
+                        username=char.name,
+                        avatar_url=avatar,
+                        allowed_mentions=discord.AllowedMentions(everyone=False, roles=False),
+                        wait=True,
+                    )
+                    _proxy_msg_authors[msg.id] = message.author.id
+                    _proxy_msg_channels[msg.id] = message.channel.id
+                except discord.HTTPException:
+                    pass
         except discord.Forbidden:
             try:
                 await message.author.send(

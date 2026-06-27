@@ -64,6 +64,18 @@ async def market_post(interaction: discord.Interaction, item_name: str, price: i
             )
             return
 
+        # FIX 6A: Verify the player actually owns this item
+        inventory = list(char.inventory or [])
+        owned_quantity = sum(
+            1 for it in inventory if it.get("name", "").lower() == item_name.strip().lower()
+        )
+        if not owned_quantity:
+            await interaction.response.send_message(
+                f"You don't have **{item_name.strip()}** in your inventory.",
+                ephemeral=True,
+            )
+            return
+
         # Count active listings
         count_result = await db.execute(
             select(MarketListing).where(
@@ -218,6 +230,23 @@ async def market_buy(interaction: discord.Interaction, listing_id: int):
         buyer.balance = (buyer.balance or 0) - total_cost
         seller.balance = (seller.balance or 0) + total_cost
         listing.sold = True
+
+        # FIX 6B: Transfer item from seller to buyer
+        seller_inv = list(seller.inventory or [])
+        item_key = listing.item_name.strip().lower()
+        removed = False
+        for it in seller_inv:
+            if it.get("name", "").lower() == item_key and not removed:
+                seller_inv.remove(it)
+                removed = True
+                break
+        seller.inventory = seller_inv
+
+        buyer_inv = list(buyer.inventory or [])
+        # Check if buyer already has this item
+        existing = next((it for it in buyer_inv if it.get("name", "").lower() == item_key), None)
+        buyer_inv.append({"key": item_key, "name": listing.item_name.strip(), "type": "item", "equipped": False})
+        buyer.inventory = buyer_inv
 
     embed = discord.Embed(
         title="✅ Purchase Complete!",
@@ -591,11 +620,34 @@ class MarketCog(commands.Cog, name="Market"):
                 auction.ended = True
 
                 if auction.current_bidder_id:
-                    # Notify winner via DM if possible
+                    # Transfer item from seller to winner
+                    seller_result = await db.execute(
+                        select(Character).where(Character.id == auction.seller_id)
+                    )
+                    seller = seller_result.scalar_one_or_none()
                     winner_result = await db.execute(
                         select(Character).where(Character.id == auction.current_bidder_id)
                     )
                     winner = winner_result.scalar_one_or_none()
+
+                    if seller and winner:
+                        # Deduct from seller
+                        seller_inv = list(seller.inventory or [])
+                        item_key = auction.item_name.strip().lower()
+                        removed = False
+                        for it in seller_inv:
+                            if it.get("name", "").lower() == item_key and not removed:
+                                seller_inv.remove(it)
+                                removed = True
+                                break
+                        seller.inventory = seller_inv
+
+                        # Add to winner
+                        winner_inv = list(winner.inventory or [])
+                        winner_inv.append({"key": item_key, "name": auction.item_name.strip(), "type": "item", "equipped": False})
+                        winner.inventory = winner_inv
+
+                    # Notify winner via DM if possible
                     if winner:
                         user = self.bot.get_user(winner.user_id)
                         if not user:

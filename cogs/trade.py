@@ -79,41 +79,81 @@ class TradeView(discord.ui.View):
         session = self.session
         session.state = "completed"
 
-        # Exchange gold
         async with get_db() as db:
-            for uid, gold in [(session.initiator_uid, session.initiator_gold),
-                              (session.target_uid, session.target_gold)]:
-                if gold <= 0:
-                    continue
-                result = await db.execute(
-                    select(Character).where(Character.user_id == uid, Character.guild_id == interaction.guild_id)
+            # Re-verify both parties have enough balance (FIX 8B)
+            init_result = await db.execute(
+                select(Character).where(
+                    Character.user_id == session.initiator_uid,
+                    Character.guild_id == interaction.guild_id,
                 )
-                char = result.scalar_one_or_none()
-                if char:
-                    char.gold -= gold
+            )
+            init_char = init_result.scalar_one_or_none()
+            tgt_result = await db.execute(
+                select(Character).where(
+                    Character.user_id == session.target_uid,
+                    Character.guild_id == interaction.guild_id,
+                )
+            )
+            tgt_char = tgt_result.scalar_one_or_none()
 
-            # Add gold to recipients
-            if session.initiator_gold > 0:
-                result = await db.execute(
-                    select(Character).where(
-                        Character.user_id == session.target_uid,
-                        Character.guild_id == interaction.guild_id,
-                    )
+            if not init_char or not tgt_char:
+                await interaction.response.edit_message(
+                    content="❌ **Trade cancelled** — one of the characters no longer exists.",
+                    view=None,
                 )
-                char = result.scalar_one_or_none()
-                if char:
-                    char.gold += session.initiator_gold
+                self.stop()
+                return
 
-            if session.target_gold > 0:
-                result = await db.execute(
-                    select(Character).where(
-                        Character.user_id == session.initiator_uid,
-                        Character.guild_id == interaction.guild_id,
-                    )
+            # Check balances
+            if (init_char.balance or 0) < session.initiator_gold:
+                await interaction.response.edit_message(
+                    content=f"❌ **Trade cancelled** — **{init_char.name}** no longer has enough Spirit Stones.",
+                    view=None,
                 )
-                char = result.scalar_one_or_none()
-                if char:
-                    char.gold += session.target_gold
+                self.stop()
+                return
+            if (tgt_char.balance or 0) < session.target_gold:
+                await interaction.response.edit_message(
+                    content=f"❌ **Trade cancelled** — **{tgt_char.name}** no longer has enough Spirit Stones.",
+                    view=None,
+                )
+                self.stop()
+                return
+
+            # Exchange gold (FIX 8B: re-verified, use balance not gold)
+            init_char.balance = (init_char.balance or 0) - session.initiator_gold
+            tgt_char.balance = (tgt_char.balance or 0) - session.target_gold
+            tgt_char.balance = (tgt_char.balance or 0) + session.initiator_gold
+            init_char.balance = (init_char.balance or 0) + session.target_gold
+
+            # FIX 8A: Transfer items
+            # Items from initiator → target
+            init_inv = list(init_char.inventory or [])
+            for item_name, qty in session.initiator_items.items():
+                removed = 0
+                for it in list(init_inv):
+                    if it.get("name", "").lower() == item_name.lower() and removed < qty:
+                        init_inv.remove(it)
+                        removed += 1
+                init_char.inventory = init_inv
+                tgt_inv = list(tgt_char.inventory or [])
+                for _ in range(removed):
+                    tgt_inv.append({"key": item_name.lower(), "name": item_name, "type": "item", "equipped": False})
+                tgt_char.inventory = tgt_inv
+
+            # Items from target → initiator
+            tgt_inv = list(tgt_char.inventory or [])
+            for item_name, qty in session.target_items.items():
+                removed = 0
+                for it in list(tgt_inv):
+                    if it.get("name", "").lower() == item_name.lower() and removed < qty:
+                        tgt_inv.remove(it)
+                        removed += 1
+                tgt_char.inventory = tgt_inv
+                init_inv = list(init_char.inventory or [])
+                for _ in range(removed):
+                    init_inv.append({"key": item_name.lower(), "name": item_name, "type": "item", "equipped": False})
+                init_char.inventory = init_inv
 
         await interaction.response.edit_message(
             content=f"✅ **Trade complete!**\n{session.summary()}",

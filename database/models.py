@@ -817,7 +817,7 @@ class Title(Base):
     __table_args__ = (UniqueConstraint("guild_id", "name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    guild_id: Mapped[str] = mapped_column(String, nullable=False)
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     tier: Mapped[str] = mapped_column(String, default="common")
     description: Mapped[str] = mapped_column(Text, nullable=True)

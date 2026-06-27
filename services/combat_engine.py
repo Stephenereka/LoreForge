@@ -8,12 +8,6 @@ from typing import Optional
 def roll(sides: int) -> int:
     return random.randint(1, sides)
 
-def roll_adv(sides: int) -> int:
-    return max(roll(sides), roll(sides))
-
-def roll_dis(sides: int) -> int:
-    return min(roll(sides), roll(sides))
-
 def roll_dice(count: int, sides: int) -> list[int]:
     return [roll(sides) for _ in range(count)]
 

@@ -10,7 +10,7 @@ from services.combat_engine import (
 )
 from services.training_service import generate_dummy_action, DIFFICULTY_CONFIGS
 from services.leveling import check_level_up
-import datetime
+from datetime import datetime, timezone
 
 active_training = {}
 
@@ -565,12 +565,15 @@ async def _end_training_via_msg(channel: discord.TextChannel, session: TrainingS
                 damage_dealt=session.damage_dealt,
                 damage_taken=session.damage_taken,
                 result="win",
-                end_time=datetime.datetime.utcnow(),
+                end_time=datetime.now(timezone.utc),
             ))
             char = await db.execute(select(Character).where(Character.id == session.character_id))
             char_obj = char.scalar_one_or_none()
             if char_obj:
                 char_obj.xp = (char_obj.xp or 0) + xp_reward
+                # FIX 18: Sync HP to DB after training
+                char_obj.hp_current = max(0, session.player.hp_current)
+                char_obj.is_unconscious = session.player.is_unconscious
                 new_level = check_level_up(char_obj.xp, char_obj.level)
                 if new_level:
                     char_obj.level = new_level
@@ -581,6 +584,15 @@ async def _end_training_via_msg(channel: discord.TextChannel, session: TrainingS
         embed.add_field(name="Rounds", value=str(session.round), inline=True)
         embed.add_field(name="Damage Dealt", value=str(session.damage_dealt), inline=True)
         async with get_db() as db:
+            # FIX 18: Sync HP to DB after training loss
+            char_result = await db.execute(
+                select(Character).where(Character.id == session.character_id)
+            )
+            char_obj = char_result.scalar_one_or_none()
+            if char_obj:
+                char_obj.hp_current = max(0, session.player.hp_current)
+                if session.player.hp_current <= 0:
+                    char_obj.is_unconscious = True
             db.add(TrainingSession(
                 user_id=session.user_id,
                 guild_id=session.guild_id,
@@ -590,13 +602,19 @@ async def _end_training_via_msg(channel: discord.TextChannel, session: TrainingS
                 damage_dealt=session.damage_dealt,
                 damage_taken=session.damage_taken,
                 result="lose",
-                end_time=datetime.datetime.utcnow(),
+                end_time=datetime.now(timezone.utc),
             ))
     else:
         if session.mode == "rp" and session.round > 1:
             rp_xp = session.round * 5
             embed.description = f"📖 **RP Sparring ended** after {session.round} rounds.\n✨ **{rp_xp} XP** earned for the narrative session."
             async with get_db() as db:
+                # FIX 18: Sync HP to DB
+                char_result = await db.execute(select(Character).where(Character.id == session.character_id))
+                char_obj = char_result.scalar_one_or_none()
+                if char_obj:
+                    char_obj.hp_current = max(0, session.player.hp_current)
+                    char_obj.xp = (char_obj.xp or 0) + rp_xp
                 db.add(TrainingSession(
                     user_id=session.user_id,
                     guild_id=session.guild_id,
@@ -606,15 +624,16 @@ async def _end_training_via_msg(channel: discord.TextChannel, session: TrainingS
                     damage_dealt=0,
                     damage_taken=0,
                     result="rp_complete",
-                    end_time=datetime.datetime.utcnow(),
+                    end_time=datetime.now(timezone.utc),
                 ))
-                char = await db.execute(select(Character).where(Character.id == session.character_id))
-                char_obj = char.scalar_one_or_none()
-                if char_obj:
-                    char_obj.xp = (char_obj.xp or 0) + rp_xp
         else:
             embed.description = f"🏳️ Training ended (Round {session.round})."
             async with get_db() as db:
+                # FIX 18: Sync HP to DB
+                char_result = await db.execute(select(Character).where(Character.id == session.character_id))
+                char_obj = char_result.scalar_one_or_none()
+                if char_obj:
+                    char_obj.hp_current = max(0, session.player.hp_current)
                 db.add(TrainingSession(
                     user_id=session.user_id,
                     guild_id=session.guild_id,
@@ -624,7 +643,7 @@ async def _end_training_via_msg(channel: discord.TextChannel, session: TrainingS
                     damage_dealt=session.damage_dealt,
                     damage_taken=session.damage_taken,
                     result=result,
-                    end_time=datetime.datetime.utcnow(),
+                    end_time=datetime.now(timezone.utc),
                 ))
 
     await channel.send(embed=embed)

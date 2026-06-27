@@ -50,21 +50,21 @@ def browse_embed() -> discord.Embed:
         description="Use `/shop buy <item>` to purchase. Sell back for half price with `/shop sell <item>`.",
         color=0xF59E0B,
     )
-    weapon_lines = [f"`{k}` — **{v['name']}** {v['damage']} dmg — {v['price']} gp — *{v['desc']}*" for k, v in WEAPONS.items()]
-    armor_lines  = [f"`{k}` — **{v['name']}** — {v['price']} gp — *{v['desc']}*" for k, v in ARMORS.items()]
-    potion_lines = [f"`{k}` — **{v['name']}** {v['heal']} HP — {v['price']} gp — *{v['desc']}*" for k, v in POTIONS.items()]
+    weapon_lines = [f"`{k}` — **{v['name']}** {v['damage']} dmg — {v['price']}🔮 — *{v['desc']}*" for k, v in WEAPONS.items()]
+    armor_lines  = [f"`{k}` — **{v['name']}** — {v['price']}🔮 — *{v['desc']}*" for k, v in ARMORS.items()]
+    potion_lines = [f"`{k}` — **{v['name']}** {v['heal']} HP — {v['price']}🔮 — *{v['desc']}*" for k, v in POTIONS.items()]
 
     embed.add_field(name="⚔️ Weapons", value="\n".join(weapon_lines), inline=False)
     embed.add_field(name="🛡️ Armor",   value="\n".join(armor_lines),  inline=False)
     embed.add_field(name="🧪 Potions", value="\n".join(potion_lines), inline=False)
-    embed.set_footer(text="Prices in gold (gp)")
+    embed.set_footer(text="Prices in 🔮 Spirit Stones")
     return embed
 
 # ── Item key autocomplete ─────────────────────────────────────────────────────
 
 async def item_autocomplete(interaction: discord.Interaction, current: str):
     return [
-        app_commands.Choice(name=f"{v['name']} ({v['price']} gp)", value=k)
+        app_commands.Choice(name=f"{v['name']} ({v['price']}🔮)", value=k)
         for k, v in ITEMS.items()
         if current.lower() in k or current.lower() in v["name"].lower()
     ][:25]
@@ -132,9 +132,9 @@ async def shop_buy(interaction: discord.Interaction, item: str):
             await interaction.response.send_message("You don't have a character. Use `/character create`.", ephemeral=True)
             return
 
-        if char.gold < item_data["price"]:
+        if (char.balance or 0) < item_data["price"]:
             await interaction.response.send_message(
-                f"Not enough gold. You have **{char.gold} gp**, need **{item_data['price']} gp**.",
+                f"Not enough Spirit Stones. You have **{char.balance or 0}** 🔮, need **{item_data['price']}**.",
                 ephemeral=True,
             )
             return
@@ -149,13 +149,13 @@ async def shop_buy(interaction: discord.Interaction, item: str):
                 )
                 return
 
-        char.gold -= item_data["price"]
+        char.balance = (char.balance or 0) - item_data["price"]
         inventory.append({"key": item, "name": item_data["name"], "type": item_data["type"], "equipped": False})
         char.inventory = inventory
 
     embed = discord.Embed(
         title=f"✅ Purchased: {item_data['name']}",
-        description=f"**{item_data['desc']}**\nYou paid **{item_data['price']} gp**. Remaining gold: **{char.gold} gp**.",
+        description=f"**{item_data['desc']}**\nYou paid **{item_data['price']}** 🔮 Spirit Stones. Remaining: **{char.balance or 0}** 🔮.",
         color=0x22C55E,
     )
     if item_data["type"] != "potion":
@@ -204,11 +204,11 @@ async def shop_sell(interaction: discord.Interaction, item: str):
             char.armor_class = 10 + math.floor((char.dexterity - 10) / 2)
 
         price = sell_price(item)
-        char.gold += price
+        char.balance = (char.balance or 0) + price
         char.inventory = inventory
 
     await interaction.response.send_message(
-        f"Sold **{ITEMS[item]['name']}** for **{price} gp**. You now have **{char.gold} gp**.",
+        f"Sold **{ITEMS[item]['name']}** for **{price}** 🔮 Spirit Stones. You now have **{char.balance or 0}** 🔮.",
         ephemeral=True,
     )
 

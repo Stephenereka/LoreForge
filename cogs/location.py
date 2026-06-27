@@ -10,6 +10,7 @@ from services.weather_service import get_weather, get_weather_flavor, set_weathe
 from services.map_service import generate_world_map_overlay, fetch_world_map, fetch_world_map_async
 from cogs.character import resolve_character
 import io
+import random
 import urllib.request
 import urllib.parse
 
@@ -58,21 +59,21 @@ async def get_exits(location_id: int, guild_id: int, show_secret: bool = False):
         result = await db.execute(stmt)
         conns = list(result.scalars().all())
 
-    exits = []
-    for c in conns:
-        to_result = await db.execute(
-            select(Location).where(Location.id == c.to_location_id)
-        )
-        to_loc = to_result.scalar_one_or_none()
-        if to_loc and (not to_loc.is_hidden or show_secret):
-            exits.append({
-                "direction": c.direction,
-                "label": c.label or to_loc.name,
-                "to_location_id": c.to_location_id,
-                "is_locked": c.is_locked,
-                "is_secret": c.is_secret,
-                "travel_time": c.travel_time_minutes,
-            })
+        exits = []
+        for c in conns:
+            to_result = await db.execute(
+                select(Location).where(Location.id == c.to_location_id)
+            )
+            to_loc = to_result.scalar_one_or_none()
+            if to_loc and (not to_loc.is_hidden or show_secret):
+                exits.append({
+                    "direction": c.direction,
+                    "label": c.label or to_loc.name,
+                    "to_location_id": c.to_location_id,
+                    "is_locked": c.is_locked,
+                    "is_secret": c.is_secret,
+                    "travel_time": c.travel_time_minutes,
+                })
     return exits
 
 
@@ -137,6 +138,7 @@ world_group = app_commands.Group(name="world", description="World map and genera
 async def cmd_look(ctx):
     if not ctx.guild:
         return
+    await ctx.defer()
     char, _ = await resolve_character(ctx.author.id, ctx.guild.id)
     if not char:
         await ctx.send("Create a character first with /character create.", ephemeral=True)
@@ -156,6 +158,7 @@ async def cmd_look(ctx):
 async def cmd_travel(ctx, direction: str):
     if not ctx.guild:
         return
+    await ctx.defer()
     char, _ = await resolve_character(ctx.author.id, ctx.guild.id)
     if not char:
         await ctx.send("Create a character first.", ephemeral=True)
@@ -173,20 +176,19 @@ async def cmd_travel(ctx, direction: str):
             )
         )
         conn = result.scalar_one_or_none()
-    if not conn:
-        await ctx.send(f"No exit **{direction}** from here.")
-        return
-    if conn.is_locked:
-        await ctx.send("That exit is locked.")
-        return
-    to_result = await db.execute(
-        select(Location).where(Location.id == conn.to_location_id)
-    )
-    to_loc = to_result.scalar_one_or_none()
-    if not to_loc or to_loc.is_hidden:
-        await ctx.send("You can't go that way.")
-        return
-    async with get_db() as db:
+        if not conn:
+            await ctx.send(f"No exit **{direction}** from here.")
+            return
+        if conn.is_locked:
+            await ctx.send("That exit is locked.")
+            return
+        to_result = await db.execute(
+            select(Location).where(Location.id == conn.to_location_id)
+        )
+        to_loc = to_result.scalar_one_or_none()
+        if not to_loc or to_loc.is_hidden:
+            await ctx.send("You can't go that way.")
+            return
         cl_db = await db.execute(
             select(CharacterLocation).where(CharacterLocation.id == cl.id)
         )
@@ -270,14 +272,14 @@ async def cmd_map(ctx):
 async def cmd_search(ctx):
     if not ctx.guild:
         return
+    await ctx.defer()
     char, _ = await resolve_character(ctx.author.id, ctx.guild.id)
     if not char:
         return
     loc, _ = await get_character_location(char.id, ctx.guild.id)
     if not loc:
         return
-    from services.combat_engine import roll
-    search_roll = roll("1d20") + (char.wisdom - 10) // 2
+    search_roll = random.randint(1, 20) + (char.wisdom - 10) // 2
     secret_exits = await get_exits(loc.id, ctx.guild.id, show_secret=True)
     secret_exits = [e for e in secret_exits if e["is_secret"]]
     if not secret_exits:
@@ -312,6 +314,7 @@ async def cmd_search(ctx):
 async def cmd_gather(ctx):
     if not ctx.guild:
         return
+    await ctx.defer()
     char, _ = await resolve_character(ctx.author.id, ctx.guild.id)
     if not char:
         return
@@ -322,13 +325,12 @@ async def cmd_gather(ctx):
     if not resources:
         await ctx.send("🌿 Nothing worth gathering here.")
         return
-    from services.combat_engine import roll
-    gather_roll = roll("1d20") + 2
+    gather_roll = random.randint(1, 20) + 2
     gathered = []
     for res_name, res_data in resources.items():
         dc = res_data.get("dc", 10)
         if gather_roll >= dc:
-            qty = roll(f"1d{res_data.get('max_qty', 3)}")
+            qty = random.randint(1, res_data.get("max_qty", 3))
             gathered.append(f"{res_name} x{qty}")
     if gathered:
         await ctx.send(f"🌿 You gather: {', '.join(gathered)} (Roll: {gather_roll})")
@@ -340,6 +342,7 @@ async def cmd_gather(ctx):
 async def cmd_discoveries(ctx):
     if not ctx.guild:
         return
+    await ctx.defer()
     char, _ = await resolve_character(ctx.author.id, ctx.guild.id)
     if not char:
         return
@@ -351,15 +354,15 @@ async def cmd_discoveries(ctx):
             ).order_by(CharacterLocation.arrived_at.desc())
         )
         cls = list(result.scalars().all())
-    locs = []
-    for cl in cls:
-        loc_result = await db.execute(
-            select(Location).where(Location.id == cl.location_id)
-        )
-        l = loc_result.scalar_one_or_none()
-        if l:
-            ts = int(cl.arrived_at.timestamp())
-            locs.append(f"📍 **{l.name}** — {l.location_type}\n   *Visited <t:{ts}:R>*")
+        locs = []
+        for cl in cls:
+            loc_result = await db.execute(
+                select(Location).where(Location.id == cl.location_id)
+            )
+            l = loc_result.scalar_one_or_none()
+            if l:
+                ts = int(cl.arrived_at.timestamp())
+                locs.append(f"📍 **{l.name}** — {l.location_type}\n   *Visited <t:{ts}:R>*")
     if not locs:
         await ctx.send("No locations discovered yet.")
         return
@@ -375,6 +378,7 @@ async def cmd_discoveries(ctx):
 async def cmd_players_here(ctx):
     if not ctx.guild:
         return
+    await ctx.defer()
     char, _ = await resolve_character(ctx.author.id, ctx.guild.id)
     if not char:
         return
@@ -389,14 +393,14 @@ async def cmd_players_here(ctx):
             )
         )
         cls = list(result.scalars().all())
-    names = []
-    for cl in cls:
-        char_result = await db.execute(
-            select(Character).where(Character.id == cl.character_id)
-        )
-        c = char_result.scalar_one_or_none()
-        if c and not c.is_dead:
-            names.append(c.name)
+        names = []
+        for cl in cls:
+            char_result = await db.execute(
+                select(Character).where(Character.id == cl.character_id)
+            )
+            c = char_result.scalar_one_or_none()
+            if c and not c.is_dead:
+                names.append(c.name)
     if not names:
         await ctx.send(f"You are alone at **{loc.name}**.")
     else:
@@ -1622,6 +1626,7 @@ async def cmd_weather(ctx):
     """Check the current weather conditions."""
     if not ctx.guild:
         return
+    await ctx.defer()
     weather_info = await get_weather(ctx.guild.id)
     embed = discord.Embed(
         title=f"{weather_info['icon']} Current Weather",
@@ -1641,6 +1646,7 @@ async def cmd_announce(ctx, *, message: str):
     """Post a world announcement to the configured GM channel."""
     if not ctx.guild:
         return
+    await ctx.defer()
     if not await is_gm(ctx.author, ctx.guild.id):
         await ctx.send("Only GMs can make announcements.", ephemeral=True)
         return
@@ -1669,6 +1675,7 @@ async def cmd_time(ctx):
     """Show current world time, season, and day."""
     if not ctx.guild:
         return
+    await ctx.defer()
     time_info = await get_world_time(ctx.guild.id)
     embed = discord.Embed(
         title=f"{time_info['emoji']} {time_info['time_of_day']}",
@@ -1687,6 +1694,7 @@ async def cmd_timemode(ctx, mode: str):
     """Switch between automatic and manual time progression."""
     if not ctx.guild:
         return
+    await ctx.defer()
     from services.utils import gm_only
     if not await is_gm(ctx.author, ctx.guild.id):
         await ctx.send("Only GMs can change time mode.", ephemeral=True)
