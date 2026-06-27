@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}LoreForge Dashboard{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/dashboard/static/style.css">
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-[#0d0d0d] text-[#e2e8f0] min-h-screen">
+    <!-- ═══ Navigation Bar ═══ -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-[#0d0d0d]/95 backdrop-blur-sm border-b border-[#4a3f6b]/50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <a href="/dashboard/" class="flex items-center gap-2 text-xl font-bold" style="font-family: 'Crimson Text', serif;">
+                    <span>🗡️</span>
+                    <span class="text-[#8B5CF6]">Lore</span>
+                    <span class="text-[#F59E0B]">Forge</span>
+                </a>
+
+                <!-- Nav Links (Desktop) -->
+                {% if session.get("guild_id") %}
+                <div class="hidden md:flex items-center gap-6">
+                    <a href="/dashboard/characters" class="nav-link text-sm font-medium text-[#94a3b8] hover:text-[#8B5CF6] transition-colors {% if request.url.path == '/dashboard/characters' %}active{% endif %}">
+                        Characters
+                    </a>
+                    <a href="/dashboard/lore" class="nav-link text-sm font-medium text-[#94a3b8] hover:text-[#8B5CF6] transition-colors {% if request.url.path == '/dashboard/lore' %}active{% endif %}">
+                        Lore
+                    </a>
+                    <a href="/dashboard/map" class="nav-link text-sm font-medium text-[#94a3b8] hover:text-[#8B5CF6] transition-colors {% if request.url.path == '/dashboard/map' %}active{% endif %}">
+                        Map
+                    </a>
+                    <a href="/dashboard/sessions" class="nav-link text-sm font-medium text-[#94a3b8] hover:text-[#8B5CF6] transition-colors {% if request.url.path == '/dashboard/sessions' %}active{% endif %}">
+                        Sessions
+                    </a>
+                    <a href="/dashboard/bestiary" class="nav-link text-sm font-medium text-[#94a3b8] hover:text-[#8B5CF6] transition-colors {% if request.url.path == '/dashboard/bestiary' %}active{% endif %}">
+                        Bestiary
+                    </a>
+                </div>
+                {% endif %}
+
+                <!-- User Area -->
+                <div class="flex items-center gap-4">
+                    {% if session.get("username") %}
+                    <div class="flex items-center gap-3">
+                        <img src="{{ session.avatar }}"
+                             alt="{{ session.username }}"
+                             class="w-8 h-8 rounded-full border-2 border-[#4a3f6b]">
+                        <span class="text-sm text-[#94a3b8] hidden sm:block">{{ session.username }}</span>
+                        {% if session.get("is_gm") %}
+                        <span class="text-xs bg-[#8B5CF6]/20 text-[#8B5CF6] px-2 py-0.5 rounded-full font-medium">GM</span>
+                        {% endif %}
+                    </div>
+                    <a href="/dashboard/logout"
+                       class="text-xs text-[#94a3b8] hover:text-[#EF4444] transition-colors">
+                        Logout
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Mobile Nav Links -->
+            {% if session.get("guild_id") %}
+            <div class="md:hidden flex items-center gap-4 pb-3 overflow-x-auto">
+                <a href="/dashboard/characters" class="text-xs font-medium text-[#94a3b8] hover:text-[#8B5CF6] whitespace-nowrap {% if request.url.path == '/dashboard/characters' %}text-[#8B5CF6]{% endif %}">Characters</a>
+                <a href="/dashboard/lore" class="text-xs font-medium text-[#94a3b8] hover:text-[#8B5CF6] whitespace-nowrap {% if request.url.path == '/dashboard/lore' %}text-[#8B5CF6]{% endif %}">Lore</a>
+                <a href="/dashboard/map" class="text-xs font-medium text-[#94a3b8] hover:text-[#8B5CF6] whitespace-nowrap {% if request.url.path == '/dashboard/map' %}text-[#8B5CF6]{% endif %}">Map</a>
+                <a href="/dashboard/sessions" class="text-xs font-medium text-[#94a3b8] hover:text-[#8B5CF6] whitespace-nowrap {% if request.url.path == '/dashboard/sessions' %}text-[#8B5CF6]{% endif %}">Sessions</a>
+                <a href="/dashboard/bestiary" class="text-xs font-medium text-[#94a3b8] hover:text-[#8B5CF6] whitespace-nowrap {% if request.url.path == '/dashboard/bestiary' %}text-[#8B5CF6]{% endif %}">Bestiary</a>
+            </div>
+            {% endif %}
+        </div>
+    </nav>
+
+    <!-- ═══ Main Content ═══ -->
+    <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto page-enter">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- ═══ Footer ═══ -->
+    <footer class="border-t border-[#4a3f6b]/30 py-6 text-center text-xs text-[#4a3f6b]">
+        <p>🗡️ LoreForge Dashboard — Phase 7 &bull; {{ now().year if now is defined else "2026" }}</p>
+        <p class="mt-1">Built for the realm &mdash; may your legends never fade.</p>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

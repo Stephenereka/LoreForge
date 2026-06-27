@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Error — LoreForge{% endblock %}
+
+{% block content %}
+<div class="min-h-[60vh] flex items-center justify-center">
+    <div class="text-center max-w-lg">
+        <!-- Decorative -->
+        <div class="text-6xl mb-6">
+            {% if code == 404 %}🔮
+            {% elif code == 500 %}⚡
+            {% else %}🌑
+            {% endif %}
+        </div>
+
+        <!-- Title -->
+        <h1 class="text-3xl md:text-4xl font-bold mb-4" style="font-family: 'Crimson Text', serif;">
+            {% if code == 404 %}
+            <span class="text-[#8B5CF6]">The Path is Lost</span> <span class="text-[#F59E0B]">in Shadows...</span>
+            {% elif code == 500 %}
+            <span class="text-[#EF4444]">The Weave</span> <span class="text-[#F59E0B]">is Broken</span>
+            {% else %}
+            <span class="text-[#EF4444]">A Darkness</span> <span class="text-[#94a3b8]">Descends</span>
+            {% endif %}
+        </h1>
+
+        <!-- Message -->
+        <p class="text-[#94a3b8] text-lg mb-8">
+            {{ message }}
+        </p>
+
+        <!-- Actions -->
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <a href="/dashboard/"
+               class="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                Return Home
+            </a>
+            <a href="/dashboard/logout"
+               class="bg-[#1a1a2e] border border-[#4a3f6b] text-[#94a3b8] px-6 py-3 rounded-lg font-medium hover:border-[#8B5CF6] transition-colors">
+                Re-enter the Gate
+            </a>
+        </div>
+
+        <!-- Decorative -->
+        <div class="mt-12 text-[#4a3f6b] text-xs">
+            {% if code == 404 %}
+            ✦ The page you seek does not exist in this realm ✦
+            {% elif code == 500 %}
+            ✦ A great disturbance in the weave ✦
+            {% else %}
+            ✦ Even the strongest adventurer stumbles ✦
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

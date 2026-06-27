@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}Bestiary — LoreForge{% endblock %}
+
+{% block content %}
+<div class="page-enter">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold" style="font-family: 'Crimson Text', serif;">
+                <span class="text-[#8B5CF6]">🐉</span> Bestiary
+            </h1>
+            <p class="text-[#94a3b8] text-sm mt-1">Creatures, bosses, and denizens of the realm</p>
+        </div>
+    </div>
+
+    <!-- Search -->
+    <form method="GET" action="/dashboard/bestiary" class="mb-8">
+        <div class="flex gap-2 max-w-md">
+            <input type="text" name="search" value="{{ search }}"
+                   placeholder="Search by name or race..."
+                   class="search-input flex-1" maxlength="100">
+            <button type="submit" class="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                Search
+            </button>
+            {% if search %}
+            <a href="/dashboard/bestiary" class="bg-[#1a1a2e] border border-[#4a3f6b] text-[#94a3b8] px-4 py-2 rounded-lg text-sm transition-colors hover:border-[#EF4444]">
+                Clear
+            </a>
+            {% endif %}
+        </div>
+    </form>
+
+    <div class="space-y-12">
+        <!-- ═══ Bosses ═══ -->
+        <div>
+            <h2 class="text-2xl font-bold mb-6" style="font-family: 'Crimson Text', serif;">
+                <span class="text-[#EF4444]">👑</span> Bosses
+                <span class="text-sm text-[#94a3b8] font-normal">({{ bosses|length }})</span>
+            </h2>
+
+            {% if bosses %}
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {% for boss in bosses %}
+                <details class="bg-[#16213e] border border-[#4a3f6b] rounded-xl overflow-hidden card-glow">
+                    <summary class="p-5 cursor-pointer hover:bg-[#1a1a2e]/50 transition-colors">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <h3 class="font-bold text-lg" style="font-family: 'Crimson Text', serif;">
+                                    {{ boss.name }}
+                                </h3>
+                                {% if boss.title %}
+                                <span class="text-sm text-[#94a3b8]">{{ boss.title }}</span>
+                                {% endif %}
+                            </div>
+                            {% if boss.is_lair_boss %}
+                            <span class="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full">Lair Boss</span>
+                            {% endif %}
+                        </div>
+                        <div class="flex items-center gap-4 mt-3 text-xs text-[#94a3b8]">
+                            <span>❤️ <strong class="text-red-400">{{ boss.hp_max }}</strong> HP</span>
+                            <span>🛡️ AC <strong>{{ boss.armor_class }}</strong></span>
+                            <span>⭐ <strong class="text-[#F59E0B]">{{ boss.xp_value }}</strong> XP</span>
+                            {% if boss.phase_count > 1 %}
+                            <span>⚡ <strong>{{ boss.phase_count }}</strong> phases</span>
+                            {% endif %}
+                        </div>
+                    </summary>
+                    <div class="px-5 pb-5 border-t border-[#4a3f6b]/30 pt-4">
+                        <!-- Description -->
+                        {% if boss.description %}
+                        <div class="text-sm text-[#cbd5e1] leading-relaxed mb-4">{{ boss.description }}</div>
+                        {% endif %}
+
+                        <!-- Combat Stats -->
+                        <div class="grid grid-cols-3 gap-3 mb-4">
+                            <div class="stat-block">
+                                <div class="stat-value text-red-400">{{ boss.hp_max }}</div>
+                                <div class="stat-label">HP</div>
+                            </div>
+                            <div class="stat-block">
+                                <div class="stat-value text-blue-400">{{ boss.armor_class }}</div>
+                                <div class="stat-label">AC</div>
+                            </div>
+                            <div class="stat-block">
+                                <div class="stat-value text-[#F59E0B]">{{ boss.xp_value }}</div>
+                                <div class="stat-label">XP</div>
+                            </div>
+                            <div class="stat-block">
+                                <div class="stat-value text-sm">{{ boss.attack_bonus }}</div>
+                                <div class="stat-label">ATK Bonus</div>
+                            </div>
+                            <div class="stat-block">
+                                <div class="stat-value text-sm">{{ boss.damage_dice }}</div>
+                                <div class="stat-label">Damage</div>
+                            </div>
+                            <div class="stat-block">
+                                <div class="stat-value text-[#F59E0B]">{{ boss.gold_drop }}</div>
+                                <div class="stat-label">Gold</div>
+                            </div>
+                        </div>
+
+                        <!-- Phase Abilities -->
+                        {% if boss.phase_abilities and boss.phase_abilities is mapping %}
+                        {% for phase_name, abilities in boss.phase_abilities.items() %}
+                        <div class="mb-3">
+                            <h4 class="text-xs text-[#8B5CF6] uppercase tracking-wider mb-2">{{ phase_name | replace('_', ' ') | title }}</h4>
+                            <ul class="space-y-1">
+                                {% if abilities is iterable and not abilities is string %}
+                                {% for ability in abilities %}
+                                <li class="text-xs text-[#94a3b8] flex items-start gap-2">
+                                    <span class="text-[#EF4444] mt-0.5">•</span>
+                                    {% if ability is mapping %}
+                                        <strong>{{ ability.get('name', '') }}</strong>: {{ ability.get('description', ability) }}
+                                    {% else %}
+                                        {{ ability }}
+                                    {% endif %}
+                                </li>
+                                {% endfor %}
+                                {% else %}
+                                <li class="text-xs text-[#94a3b8]">{{ abilities }}</li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                        {% endfor %}
+                        {% endif %}
+
+                        <!-- Legendary Actions -->
+                        {% if boss.legendary_actions %}
+                        <div class="mt-3">
+                            <h4 class="text-xs text-[#F59E0B] uppercase tracking-wider mb-2">Legendary Actions</h4>
+                            <ul class="space-y-1">
+                                {% for action in boss.legendary_actions %}
+                                <li class="text-xs text-[#94a3b8] flex items-start gap-2">
+                                    <span class="text-[#F59E0B] mt-0.5">✦</span>
+                                    {% if action is mapping %}
+                                        <strong>{{ action.get('name', '') }}</strong>: {{ action.get('description', action) }}
+                                    {% else %}
+                                        {{ action }}
+                                    {% endif %}
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+
+                        <!-- Lair Actions -->
+                        {% if boss.is_lair_boss and boss.lair_actions %}
+                        <div class="mt-3">
+                            <h4 class="text-xs text-[#EF4444] uppercase tracking-wider mb-2">Lair Actions</h4>
+                            <ul class="space-y-1">
+                                {% for action in boss.lair_actions %}
+                                <li class="text-xs text-[#94a3b8] flex items-start gap-2">
+                                    <span class="text-[#EF4444] mt-0.5">✦</span>
+                                    {% if action is mapping %}
+                                        <strong>{{ action.get('name', '') }}</strong>: {{ action.get('description', action) }}
+                                    {% else %}
+                                        {{ action }}
+                                    {% endif %}
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                    </div>
+                </details>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center py-12 bg-[#16213e] border border-[#4a3f6b] rounded-xl">
+                <p class="text-[#94a3b8]">No boss templates have been created yet.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- ═══ NPCs ═══ -->
+        <div>
+            <h2 class="text-2xl font-bold mb-6" style="font-family: 'Crimson Text', serif;">
+                <span class="text-[#22C55E]">👥</span> NPCs
+                <span class="text-sm text-[#94a3b8] font-normal">({{ npcs|length }})</span>
+            </h2>
+
+            {% if npcs %}
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="bg-[#1a1a2e] text-[#94a3b8] text-xs uppercase tracking-wider">
+                            <th class="text-left px-4 py-3">Name</th>
+                            <th class="text-left px-4 py-3">Race</th>
+                            <th class="text-left px-4 py-3">Location</th>
+                            <th class="text-left px-4 py-3">Disposition</th>
+                            <th class="text-center px-4 py-3">HP</th>
+                            <th class="text-center px-4 py-3">AC</th>
+                            <th class="text-center px-4 py-3">ATK</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[#4a3f6b]/30">
+                        {% for npc in npcs %}
+                        <tr class="hover:bg-[#1a1a2e]/50 transition-colors {% if npc.is_dead %}opacity-50{% endif %}">
+                            <td class="px-4 py-3">
+                                <div class="font-medium">{{ npc.name }}</div>
+                                {% if npc.title %}
+                                <div class="text-xs text-[#64748b]">{{ npc.title }}</div>
+                                {% endif %}
+                                {% if npc.is_dead %}
+                                <span class="text-xs text-red-400">☠ Deceased</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-[#94a3b8]">{{ npc.race }}</td>
+                            <td class="px-4 py-3 text-[#94a3b8]">{{ npc.location_name }}</td>
+                            <td class="px-4 py-3">
+                                {% if npc.is_hostile %}
+                                <span class="text-red-400">Hostile</span>
+                                {% else %}
+                                <span class="text-[#94a3b8]">{{ npc.disposition | title }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-center">
+                                <div class="flex items-center justify-center gap-1">
+                                    <span class="{% if npc.hp_pct < 25 %}text-red-400{% else %}text-green-400{% endif %}">
+                                        {{ npc.hp_current }}
+                                    </span>
+                                    <span class="text-[#64748b]">/</span>
+                                    <span>{{ npc.hp_max }}</span>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 text-center text-[#94a3b8]">{{ npc.armor_class }}</td>
+                            <td class="px-4 py-3 text-center text-[#94a3b8]">{{ npc.attack_bonus }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-12 bg-[#16213e] border border-[#4a3f6b] rounded-xl">
+                <p class="text-[#94a3b8]">No NPCs have been created yet.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

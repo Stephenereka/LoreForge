@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Map — {{ world_name }}{% endblock %}
+
+{% block content %}
+<div class="page-enter">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold" style="font-family: 'Crimson Text', serif;">
+                <span class="text-[#8B5CF6]">🗺️</span> World Map
+            </h1>
+            <p class="text-[#94a3b8] text-sm mt-1">{{ world_name }}</p>
+        </div>
+        {% if not world_map_url %}
+        <a href="/dashboard/sessions" class="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors">
+            ← Back
+        </a>
+        {% endif %}
+    </div>
+
+    {% if world_map_url %}
+    <!-- ═══ Map with Location Pins ═══ -->
+    <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-4 mb-8">
+        <div class="relative w-full" style="position: relative;">
+            <img id="world-map" src="{{ world_map_url }}" alt="World Map of {{ world_name }}"
+                 class="w-full rounded-lg" style="display: block;">
+            {% for loc in locations %}
+            <div class="location-pin" style="left: {{ loc.map_x }}%; top: {{ loc.map_y }}%"
+                 data-location-id="{{ loc.id }}" title="{{ loc.name }}">
+                <span class="pin-dot {% if loc.is_hidden %}hidden-pin{% elif loc.is_safe %}safe-pin{% endif %}"></span>
+                <div class="pin-tooltip">
+                    <strong>{{ loc.name }}</strong>
+                    <span class="text-xs block text-[#94a3b8]">{{ loc.location_type | title }}</span>
+                    {% if loc.danger_level > 0 %}
+                    <span class="text-xs block text-{{ loc.danger_color }}">⚠ Danger: {{ loc.danger_level }}/10</span>
+                    {% endif %}
+                    {% if loc.short_description %}
+                    <span class="text-xs block text-[#64748b] mt-1 max-w-[200px] whitespace-normal">{{ loc.short_description }}</span>
+                    {% endif %}
+                    {% if loc.is_hidden %}
+                    <span class="text-xs block text-red-400 mt-1">🔒 Hidden Location</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Map Legend -->
+        <div class="flex flex-wrap items-center gap-4 mt-4 text-xs text-[#94a3b8]">
+            <span class="flex items-center gap-1">
+                <span class="inline-block w-3 h-3 rounded-full bg-[#8B5CF6] border border-[#e2e8f0]"></span>
+                Standard
+            </span>
+            <span class="flex items-center gap-1">
+                <span class="inline-block w-3 h-3 rounded-full bg-[#22C55E] border border-[#14532D]"></span>
+                Safe
+            </span>
+            <span class="flex items-center gap-1">
+                <span class="inline-block w-3 h-3 rounded-full bg-[#EF4444] border border-[#7F1D1D]"></span>
+                Hidden
+            </span>
+            <span class="text-[#64748b]">Hover over pins for details</span>
+        </div>
+    </div>
+
+    {% else %}
+    <!-- No Map Message -->
+    <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl p-8 text-center mb-8">
+        <div class="text-5xl mb-4">🌍</div>
+        <h2 class="text-2xl font-bold mb-3" style="font-family: 'Crimson Text', serif;">No World Map Generated</h2>
+        <p class="text-[#94a3b8] max-w-md mx-auto">
+            No world map has been generated yet for this realm.
+            A GM can use <code class="text-[#8B5CF6] bg-[#1a1a2e] px-2 py-0.5 rounded">/world generate</code>
+            in Discord to create one.
+        </p>
+    </div>
+    {% endif %}
+
+    <!-- ═══ Location List ═══ -->
+    <div class="bg-[#16213e] border border-[#4a3f6b] rounded-xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-[#4a3f6b]/50">
+            <h2 class="font-bold" style="font-family: 'Crimson Text', serif;">
+                Known Locations
+                <span class="text-sm text-[#94a3b8] font-normal">({{ locations|length }})</span>
+            </h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="bg-[#1a1a2e] text-[#94a3b8] text-xs uppercase tracking-wider">
+                        <th class="text-left px-6 py-3">Name</th>
+                        <th class="text-left px-6 py-3">Type</th>
+                        <th class="text-left px-6 py-3">Biome</th>
+                        <th class="text-center px-6 py-3">Danger</th>
+                        <th class="text-center px-6 py-3">Safe</th>
+                        {% if is_gm %}
+                        <th class="text-center px-6 py-3">Hidden</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-[#4a3f6b]/30">
+                    {% for loc in locations %}
+                    <tr class="hover:bg-[#1a1a2e]/50 transition-colors">
+                        <td class="px-6 py-3 font-medium">{{ loc.name }}</td>
+                        <td class="px-6 py-3 text-[#94a3b8]">{{ loc.location_type | title }}</td>
+                        <td class="px-6 py-3 text-[#94a3b8]">{{ loc.biome | title }}</td>
+                        <td class="px-6 py-3 text-center">
+                            {% if loc.danger_level > 0 %}
+                            <span class="font-medium
+                                {% if loc.danger_level >= 8 %}text-red-400
+                                {% elif loc.danger_level >= 5 %}text-yellow-400
+                                {% elif loc.danger_level >= 3 %}text-orange-400
+                                {% else %}text-green-400{% endif %}">
+                                {{ loc.danger_level }}/10
+                            </span>
+                            {% else %}
+                            <span class="text-[#64748b]">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-3 text-center">
+                            {% if loc.is_safe %}
+                            <span class="text-green-400">✓</span>
+                            {% else %}
+                            <span class="text-[#64748b]">✗</span>
+                            {% endif %}
+                        </td>
+                        {% if is_gm %}
+                        <td class="px-6 py-3 text-center">
+                            {% if loc.is_hidden %}
+                            <span class="text-red-400">🔒</span>
+                            {% else %}
+                            <span class="text-[#64748b]">—</span>
+                            {% endif %}
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if not locations %}
+        <div class="px-6 py-8 text-center text-[#94a3b8] text-sm">
+            No locations discovered yet.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

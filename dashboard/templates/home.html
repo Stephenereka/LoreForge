@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Home — LoreForge{% endblock %}
+
+{% block content %}
+<div class="page-enter">
+    <!-- Welcome -->
+    <div class="mb-10 text-center">
+        <h1 class="text-3xl md:text-4xl font-bold mb-2" style="font-family: 'Crimson Text', serif;">
+            Welcome back, <span class="text-[#F59E0B]">{{ session.username }}</span>
+        </h1>
+        <p class="text-[#94a3b8]">Choose your realm to continue your journey.</p>
+    </div>
+
+    {% if guilds %}
+    <!-- Guild Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for guild in guilds %}
+        <a href="/dashboard/select-guild?guild_id={{ guild.guild_id }}"
+           class="card-glow block bg-[#16213e] border border-[#4a3f6b] rounded-xl p-6 hover:border-[#8B5CF6] transition-all">
+            <div class="flex items-center gap-3 mb-4">
+                <span class="text-3xl">🏰</span>
+                <h2 class="text-xl font-bold" style="font-family: 'Crimson Text', serif;">
+                    {{ guild.world_name }}
+                </h2>
+            </div>
+            <div class="flex items-center gap-2 text-sm text-[#94a3b8]">
+                <span>🌍</span>
+                <span>Guild ID: {{ guild.guild_id }}</span>
+            </div>
+            {% if guild.current_era %}
+            <div class="mt-2 text-xs text-[#8B5CF6]">
+                Era: {{ guild.current_era }}
+            </div>
+            {% endif %}
+            <div class="mt-4 text-sm text-[#8B5CF6] font-medium">
+                Enter Realm →
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <!-- No guilds found -->
+    <div class="text-center py-16">
+        <div class="text-5xl mb-4">🔮</div>
+        <h2 class="text-2xl font-bold mb-3" style="font-family: 'Crimson Text', serif;">
+            No Realms Found
+        </h2>
+        <p class="text-[#94a3b8] max-w-md mx-auto">
+            You don't have any characters in any realms yet.
+            Join a server where LoreForge is active and use <code class="text-[#8B5CF6] bg-[#1a1a2e] px-2 py-0.5 rounded">/create</code>
+            to begin your adventure.
+        </p>
+        <div class="mt-8 text-[#4a3f6b] text-xs">
+            ✦ The gate awaits those who seek it ✦
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
