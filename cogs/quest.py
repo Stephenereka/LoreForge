@@ -12,6 +12,76 @@ from services.utils import is_gm
 
 quest_group = app_commands.Group(name="quest", description="Quest commands")
 
+
+async def _available_quest_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete for quests the player can accept."""
+    async with get_db() as db:
+        char_result = await db.execute(
+            select(Character).where(
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
+                Character.is_active == True,
+                Character.is_dead == False,
+            )
+        )
+        char = char_result.scalar_one_or_none()
+        if not char:
+            return []
+        # Get accepted quest IDs
+        pq_result = await db.execute(
+            select(PlayerQuest.quest_id).where(
+                PlayerQuest.character_id == char.id,
+                PlayerQuest.guild_id == interaction.guild_id,
+            )
+        )
+        accepted_ids = {row[0] for row in pq_result.all()}
+        result = await db.execute(
+            select(Quest).where(
+                Quest.guild_id == interaction.guild_id,
+                Quest.is_active == True,
+                Quest.is_hidden == False,
+                Quest.min_level <= char.level,
+            ).limit(25)
+        )
+        quests = result.scalars().all()
+    return [
+        app_commands.Choice(name=f"{q.name} (✨{q.reward_xp}XP)", value=q.name)
+        for q in quests
+        if q.id not in accepted_ids and current.lower() in q.name.lower()
+    ][:25]
+
+
+async def _pending_quest_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete for quests the player has pending completion."""
+    async with get_db() as db:
+        char_result = await db.execute(
+            select(Character).where(
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
+                Character.is_active == True,
+                Character.is_dead == False,
+            )
+        )
+        char = char_result.scalar_one_or_none()
+        if not char:
+            return []
+        result = await db.execute(
+            select(PlayerQuest).where(
+                PlayerQuest.character_id == char.id,
+                PlayerQuest.guild_id == interaction.guild_id,
+                PlayerQuest.status.in_(["accepted", "pending_approval"]),
+            )
+        )
+        pqs = result.scalars().all()
+    choices = []
+    for pq in pqs:
+        async with get_db() as db2:
+            q_result = await db2.execute(select(Quest).where(Quest.id == pq.quest_id))
+            q = q_result.scalar_one_or_none()
+            if q and current.lower() in q.name.lower():
+                choices.append(app_commands.Choice(name=q.name, value=q.name))
+    return choices[:25]
+
 # ── Shared Helpers ────────────────────────────────────────────────────────────
 
 async def get_active_character(user_id: int, guild_id: int):
@@ -225,6 +295,7 @@ async def quest_list(interaction: discord.Interaction):
 
 @quest_group.command(name="accept", description="Accept a quest")
 @app_commands.describe(name="Quest name")
+@app_commands.autocomplete(name=_available_quest_autocomplete)
 async def quest_accept(interaction: discord.Interaction, name: str):
     await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)
@@ -325,6 +396,7 @@ async def quest_status(interaction: discord.Interaction):
 
 @quest_group.command(name="complete", description="Request quest completion (sends to GM for approval)")
 @app_commands.describe(name="Quest name")
+@app_commands.autocomplete(name=_pending_quest_autocomplete)
 async def quest_complete(interaction: discord.Interaction, name: str):
     await interaction.response.defer()
     char = await get_active_character(interaction.user.id, interaction.guild_id)

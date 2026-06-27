@@ -1528,8 +1528,31 @@ async def gm_boss_force_attack(interaction: discord.Interaction, user: discord.M
 
 # ── /gm boss force-ability ────────────────────────────────────────────────────
 
+async def _boss_ability_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete from the active spawned boss's phase_abilities JSON."""
+    async with get_db() as db:
+        from database.models import SpawnedBoss
+        result = await db.execute(
+            select(SpawnedBoss).where(
+                SpawnedBoss.guild_id == interaction.guild_id,
+                SpawnedBoss.channel_id == interaction.channel_id,
+            ).order_by(SpawnedBoss.spawned_at.desc()).limit(1)
+        )
+        boss = result.scalar_one_or_none()
+        if not boss:
+            return []
+        phase_key = f"phase_{boss.current_phase}"
+        abilities = (boss.phase_abilities or {}).get(phase_key, [])
+    return [
+        app_commands.Choice(name=a.get("name", "Unknown"), value=a.get("name", ""))
+        for a in abilities
+        if current.lower() in a.get("name", "").lower()
+    ][:25]
+
+
 @boss_group.command(name="force-ability", description="Force the boss to use a specific phase ability (GM only)")
 @app_commands.describe(ability_name="Name of the ability to use")
+@app_commands.autocomplete(ability_name=_boss_ability_autocomplete)
 async def gm_boss_force_ability(interaction: discord.Interaction, ability_name: str):
     if not await gm_only(interaction):
         return
@@ -2113,6 +2136,52 @@ async def gm_title_list(interaction: discord.Interaction):
         )
     embed.set_footer(text=f"{len(titles)} title(s)  •  LoreForge")
     await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+# ---------------------------------------------------------------------------
+# /gm vision — Send a custom vision to a player (Phase 6)
+# ---------------------------------------------------------------------------
+
+@gm_group.command(name="vision", description="Send a custom vision/dream to a player (GM only)")
+@app_commands.describe(user="The player to send the vision to", text="The vision content")
+async def gm_vision(interaction: discord.Interaction, user: discord.Member, text: str):
+    if not await gm_only(interaction):
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    from database.models import Vision
+
+    # Save to DB
+    async with get_db() as db:
+        char_result = await db.execute(
+            select(Character).where(
+                Character.user_id == user.id,
+                Character.guild_id == interaction.guild_id,
+                Character.is_active == True,
+            )
+        )
+        char = char_result.scalar_one_or_none()
+
+        if char:
+            db.add(Vision(
+                character_id=char.id,
+                guild_id=interaction.guild_id,
+                vision_text=text,
+                trigger="gm_custom",
+            ))
+
+    # DM the player
+    embed = discord.Embed(
+        title="💫 A Vision Comes to You...",
+        description=text,
+        color=0x9B59B6,
+    )
+    embed.set_footer(text="Only you can see this vision.")
+    try:
+        await user.send(embed=embed)
+        await interaction.followup.send(f"✅ Vision sent to {user.mention}.", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send(f"⚠️ Could not DM {user.mention} — may have DMs disabled. Vision saved to DB.", ephemeral=True)
 
 
 # ---------------------------------------------------------------------------

@@ -41,6 +41,8 @@ COGS = [
     "cogs.ai_config",
     "cogs.sessions",
     "cogs.titles",
+    "cogs.bestiary",
+    "cogs.achievements",
 ]
 
 async def _weather_task():

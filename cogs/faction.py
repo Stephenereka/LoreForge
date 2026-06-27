@@ -10,6 +10,20 @@ import datetime
 
 faction_group = app_commands.Group(name="faction", description="Manage factions and reputation")
 
+
+async def _faction_autocomplete(interaction: discord.Interaction, current: str):
+    async with get_db() as db:
+        result = await db.execute(
+            select(Faction).where(
+                Faction.guild_id == interaction.guild_id,
+                Faction.name.ilike(f"%{current}%"),
+            ).limit(25)
+        )
+        return [
+            app_commands.Choice(name=f"{f.icon_emoji or ''} {f.name} ({f.faction_type})"[:100], value=f.name)
+            for f in result.scalars().all()
+        ]
+
 # ── Create Wizard ──────────────────────────────────────────────────────────────
 
 class FactionCreateView(discord.ui.View):
@@ -235,6 +249,7 @@ async def faction_list(interaction: discord.Interaction):
 
 @faction_group.command(name="status", description="Check your reputation with a faction")
 @app_commands.describe(name="Faction name")
+@app_commands.autocomplete(name=_faction_autocomplete)
 async def faction_status(interaction: discord.Interaction, name: str):
     await interaction.response.defer()
     async with get_db() as db:
@@ -307,6 +322,7 @@ async def faction_status(interaction: discord.Interaction, name: str):
 
 @faction_group.command(name="history", description="View your recent reputation changes")
 @app_commands.describe(name="Faction name")
+@app_commands.autocomplete(name=_faction_autocomplete)
 async def faction_history(interaction: discord.Interaction, name: str):
     await interaction.response.defer()
     async with get_db() as db:

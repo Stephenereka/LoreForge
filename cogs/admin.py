@@ -601,12 +601,45 @@ async def server_setup(interaction: discord.Interaction, world_name: str, gm_rol
     )
 
 
+# ── /config group ─────────────────────────────────────────────────────────────
+
+config_group = app_commands.Group(
+    name="config",
+    description="Server configuration commands",
+)
+
+
+@config_group.command(name="set-recap-channel", description="Set the channel for session recaps (GM only)")
+@app_commands.describe(channel="The channel to post session recaps in")
+async def config_set_recap_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    from services.utils import is_gm
+    if not await is_gm(interaction):
+        await interaction.response.send_message("Only GMs can use this.", ephemeral=True)
+        return
+    from database.session import get_db
+    from database.models import GuildConfig
+    from sqlalchemy import select
+    async with get_db() as db:
+        result = await db.execute(
+            select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id)
+        )
+        config = result.scalar_one_or_none()
+        if not config:
+            config = GuildConfig(guild_id=interaction.guild_id)
+            db.add(config)
+        config.session_recap_channel_id = channel.id
+    await interaction.response.send_message(
+        f"✅ Session recaps will be posted to {channel.mention}.", ephemeral=True
+    )
+
+
 # ── Admin cog (top-level utility commands) ────────────────────────────────────
 
 class AdminCog(commands.Cog, name="Admin"):
     def __init__(self, bot):
         self.bot = bot
         bot.tree.add_command(server_group)
+        bot.tree.add_command(config_group)
 
     async def cog_unload(self):
         self.bot.tree.remove_command("server")

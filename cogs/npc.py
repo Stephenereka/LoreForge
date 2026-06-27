@@ -150,6 +150,7 @@ class NPCEditModal(discord.ui.Modal, title="Edit NPC"):
 
 @npc_group.command(name="move", description="Move an NPC to a different location (GM only)")
 @app_commands.describe(name="NPC name", location="Destination location")
+@app_commands.autocomplete(name=_npc_autocomplete)
 async def npc_move(interaction: discord.Interaction, name: str, location: str):
     if not await is_gm(interaction):
         await interaction.response.send_message("Only GMs can move NPCs.", ephemeral=True)
@@ -181,6 +182,7 @@ async def npc_move(interaction: discord.Interaction, name: str, location: str):
 
 @npc_group.command(name="kill", description="Mark an NPC as dead (GM only)")
 @app_commands.describe(name="NPC name")
+@app_commands.autocomplete(name=_npc_autocomplete)
 async def npc_kill(interaction: discord.Interaction, name: str):
     if not await is_gm(interaction):
         await interaction.response.send_message("Only GMs can kill NPCs.", ephemeral=True)
@@ -205,6 +207,7 @@ async def npc_kill(interaction: discord.Interaction, name: str):
 
 @npc_group.command(name="revive", description="Revive a dead NPC (GM only)")
 @app_commands.describe(name="NPC name")
+@app_commands.autocomplete(name=_npc_autocomplete)
 async def npc_revive(interaction: discord.Interaction, name: str):
     if not await is_gm(interaction):
         await interaction.response.send_message("Only GMs can revive NPCs.", ephemeral=True)
@@ -325,6 +328,7 @@ async def npc_info(interaction: discord.Interaction, name: str):
 
 @npc_group.command(name="set-attitude", description="Set your attitude toward an NPC")
 @app_commands.describe(name="NPC name", user="Target user", value="Attitude value (-10 to 10)")
+@app_commands.autocomplete(name=_npc_autocomplete)
 async def npc_set_attitude(interaction: discord.Interaction, name: str, user: discord.Member, value: int):
     value = max(-10, min(10, value))
     async with get_db() as db:

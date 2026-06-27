@@ -67,6 +67,10 @@ class Character(Base):
     proxy_open: Mapped[str] = mapped_column(String(10), nullable=True)
     proxy_close: Mapped[str] = mapped_column(String(10), nullable=True)
 
+    # Phase 6: Relationships & tracking
+    relationships: Mapped[dict] = mapped_column(JSON, default=list)
+    proxy_count: Mapped[int] = mapped_column(Integer, default=0)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -84,6 +88,7 @@ class GuildConfig(Base):
     combat_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     log_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     gm_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    session_recap_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     world_map_url: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -607,6 +612,9 @@ class LoreEntry(Base):
     is_rumor: Mapped[bool] = mapped_column(Boolean, default=False)
     visibility: Mapped[str] = mapped_column(String(20), default="public")
     linked_entry_ids: Mapped[dict] = mapped_column(JSON, default=list)
+    # Phase 6: Player-specific lore secrets & player submissions
+    visibility_whitelist: Mapped[dict] = mapped_column(JSON, default=list)
+    submitted_by: Mapped[int] = mapped_column(BigInteger, nullable=True)
     importance: Mapped[int] = mapped_column(Integer, default=5)
     image_url: Mapped[str] = mapped_column(Text, nullable=True)
     created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -838,3 +846,48 @@ class CharacterTitle(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     awarded_by: Mapped[str] = mapped_column(String, nullable=True)
     awarded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ── Phase 6: Achievements ─────────────────────────────────────────────────
+
+class Achievement(Base):
+    """Achievements earned by characters."""
+    __tablename__ = "achievements"
+    __table_args__ = (UniqueConstraint("character_id", "achievement_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    character_id: Mapped[int] = mapped_column(Integer, ForeignKey("characters.id"))
+    guild_id: Mapped[int] = mapped_column(BigInteger)
+    achievement_key: Mapped[str] = mapped_column(String(100))
+    achieved_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ── Phase 6: Visions ─────────────────────────────────────────────────────
+
+class Vision(Base):
+    """Dreams and visions received by characters."""
+    __tablename__ = "visions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    character_id: Mapped[int] = mapped_column(Integer, ForeignKey("characters.id"))
+    guild_id: Mapped[int] = mapped_column(BigInteger)
+    vision_text: Mapped[str] = mapped_column(Text)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    trigger: Mapped[str] = mapped_column(String(50), default="rest")
+
+
+# ── Phase 6: Notification Config ──────────────────────────────────────────
+
+class NotificationConfig(Base):
+    """Per-user notification preferences."""
+    __tablename__ = "notification_configs"
+    __table_args__ = (UniqueConstraint("user_id", "guild_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    guild_id: Mapped[int] = mapped_column(BigInteger)
+    faction_changes: Mapped[bool] = mapped_column(Boolean, default=True)
+    quest_objectives: Mapped[bool] = mapped_column(Boolean, default=True)
+    world_events: Mapped[bool] = mapped_column(Boolean, default=False)
+    npc_movements: Mapped[bool] = mapped_column(Boolean, default=False)
+    lore_unlocks: Mapped[bool] = mapped_column(Boolean, default=True)

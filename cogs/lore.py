@@ -3,11 +3,31 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select, delete, func
 from database.session import get_db
-from database.models import LoreEntry
+from database.models import LoreEntry, GuildConfig
 from services.utils import is_gm
 import random
 
 lore_group = app_commands.Group(name="lore", description="Browse and manage world lore")
+
+
+async def _lore_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete for lore entries visible to the user."""
+    async with get_db() as db:
+        query = select(LoreEntry).where(
+            LoreEntry.guild_id == interaction.guild_id,
+            LoreEntry.title.ilike(f"%{current}%"),
+        )
+        # Non-GM users only see public entries
+        from services.utils import is_gm
+        if not await is_gm(interaction):
+            query = query.where(LoreEntry.visibility == "public")
+        query = query.limit(25)
+        result = await db.execute(query)
+        entries = result.scalars().all()
+    return [
+        app_commands.Choice(name=f"{e.title} ({e.category})"[:100], value=e.title)
+        for e in entries
+    ][:25]
 
 
 class LoreAddModal(discord.ui.Modal, title="Add Lore Entry"):
@@ -75,6 +95,7 @@ async def lore_add(interaction: discord.Interaction, title: str):
 
 @lore_group.command(name="edit", description="Edit an existing lore entry (GM only)")
 @app_commands.describe(title="Title of the lore entry to edit")
+@app_commands.autocomplete(title=_lore_autocomplete)
 async def lore_edit(interaction: discord.Interaction, title: str):
     if not await is_gm(interaction):
         await interaction.response.send_message("Only GMs can edit lore.", ephemeral=True)
@@ -95,6 +116,7 @@ async def lore_edit(interaction: discord.Interaction, title: str):
 
 @lore_group.command(name="delete", description="Delete a lore entry (GM only)")
 @app_commands.describe(title="Title of the lore entry to delete")
+@app_commands.autocomplete(title=_lore_autocomplete)
 async def lore_delete(interaction: discord.Interaction, title: str):
     if not await is_gm(interaction):
         await interaction.response.send_message("Only GMs can delete lore.", ephemeral=True)
@@ -148,6 +170,7 @@ async def lore_search(interaction: discord.Interaction, query: str):
 
 @lore_group.command(name="view", description="View a lore entry")
 @app_commands.describe(title="Title of the lore entry")
+@app_commands.autocomplete(title=_lore_autocomplete)
 async def lore_view(interaction: discord.Interaction, title: str):
     async with get_db() as db:
         result = await db.execute(
@@ -159,6 +182,12 @@ async def lore_view(interaction: discord.Interaction, title: str):
         entry = result.scalar_one_or_none()
 
     if not entry:
+        await interaction.response.send_message("Lore entry not found.", ephemeral=True)
+        return
+
+    # Visibility check
+    user_is_gm = await is_gm(interaction)
+    if entry.visibility not in ("public",) and not user_is_gm:
         await interaction.response.send_message("Lore entry not found.", ephemeral=True)
         return
 
@@ -242,6 +271,186 @@ async def lore_random(interaction: discord.Interaction):
     embed.add_field(name="Category", value=entry.category, inline=True)
 
     await interaction.response.send_message(embed=embed)
+
+
+# ── Phase 6: Player-Specific Lore Secrets ────────────────────────────────────
+
+@lore_group.command(name="reveal", description="Reveal a lore entry to a specific player (GM only)")
+@app_commands.describe(title="Title of the lore entry", user="The player to reveal it to")
+@app_commands.autocomplete(title=_lore_autocomplete)
+async def lore_reveal(interaction: discord.Interaction, title: str, user: discord.Member):
+    if not await is_gm(interaction):
+        await interaction.response.send_message("Only GMs can reveal lore.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    async with get_db() as db:
+        result = await db.execute(
+            select(LoreEntry).where(
+                LoreEntry.guild_id == interaction.guild_id,
+                LoreEntry.title.ilike(title),
+            )
+        )
+        entry = result.scalar_one_or_none()
+        if not entry:
+            await interaction.followup.send("Lore entry not found.", ephemeral=True)
+            return
+
+        from sqlalchemy.orm.attributes import flag_modified
+        whitelist = list(entry.visibility_whitelist or [])
+        if user.id not in whitelist:
+            whitelist.append(user.id)
+            entry.visibility_whitelist = whitelist
+            flag_modified(entry, "visibility_whitelist")
+
+    # DM the player
+    preview = entry.content[:200] + "..." if len(entry.content) > 200 else entry.content
+    dm_embed = discord.Embed(
+        title="🔓 A Secret Has Been Revealed to You",
+        description=f"**{entry.title}**\n\n{preview}",
+        color=0xA855F7,
+    )
+    dm_embed.set_footer(text="This lore is now unlocked for you.")
+    try:
+        await user.send(embed=dm_embed)
+    except discord.Forbidden:
+        pass
+
+    await interaction.followup.send(f"✅ **{entry.title}** revealed to {user.mention}.", ephemeral=True)
+
+
+@lore_group.command(name="hide", description="Hide a lore entry from a specific player (GM only)")
+@app_commands.describe(title="Title of the lore entry", user="The player to hide it from")
+@app_commands.autocomplete(title=_lore_autocomplete)
+async def lore_hide(interaction: discord.Interaction, title: str, user: discord.Member):
+    if not await is_gm(interaction):
+        await interaction.response.send_message("Only GMs can hide lore.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    async with get_db() as db:
+        result = await db.execute(
+            select(LoreEntry).where(
+                LoreEntry.guild_id == interaction.guild_id,
+                LoreEntry.title.ilike(title),
+            )
+        )
+        entry = result.scalar_one_or_none()
+        if not entry:
+            await interaction.followup.send("Lore entry not found.", ephemeral=True)
+            return
+
+        from sqlalchemy.orm.attributes import flag_modified
+        whitelist = list(entry.visibility_whitelist or [])
+        if user.id in whitelist:
+            whitelist.remove(user.id)
+            entry.visibility_whitelist = whitelist
+            flag_modified(entry, "visibility_whitelist")
+
+    await interaction.followup.send(f"❌ **{entry.title}** hidden from {user.mention}.", ephemeral=True)
+
+
+# ── Phase 6: Player-Written Lore Submissions ──────────────────────────────────
+
+class LoreSubmitModal(discord.ui.Modal, title="Submit Lore Entry"):
+    content = discord.ui.TextInput(label="Content", style=discord.TextStyle.long, required=True)
+    category = discord.ui.TextInput(label="Category (e.g., history, faction, location)", required=False, max_length=30)
+
+    def __init__(self, title_name: str):
+        super().__init__()
+        self._title = title_name
+
+    async def on_submit(self, interaction: discord.Interaction):
+        async with get_db() as db:
+            entry = LoreEntry(
+                guild_id=interaction.guild_id,
+                title=self._title,
+                content=self.content.value,
+                category=self.category.value or "lore",
+                tags=[],
+                is_rumor=False,
+                visibility="submitted",
+                submitted_by=interaction.user.id,
+                created_by=interaction.user.id,
+            )
+            db.add(entry)
+            await db.flush()
+            entry_id = entry.id
+
+        # Notify GM channel
+        gc_result = await db.execute(
+            select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id)
+        )
+        gc = gc_result.scalar_one_or_none()
+
+        class ApproveDenyView(discord.ui.View):
+            def __init__(self, entry_id: int, title: str, submitter_id: int):
+                super().__init__(timeout=86400)
+                self.entry_id = entry_id
+                self.title = title
+                self.submitter_id = submitter_id
+
+            @discord.ui.button(label="✅ Approve", style=discord.ButtonStyle.success)
+            async def approve(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+                if not await is_gm(interaction2):
+                    await interaction2.response.send_message("Only GMs can approve.", ephemeral=True)
+                    return
+                async with get_db() as db2:
+                    e = (await db2.execute(select(LoreEntry).where(LoreEntry.id == self.entry_id))).scalar_one_or_none()
+                    if e:
+                        e.visibility = "public"
+                from services.achievements import grant_achievement
+                await grant_achievement(interaction2.client, 0, interaction2.guild_id, "scribe", channel=interaction2.channel)
+                try:
+                    submitter = await interaction2.guild.fetch_member(self.submitter_id)
+                    if submitter:
+                        await submitter.send(f"✅ Your lore entry **{self.title}** has been approved! +100 XP")
+                except Exception:
+                    pass
+                await interaction2.response.edit_message(content=f"✅ **{self.title}** approved!", view=None)
+
+            @discord.ui.button(label="❌ Deny", style=discord.ButtonStyle.danger)
+            async def deny(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+                if not await is_gm(interaction2):
+                    await interaction2.response.send_message("Only GMs can deny.", ephemeral=True)
+                    return
+                async with get_db() as db2:
+                    e = (await db2.execute(select(LoreEntry).where(LoreEntry.id == self.entry_id))).scalar_one_or_none()
+                    if e:
+                        await db2.delete(e)
+                try:
+                    submitter = await interaction2.guild.fetch_member(self.submitter_id)
+                    if submitter:
+                        await submitter.send(f"❌ Your lore entry **{self.title}** was not approved by the GM.")
+                except Exception:
+                    pass
+                await interaction2.response.edit_message(content=f"❌ **{self.title}** denied and removed.", view=None)
+
+        gm_embed = discord.Embed(
+            title="📝 New Lore Submission",
+            description=f"**{self._title}**\n\n{self.content.value[:500]}",
+            color=0xF59E0B,
+        )
+        gm_embed.add_field(name="Submitted by", value=interaction.user.mention, inline=True)
+        gm_embed.add_field(name="Category", value=self.category.value or "lore", inline=True)
+        gm_embed.set_footer(text=f"Entry ID: {entry_id}")
+
+        if gc and gc.gm_channel_id:
+            gm_channel = interaction.guild.get_channel(gc.gm_channel_id)
+            if gm_channel:
+                await gm_channel.send(embed=gm_embed, view=ApproveDenyView(entry_id, self._title, interaction.user.id))
+
+        await interaction.response.send_message(
+            f"✅ Your lore entry **{self._title}** has been submitted for GM review.",
+            ephemeral=True,
+        )
+
+
+@lore_group.command(name="submit", description="Submit a player-written lore entry for GM review")
+@app_commands.describe(title="Title of your lore entry")
+async def lore_submit(interaction: discord.Interaction, title: str):
+    """Submit player-written lore for GM approval."""
+    await interaction.response.send_modal(LoreSubmitModal(title))
 
 
 class LoreCog(commands.Cog, name="Lore"):

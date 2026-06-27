@@ -31,6 +31,75 @@ async def _get_or_create_webhook(channel: discord.TextChannel) -> discord.Webhoo
         return None
 
 
+async def _check_inline_references(message: discord.Message, inner: str, char: Character):
+    """
+    Scan proxy message text for @Word or @Multi Word inline references.
+    Query LoreEntry and NPC tables for matches and post info embeds.
+    Maximum 3 inline references per message.
+    """
+    import re
+    from database.models import LoreEntry, NPC
+
+    pattern = r'@([A-Za-z][A-Za-z0-9 ]+)'
+    matches = re.findall(pattern, inner)
+    if not matches:
+        return
+
+    guild_id = message.guild.id if message.guild else None
+    if not guild_id:
+        return
+
+    sent_count = 0
+    for match_text in matches[:3]:
+        match_text = match_text.strip()
+        if not match_text:
+            continue
+
+        async with get_db() as db:
+            # Check LoreEntry
+            lore_result = await db.execute(
+                select(LoreEntry).where(
+                    LoreEntry.guild_id == guild_id,
+                    LoreEntry.title.ilike(f"%{match_text}%"),
+                    LoreEntry.visibility == "public",
+                ).limit(1)
+            )
+            entry = lore_result.scalar_one_or_none()
+
+            if not entry:
+                # Check NPC
+                npc_result = await db.execute(
+                    select(NPC).where(
+                        NPC.guild_id == guild_id,
+                        NPC.name.ilike(f"%{match_text}%"),
+                    ).limit(1)
+                )
+                npc = npc_result.scalar_one_or_none()
+                if npc:
+                    preview = (npc.description or "")[:100]
+                    embed = discord.Embed(
+                        title=f"👤 **{npc.name}**",
+                        description=preview,
+                        color=0x6366F1,
+                    )
+                    embed.set_footer(text=f"NPC · {npc.title or 'No title'}")
+                    await message.channel.send(embed=embed)
+                    sent_count += 1
+            else:
+                preview = (entry.content or "")[:100]
+                embed = discord.Embed(
+                    title=f"📚 **{entry.title}**",
+                    description=preview,
+                    color=0xA855F7,
+                )
+                embed.set_footer(text=f"Lore · {entry.category}")
+                await message.channel.send(embed=embed)
+                sent_count += 1
+
+        if sent_count >= 3:
+            break
+
+
 def _match_proxy(content: str, proxy_open: str, proxy_close: str | None) -> str | None:
     """Return the inner message if content matches the proxy pattern, else None."""
     if not proxy_open:
@@ -131,6 +200,19 @@ class ProxyCog(commands.Cog, name="Proxy"):
                 _proxy_msg_channels.pop(oldest_id, None)
             _proxy_msg_authors[msg.id] = message.author.id
             _proxy_msg_channels[msg.id] = message.channel.id
+
+            # Check for class ability triggers in the proxy message
+            try:
+                from services.ability_detector import check_ability_trigger
+                await check_ability_trigger(self.bot, message, char, inner)
+            except Exception:
+                pass
+
+            # Check for inline @Reference lore/NPC linking
+            try:
+                await _check_inline_references(message, inner, char)
+            except Exception:
+                pass
         except discord.NotFound:
             # Webhook was deleted — clear cache and recreate
             _webhook_cache.pop(message.channel.id, None)
@@ -146,6 +228,20 @@ class ProxyCog(commands.Cog, name="Proxy"):
                     )
                     _proxy_msg_authors[msg.id] = message.author.id
                     _proxy_msg_channels[msg.id] = message.channel.id
+
+                    # Check for class ability triggers in the proxy message
+                    try:
+                        from services.ability_detector import check_ability_trigger
+                        await check_ability_trigger(self.bot, message, char, inner)
+                    except Exception:
+                        pass
+
+                    # Check for inline @Reference lore/NPC linking
+                    try:
+                        from cogs.proxy import _check_inline_references
+                        await _check_inline_references(message, inner, char)
+                    except Exception:
+                        pass
                 except discord.HTTPException:
                     pass
         except discord.Forbidden:

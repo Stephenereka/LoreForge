@@ -1290,6 +1290,67 @@ GM channel notification on new request:
 
 ---
 
+### Phase 6 — WorldAnvil Parity + Living World (Full research: `PHASE6_RESEARCH.md`)
+
+**Vision:** Every feature WorldAnvil has that makes GMs leave Discord — built natively in LoreForge.
+
+#### Tier 1 — Quick Wins (High Impact, Low Effort)
+- [ ] **Bestiary / Codex** — `/bestiary list/view/search` reusing NPC + BossTemplate data
+- [ ] **Unified `/codex <query>`** — search all world content (lore, NPCs, locations, factions, bestiary) in one command with ChromaDB fallback to ILIKE
+- [ ] **Player-specific lore secrets** — `visibility_whitelist` JSON on LoreEntry; quest rewards DM the secret to specific players
+- [ ] **Inline @reference linking** — proxy messages with `@Name` auto-post ephemeral lore snippet
+- [ ] **Character relationships** — `relationships` JSON on Character; `/character relation add/view/remove`; rivals +1 ATK vs each other, allies bonus healing on rest
+- [ ] **Achievement system** — 50+ achievements across all systems; event hooks in combat/quest/travel/craft; `/achievements <character>` paginated view; `/hall-of-fame` leaderboard
+- [ ] **AI session recap** — hook into `/session end`; DeepSeek generates 3-paragraph narrative from WorldEvents + combat logs; posts to `#session-recaps` channel; key events auto-become canon LoreEntry rows
+- [ ] **Dream / Vision system** — 20% chance on `/rest long`; DeepSeek vision from recent events + location + quests; ephemeral DM only to that player; `/visions` archive
+- [ ] **Image generation** — Pollinations.ai: `/character portrait`, `/location art`, `/npc portrait`, `/item art`; saves URL to `image_url` field; GM can regenerate or override
+- [ ] **Player-written lore** — `/lore submit <title> <content>`; GM approval embed with [Approve/Deny/Edit]; approved = public + XP + "Scribe" title
+- [ ] **Autocomplete dropdowns** — all commands that reference DB entities (market listing_id, NPC name, boss name, quest name, faction name, lore title) get discord.py `autocomplete` callbacks
+
+#### Tier 2 — High Impact, More Effort
+- [ ] **Living world simulation** — background task every 15 min: NPC roaming, faction events, resource respawn; `/world pulse` GM trigger; posts to `#world-news`
+- [ ] **Notification system** — per-player DM config for faction changes, quest objectives, NPC messages; `/notifications configure`; `/npc letter <player> <text>` in-world mail
+- [ ] **Investigation / Mystery system** — `/investigation` group: start, clue, board, connect, theory, reveal; evidence board embed; GM mystery templates
+- [ ] **Structured lore templates** — per-type modals for character/item/creature/religion/event/organization/magic; TEMPLATES registry dict; template-styled embeds
+- [ ] **Interactive timeline** — `/timeline` paginated era-based embed auto-populated from WorldEvents; GM adds custom entries and eras
+- [ ] **Language system** — Language DB model; characters speak/understand languages; proxy messages in unknown language show `*[X speaks in Dwarvish...]*`; `/language learn/list/speak`
+- [ ] **Procedural content generation** — `/quest generate`, `/npc generate`, `/dungeon generate`, `/encounter generate`; DeepSeek prompt templates; GM preview with [Save/Regenerate/Discard]
+
+#### Tier 3 — Transformative, Long-Term
+- [ ] **Full AI GM mode** — `/ai toggle dungeon-master`; DeepSeek + ChromaDB RAG over all guild world data; runs sessions autonomously; GM takeover anytime
+- [ ] **Generational play** — character aging (race-based lifespan), aging penalties/bonuses, `/character retire` → becomes NPC, `/character legacy` inherits faction rep + gold + title + "Born to a Legend" bonus
+- [ ] **Cross-server world events** — global event with combined progress bar across all LoreForge guilds; reward unlocked when global goal is met
+- [ ] **Clickable interactive map** — button-based location navigation from world map; dungeon room-by-room navigation state machine
+- [ ] **Full economy simulation** — supply/demand curves, trade routes, NPC merchants with dynamic pricing, daily price tick background task
+
+#### Class Ability Proxy Detection (applies to Heavenly Demon + all classes)
+Replace all `/hd` slash commands with **keyword detection in proxy messages** — when a character's proxy sends a message containing an ability keyword, the bot triggers the ability automatically (in or out of combat). Slash commands deleted. Same system generalized to all class abilities where applicable.
+
+---
+
+### Phase 7 — Web Dashboard (Full research: `PHASE6_DASHBOARD_RESEARCH.md`)
+
+**Tech stack:** FastAPI backend + Next.js 14 frontend + shadcn/ui + TanStack Query + SSE (real-time updates) + Redis cache
+
+**Key pages:**
+- Character Manager — full sheet view, stat editing with GM approval queue sync
+- World Map — interactive Leaflet.js map with location pins, click → location detail
+- Lore Wiki — searchable wiki browser with category filters and rich text rendering
+- AI Control Center — 16 toggle controls (narration, NPC AI, session summary, vision, DM mode, etc.)
+- Session Log — paginated past sessions with AI recap text
+- Bestiary — filterable creature browser
+- Economy Dashboard — market listings, auction house, trade history, wealth distribution
+
+**Tiers:** Free (read-only: character sheet, lore wiki, world map) | Premium (write access, AI controls, full analytics)
+
+**Auth:** Discord OAuth2 → JWT session → role check via bot DB (GMs get admin panel access)
+
+**Mobile-first:** dark fantasy theme, full responsive, under 2s load time
+
+**Build order:** Auth → character viewer → lore browser → world map → AI controls → economy dashboard → WebSocket real-time updates
+
+---
+
 ### Phase 5 — Scale (Month 3+)
 - [ ] OC leaderboard (kills, quests, achievements)
 - [ ] Achievement system with milestone rewards
@@ -1516,7 +1577,7 @@ services/
 
 ---
 
-*Last updated: 2026-06-24*
+*Last updated: 2026-06-26*
 
 ---
 

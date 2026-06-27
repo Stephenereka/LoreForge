@@ -9,6 +9,58 @@ from database.models import Character, MarketListing, AuctionListing
 
 MAX_ACTIVE_LISTINGS = 5
 
+
+async def _listing_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete for active market listings."""
+    async with get_db() as db:
+        result = await db.execute(
+            select(MarketListing).where(MarketListing.sold == False).order_by(MarketListing.created_at.desc()).limit(25)
+        )
+        listings = result.scalars().all()
+        # Build seller name map
+        seller_ids = set(l.seller_id for l in listings)
+        seller_names = {}
+        if seller_ids:
+            seller_result = await db.execute(
+                select(Character).where(Character.id.in_(seller_ids))
+            )
+            for seller in seller_result.scalars().all():
+                seller_names[seller.id] = seller.name
+    choices = []
+    for l in listings:
+        seller_name = seller_names.get(l.seller_id, "Unknown")
+        label = f"{l.item_name} — {l.price}SS by {seller_name}"
+        if current.lower() in label.lower() or current.lower() in l.item_name.lower():
+            choices.append(app_commands.Choice(name=label[:100], value=str(l.id)))
+    return choices[:25]
+
+
+async def _my_listing_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete for user's own active listings."""
+    async with get_db() as db:
+        char = await db.execute(
+            select(Character).where(
+                Character.user_id == interaction.user.id,
+                Character.guild_id == interaction.guild_id,
+                Character.is_dead == False,
+            )
+        )
+        char = char.scalar_one_or_none()
+        if not char:
+            return []
+        result = await db.execute(
+            select(MarketListing).where(
+                MarketListing.seller_id == char.id,
+                MarketListing.sold == False,
+            ).order_by(MarketListing.created_at.desc()).limit(25)
+        )
+        listings = result.scalars().all()
+    return [
+        app_commands.Choice(name=f"{l.item_name} x{l.quantity} ({l.price}SS each)", value=str(l.id))
+        for l in listings
+        if current.lower() in l.item_name.lower()
+    ][:25]
+
 # ── Shared helpers ───────────────────────────────────────────────────────────
 
 async def _get_char(interaction: discord.Interaction) -> Character | None:
@@ -180,6 +232,7 @@ async def market_browse(interaction: discord.Interaction):
 
 @market_group.command(name="buy", description="Buy an item from the market")
 @app_commands.describe(listing_id="The listing ID (use /market browse to find it)")
+@app_commands.autocomplete(listing_id=_listing_autocomplete)
 async def market_buy(interaction: discord.Interaction, listing_id: int):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
@@ -260,6 +313,7 @@ async def market_buy(interaction: discord.Interaction, listing_id: int):
 
 @market_group.command(name="cancel", description="Cancel one of your active listings")
 @app_commands.describe(listing_id="The listing ID to cancel")
+@app_commands.autocomplete(listing_id=_my_listing_autocomplete)
 async def market_cancel(interaction: discord.Interaction, listing_id: int):
     if not interaction.guild_id:
         await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)

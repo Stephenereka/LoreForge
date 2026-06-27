@@ -2373,6 +2373,309 @@ async def character_edit_stats(interaction: discord.Interaction, field: app_comm
     )
 
 
+# ── Portrait Command ─────────────────────────────────────────────────────────
+
+@character_group.command(name="portrait", description="Generate a portrait of your character using AI art")
+async def character_portrait(interaction: discord.Interaction):
+    """Generate a character portrait using Pollinations.ai."""
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not chars or not char:
+        await interaction.followup.send("No character found. Use `/character create`.", ephemeral=True)
+        return
+
+    # Generate portrait
+    from services.image_service import generate_character_portrait
+    appearance = char.backstory or ""
+    image_url = await generate_character_portrait(char.name, char.race, char.char_class, appearance)
+
+    class PortraitView(discord.ui.View):
+        def __init__(self, current_url: str, char_id: int):
+            super().__init__(timeout=300)
+            self.current_url = current_url
+            self.char_id = char_id
+
+        @discord.ui.button(label="🔄 Regenerate", style=discord.ButtonStyle.secondary)
+        async def regenerate(self, interaction2: discord.Interaction, button: discord.ui.Button):
+            await interaction2.response.defer(ephemeral=True)
+            async with get_db() as db2:
+                result2 = await db2.execute(select(Character).where(Character.id == self.char_id))
+                c2 = result2.scalar_one_or_none()
+                if not c2:
+                    await interaction2.followup.send("Character not found.", ephemeral=True)
+                    return
+                appearance2 = c2.backstory or ""
+                new_url = await generate_character_portrait(c2.name, c2.race, c2.char_class, appearance2)
+                c2.avatar_url = new_url
+            embed2 = discord.Embed(
+                title=f"🎨 {c2.name} — Portrait",
+                color=0x8B5CF6,
+            )
+            embed2.set_image(url=new_url)
+            await interaction2.followup.send(embed=embed2, ephemeral=True)
+            try:
+                await interaction2.edit_original_response(view=PortraitView(new_url, self.char_id))
+            except Exception:
+                pass
+
+        @discord.ui.button(label="✅ Keep", style=discord.ButtonStyle.success)
+        async def keep(self, interaction2: discord.Interaction, button: discord.ui.Button):
+            async with get_db() as db2:
+                result2 = await db2.execute(select(Character).where(Character.id == self.char_id))
+                c2 = result2.scalar_one_or_none()
+                if c2:
+                    c2.avatar_url = self.current_url
+            await interaction2.response.edit_message(
+                content="✅ Portrait saved!",
+                embed=None,
+                view=None,
+            )
+
+    # Save URL
+    async with get_db() as db:
+        result = await db.execute(select(Character).where(Character.id == char.id))
+        c = result.scalar_one_or_none()
+        if c:
+            c.avatar_url = image_url
+
+    embed = discord.Embed(
+        title=f"🎨 {char.name} — Portrait",
+        description=f"*{char.race} {char.char_class}, Level {char.level}*",
+        color=0x8B5CF6,
+    )
+    embed.set_image(url=image_url)
+    embed.set_footer(text="Generated with Pollinations.ai • Click Keep to save or Regenerate for a new one")
+    await interaction.followup.send(embed=embed, view=PortraitView(image_url, char.id), ephemeral=True)
+
+
+# ── Relationship Commands ─────────────────────────────────────────────────────
+
+@character_group.command(name="relations", description="View a character's relationships")
+@app_commands.describe(character="Name of the character (leave blank for your own)")
+async def character_relations(interaction: discord.Interaction, character: str | None = None):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    if character:
+        async with get_db() as db:
+            result = await db.execute(
+                select(Character).where(
+                    Character.guild_id == interaction.guild_id,
+                    Character.name.ilike(f"%{character}%"),
+                )
+            )
+            char = result.scalar_one_or_none()
+    else:
+        char, _ = await resolve_character(interaction.user.id, interaction.guild_id)
+
+    if not char:
+        await interaction.followup.send("Character not found.", ephemeral=True)
+        return
+
+    relationships = char.relationships or []
+    if not relationships:
+        await interaction.followup.send(f"**{char.name}** has no relationships yet.", ephemeral=True)
+        return
+
+    type_emojis = {
+        "ally": "🤝", "rival": "⚔️", "mentor": "📖",
+        "student": "🌱", "family": "👨‍👩‍👧", "enemy": "💀",
+    }
+
+    embed = discord.Embed(
+        title=f"❤️ {char.name}'s Relationships",
+        color=0xF1C40F,
+    )
+    for rel in relationships:
+        emoji = type_emojis.get(rel.get("type", ""), "❓")
+        status = "✅" if rel.get("confirmed") else "⏳"
+        embed.add_field(
+            name=f"{emoji} {rel.get('character_name', 'Unknown')} {status}",
+            value=f"{rel.get('type', 'unknown').title()}",
+            inline=True,
+        )
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@character_group.command(name="relation_add", description="Send a relationship request to another character")
+@app_commands.describe(
+    target_character="Name of the target character",
+    relationship_type="Type of relationship",
+)
+@app_commands.choices(relationship_type=[
+    app_commands.Choice(name="🤝 Ally", value="ally"),
+    app_commands.Choice(name="⚔️ Rival", value="rival"),
+    app_commands.Choice(name="📖 Mentor", value="mentor"),
+    app_commands.Choice(name="🌱 Student", value="student"),
+    app_commands.Choice(name="👨‍👩‍👧 Family", value="family"),
+    app_commands.Choice(name="💀 Enemy", value="enemy"),
+])
+async def character_relation_add(interaction: discord.Interaction, target_character: str, relationship_type: str):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    # Get source character
+    src_char, _ = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not src_char:
+        await interaction.followup.send("You don't have an active character.", ephemeral=True)
+        return
+
+    # Get target character
+    try:
+        target_id = int(target_character)
+        async with get_db() as db:
+            result = await db.execute(select(Character).where(Character.id == target_id))
+            tgt_char = result.scalar_one_or_none()
+    except ValueError:
+        async with get_db() as db:
+            result = await db.execute(
+                select(Character).where(
+                    Character.guild_id == interaction.guild_id,
+                    Character.name.ilike(f"%{target_character}%"),
+                )
+            )
+            tgt_char = result.scalar_one_or_none()
+
+    if not tgt_char or tgt_char.id == src_char.id:
+        await interaction.followup.send("Target character not found.", ephemeral=True)
+        return
+
+    # Send request to target user
+    tgt_user = interaction.guild.get_member(tgt_char.user_id)
+    if not tgt_user:
+        await interaction.followup.send("Target player not found in this server.", ephemeral=True)
+        return
+
+    class RelationConfirmView(discord.ui.View):
+        def __init__(self, src_id: int, tgt_id: int, rel_type: str, src_name: str, tgt_name: str):
+            super().__init__(timeout=86400)
+            self.src_id = src_id
+            self.tgt_id = tgt_id
+            self.rel_type = rel_type
+            self.src_name = src_name
+            self.tgt_name = tgt_name
+
+        @discord.ui.button(label="✅ Accept", style=discord.ButtonStyle.success)
+        async def accept(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            if interaction2.user.id != tgt_char.user_id:
+                await interaction2.response.send_message("Only the target player can respond.", ephemeral=True)
+                return
+            async with get_db() as db:
+                src = (await db.execute(select(Character).where(Character.id == self.src_id))).scalar_one_or_none()
+                tgt = (await db.execute(select(Character).where(Character.id == self.tgt_id))).scalar_one_or_none()
+                if not src or not tgt:
+                    await interaction2.response.send_message("Character not found.", ephemeral=True)
+                    return
+                src_rels = list(src.relationships or [])
+                tgt_rels = list(tgt.relationships or [])
+                src_rels.append({"type": self.rel_type, "character_id": self.tgt_id, "character_name": self.tgt_name, "confirmed": True})
+                tgt_rels.append({"type": RELATION_REVERSE.get(self.rel_type, self.rel_type), "character_id": self.src_id, "character_name": self.src_name, "confirmed": True})
+                src.relationships = src_rels
+                tgt.relationships = tgt_rels
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(src, "relationships")
+                flag_modified(tgt, "relationships")
+            await interaction2.response.edit_message(content="✅ Relationship established!", embed=None, view=None)
+
+        @discord.ui.button(label="❌ Decline", style=discord.ButtonStyle.danger)
+        async def decline(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            if interaction2.user.id != tgt_char.user_id:
+                await interaction2.response.send_message("Only the target player can respond.", ephemeral=True)
+                return
+            await interaction2.response.edit_message(content="❌ Relationship declined.", embed=None, view=None)
+            try:
+                await interaction.user.send(f"{tgt_char.name}'s player has declined your relationship request.")
+            except Exception:
+                pass
+
+    RELATION_REVERSE = {
+        "ally": "ally", "rival": "rival", "mentor": "student",
+        "student": "mentor", "family": "family", "enemy": "enemy",
+    }
+
+    embed = discord.Embed(
+        title="💌 Relationship Request",
+        description=f"**{src_char.name}** wishes to become your **{relationship_type}**!\n\nDo you accept?",
+        color=0xF1C40F,
+    )
+    try:
+        await tgt_user.send(embed=embed, view=RelationConfirmView(
+            src_char.id, tgt_char.id, relationship_type,
+            src_char.name, tgt_char.name,
+        ))
+        await interaction.followup.send(
+            f"Relationship request sent to **{tgt_char.name}**'s player!",
+            ephemeral=True,
+        )
+    except discord.Forbidden:
+        await interaction.followup.send(
+            f"Could not send a DM to {tgt_char.name}'s player. They may have DMs disabled.",
+            ephemeral=True,
+        )
+
+
+@character_group.command(name="relation_remove", description="Remove a relationship with another character")
+@app_commands.describe(target_character="Name of the character to remove relationship with")
+async def character_relation_remove(interaction: discord.Interaction, target_character: str):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    src_char, _ = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not src_char:
+        await interaction.followup.send("You don't have an active character.", ephemeral=True)
+        return
+
+    # Find target
+    try:
+        target_id = int(target_character)
+        async with get_db() as db:
+            result = await db.execute(select(Character).where(Character.id == target_id))
+            tgt_char = result.scalar_one_or_none()
+    except ValueError:
+        async with get_db() as db:
+            result = await db.execute(
+                select(Character).where(
+                    Character.guild_id == interaction.guild_id,
+                    Character.name.ilike(f"%{target_character}%"),
+                )
+            )
+            tgt_char = result.scalar_one_or_none()
+
+    if not tgt_char:
+        await interaction.followup.send("Target character not found.", ephemeral=True)
+        return
+
+    async with get_db() as db:
+        src = (await db.execute(select(Character).where(Character.id == src_char.id))).scalar_one_or_none()
+        tgt = (await db.execute(select(Character).where(Character.id == tgt_char.id))).scalar_one_or_none()
+        if not src or not tgt:
+            await interaction.followup.send("Character not found.", ephemeral=True)
+            return
+        src_rels = [r for r in (src.relationships or []) if r.get("character_id") != tgt_char.id]
+        tgt_rels = [r for r in (tgt.relationships or []) if r.get("character_id") != src_char.id]
+        src.relationships = src_rels
+        tgt.relationships = tgt_rels
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(src, "relationships")
+        flag_modified(tgt, "relationships")
+
+    await interaction.followup.send(f"Relationship with **{tgt_char.name}** has been removed.", ephemeral=True)
+
+
 # ── Level-Up Attack Unlock ────────────────────────────────────────────────────
 
 def _locked_attacks(char_class: str, unlocked: list[str]) -> list[dict]:
