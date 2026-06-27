@@ -32,7 +32,8 @@ class TradeSession:
         if self.initiator_gold > 0:
             lines.append(f"  {self.initiator_gold} gold")
         lines.append("```")
-        lines.append(f"**{self.target_user.display_name}** offers:", "```")
+        lines.append(f"**{self.target_user.display_name}** offers:")
+        lines.append("```")
         for item, qty in self.target_items.items():
             lines.append(f"  {item} x{qty}")
         if self.target_gold > 0:
@@ -183,6 +184,9 @@ trade_group = app_commands.Group(name="trade", description="Trade items and gold
 async def trade_request(interaction: discord.Interaction, user: discord.Member):
     if user.id == interaction.user.id:
         await interaction.response.send_message("You can't trade with yourself.", ephemeral=True)
+        return
+    if user.bot:
+        await interaction.response.send_message("You can't trade with a bot.", ephemeral=True)
         return
 
     trade_id = f"{interaction.user.id}-{user.id}"

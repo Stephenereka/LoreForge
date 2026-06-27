@@ -1113,7 +1113,7 @@ async def _end_combat(session: CombatSession, winner: Combatant | None):
     if winners and losers:
         total_stones_per_winner = sum(random.randint(10, 50) for loser in losers)
 
-        level_up_embeds: list[discord.Embed] = []
+        level_up_embeds: list[tuple] = []
         async with get_db() as db:
             for i, p in enumerate(session.players):
                 if p not in winners:

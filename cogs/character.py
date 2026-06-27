@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from datetime import datetime, timezone
 from sqlalchemy import select
 from database.session import get_db
 from database.models import Character, PendingApproval, GuildConfig
@@ -1159,6 +1160,21 @@ async def _create_character(
                 is_active=is_first,
             )
         db.add(char)
+        await db.flush()  # populate char.id before leaving the session
+
+        # Place character at the guild's default spawn location if one is set
+        config_row = await db.execute(
+            select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id)
+        )
+        cfg = config_row.scalar_one_or_none()
+        if cfg and cfg.default_spawn_location_id:
+            from database.models import CharacterLocation
+            spawn = CharacterLocation(
+                character_id=char.id,
+                guild_id=interaction.guild_id,
+                location_id=cfg.default_spawn_location_id,
+            )
+            db.add(spawn)
 
     embed = build_sheet_embed(char)
     embed.title = f"⚔️ {char.name} has entered the world!"

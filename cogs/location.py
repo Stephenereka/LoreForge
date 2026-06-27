@@ -283,6 +283,8 @@ async def cmd_map(ctx):
         ]
 
         async def _map_select_callback(interaction: discord.Interaction):
+            if not interaction.data or "values" not in interaction.data:
+                return
             loc_id = int(interaction.data["values"][0])
             async with get_db() as db:
                 loc_result = await db.execute(

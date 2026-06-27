@@ -2499,6 +2499,129 @@ async def gm_vision(interaction: discord.Interaction, user: discord.Member, text
 
 
 # ---------------------------------------------------------------------------
+# /gm spawn set / clear
+# ---------------------------------------------------------------------------
+
+async def _all_locations_autocomplete(interaction: discord.Interaction, current: str):
+    async with get_db() as db:
+        result = await db.execute(
+            select(Location).where(
+                Location.guild_id == interaction.guild_id,
+                Location.name.ilike(f"%{current}%"),
+            ).limit(25)
+        )
+        return [app_commands.Choice(name=loc.name, value=loc.name) for loc in result.scalars().all()]
+
+
+@gm_group.command(name="spawn-set", description="Set the default spawn location for all new characters (GM only)")
+@app_commands.describe(location="Name of the location new characters will start in")
+@app_commands.autocomplete(location=_all_locations_autocomplete)
+async def gm_spawn_set(interaction: discord.Interaction, location: str):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+    async with get_db() as db:
+        loc = await db.scalar(
+            select(Location).where(
+                Location.guild_id == interaction.guild_id,
+                Location.name.ilike(location),
+            )
+        )
+        if not loc:
+            await interaction.followup.send(
+                f"Location **{location}** not found. Use the exact name from `/location view`.",
+                ephemeral=True,
+            )
+            return
+        config = await db.scalar(select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id))
+        if config:
+            config.default_spawn_location_id = loc.id
+        else:
+            config = GuildConfig(guild_id=interaction.guild_id, default_spawn_location_id=loc.id)
+            db.add(config)
+    await interaction.followup.send(
+        f"✅ Default spawn point set to **{loc.name}**. All future characters will start there.",
+        ephemeral=True,
+    )
+
+
+@gm_group.command(name="spawn-clear", description="Remove the default spawn point so characters start without a location (GM only)")
+async def gm_spawn_clear(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+    async with get_db() as db:
+        config = await db.scalar(select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id))
+        if not config or config.default_spawn_location_id is None:
+            await interaction.followup.send("No default spawn point is currently set.", ephemeral=True)
+            return
+        config.default_spawn_location_id = None
+    await interaction.followup.send("✅ Default spawn point cleared.", ephemeral=True)
+
+
+# ---------------------------------------------------------------------------
+# /gm teleport
+# ---------------------------------------------------------------------------
+
+@gm_group.command(name="teleport", description="Move a player's active character to any location (GM only)")
+@app_commands.describe(user="The player to teleport", location="Destination location name")
+@app_commands.autocomplete(location=_all_locations_autocomplete)
+async def gm_teleport(interaction: discord.Interaction, user: discord.Member, location: str):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+    async with get_db() as db:
+        from database.models import CharacterLocation
+
+        loc = await db.scalar(
+            select(Location).where(
+                Location.guild_id == interaction.guild_id,
+                Location.name.ilike(location),
+            )
+        )
+        if not loc:
+            await interaction.followup.send(
+                f"Location **{location}** not found. Use the exact name from `/location view`.",
+                ephemeral=True,
+            )
+            return
+
+        char = await db.scalar(
+            select(Character).where(
+                Character.user_id == user.id,
+                Character.guild_id == interaction.guild_id,
+                Character.is_active == True,
+            )
+        )
+        if not char:
+            await interaction.followup.send(
+                f"{user.mention} has no active character in this server.",
+                ephemeral=True,
+            )
+            return
+
+        existing = await db.scalar(
+            select(CharacterLocation).where(
+                CharacterLocation.character_id == char.id,
+                CharacterLocation.guild_id == interaction.guild_id,
+            )
+        )
+        if existing:
+            existing.location_id = loc.id
+        else:
+            db.add(CharacterLocation(
+                character_id=char.id,
+                guild_id=interaction.guild_id,
+                location_id=loc.id,
+            ))
+
+    await interaction.followup.send(
+        f"✅ **{char.name}** has been teleported to **{loc.name}**.",
+        ephemeral=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Cog
 # ---------------------------------------------------------------------------
 

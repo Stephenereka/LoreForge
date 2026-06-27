@@ -537,6 +537,9 @@ async def auto_trigger_tutorial(user_id: int, guild_id: int) -> bool:
 
 @tutorial_group.command(name="start", description="Start or resume the tutorial")
 async def tutorial_start(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works in a server.", ephemeral=True)
+        return
     prog = await get_or_create_tutorial(interaction.user.id, interaction.guild_id)
     start_step = prog.current_step
     if prog.is_completed:

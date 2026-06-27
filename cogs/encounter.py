@@ -268,6 +268,37 @@ async def _launch_encounter(
     )
 
 
+# ── Autocomplete ──────────────────────────────────────────────────────────────
+
+async def _npc_name_autocomplete(interaction: discord.Interaction, current: str):
+    async with get_db() as db:
+        result = await db.execute(
+            select(NPC).where(
+                NPC.guild_id == interaction.guild_id,
+                NPC.is_dead == False,
+                NPC.name.ilike(f"%{current}%"),
+            ).limit(25)
+        )
+        return [
+            app_commands.Choice(name=f"{n.name} (HP:{n.hp_current}/{n.hp_max} AC:{n.armor_class})", value=n.name)
+            for n in result.scalars().all()
+        ]
+
+
+async def _boss_template_autocomplete(interaction: discord.Interaction, current: str):
+    async with get_db() as db:
+        result = await db.execute(
+            select(BossTemplate).where(
+                BossTemplate.guild_id == interaction.guild_id,
+                BossTemplate.name.ilike(f"%{current}%"),
+            ).limit(25)
+        )
+        return [
+            app_commands.Choice(name=f"{t.name} (HP:{t.hp_max} AC:{t.armor_class})", value=t.name)
+            for t in result.scalars().all()
+        ]
+
+
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 encounter_group = app_commands.Group(name="encounter", description="Start NPC and boss combat encounters")
@@ -278,6 +309,7 @@ encounter_group = app_commands.Group(name="encounter", description="Start NPC an
     npc_name="Name of the NPC who attacks",
     player="The player being attacked",
 )
+@app_commands.autocomplete(npc_name=_npc_name_autocomplete)
 async def encounter_npc(interaction: discord.Interaction, npc_name: str, player: discord.Member):
     if not await gm_only(interaction):
         return
@@ -312,6 +344,7 @@ async def encounter_npc(interaction: discord.Interaction, npc_name: str, player:
     boss_name="Name of the boss template",
     player="The player being attacked",
 )
+@app_commands.autocomplete(boss_name=_boss_template_autocomplete)
 async def encounter_boss(interaction: discord.Interaction, boss_name: str, player: discord.Member):
     if not await gm_only(interaction):
         return
@@ -342,6 +375,7 @@ async def encounter_boss(interaction: discord.Interaction, boss_name: str, playe
 
 @encounter_group.command(name="add-npc", description="Add an NPC to the active combat in this channel (GM only)")
 @app_commands.describe(npc_name="Name of the NPC to add to combat")
+@app_commands.autocomplete(npc_name=_npc_name_autocomplete)
 async def encounter_add_npc(interaction: discord.Interaction, npc_name: str):
     if not await gm_only(interaction):
         return

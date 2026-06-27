@@ -305,6 +305,9 @@ def _build_pages(show_gm: bool) -> dict[str, discord.Embed]:
             "`/gm generate quest/npc/encounter` — AI-generate content (preview + Save/Regen)\n"
             "`/gm world-pulse` — manually trigger the living world simulation\n"
             "`/gm vision <@user> <text>` — send a custom vision to a player\n"
+            "`/gm spawn-set <location>` — set the default spawn point for new characters\n"
+            "`/gm spawn-clear` — remove the default spawn point\n"
+            "`/gm teleport <@user> <location>` — move a player's active character to any location\n"
             "`/npc-letter <@user> <content>` — send an in-character letter via DM\n"
             "`/investigation start / reveal` — manage mystery investigations\n"
             "`/language create / add-phrase` — create languages\n"
@@ -903,6 +906,9 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
                 "`/gm generate encounter [diff] [loc]` — AI-generate a combat encounter (as boss template)\n"
                 "`/gm world-pulse` — Manually trigger the living world simulation tick\n"
                 "`/gm vision <@user> <text>` — Send a custom vision/dream to a player\n"
+                "`/gm spawn-set <location>` — Set the default spawn point for new characters\n"
+                "`/gm spawn-clear` — Remove the default spawn point\n"
+                "`/gm teleport <@user> <location>` — Move a player's active character to any location\n"
                 "`/npc-letter <@user> <content>` — Send an in-character letter to a player (DM)\n"
                 "`/timeline add <title> <desc>` — Add a manual timeline event\n"
                 "`/timeline era <name>` — Set the current world era\n"
@@ -955,6 +961,8 @@ class HelpView(discord.ui.View):
         self.add_item(select)
 
     async def _on_select(self, interaction: discord.Interaction):
+        if not interaction.data or "values" not in interaction.data:
+            return
         value = interaction.data["values"][0]
         embed = _home_embed() if value == "home" else self.pages.get(value, _home_embed())
         await interaction.response.edit_message(embed=embed, view=self)

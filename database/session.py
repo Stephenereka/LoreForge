@@ -106,6 +106,8 @@ async def init_db():
             "ALTER TABLE npcs ADD COLUMN IF NOT EXISTS proxy_mode VARCHAR(20) DEFAULT 'manual'",
             "ALTER TABLE npcs ADD COLUMN IF NOT EXISTS gm_user_id BIGINT",
             "ALTER TABLE npcs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
+            # Spawn point
+            "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS default_spawn_location_id INTEGER",
     ]
     from sqlalchemy import text
     for stmt in _migrations:

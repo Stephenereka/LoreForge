@@ -102,6 +102,7 @@ class GuildConfig(Base):
     session_recap_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     current_era: Mapped[str] = mapped_column(String(200), nullable=True)
     world_map_url: Mapped[str] = mapped_column(Text, nullable=True)
+    default_spawn_location_id: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
