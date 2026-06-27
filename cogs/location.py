@@ -268,6 +268,32 @@ async def cmd_map(ctx):
         embed.set_image(url="attachment://world_map.png")
 
         # Clickable map buttons — show up to 25 discovered locations
+        _LOC_EMOJI = {
+            'city': '🏙️', 'town': '🏘️', 'village': '🏡', 'tavern': '🍺',
+            'shrine': '⛩️', 'temple': '🛕', 'dungeon': '💀', 'ruins': '🏚️',
+            'cave': '🕳️', 'fortress': '🏰', 'tower': '🗼', 'library': '📚',
+            'arena': '⚔️', 'market': '🛒', 'port': '⚓', 'bridge': '🌉',
+            'forest': '🌲', 'mountain': '⛰️', 'lake': '🌊', 'wilderness': '🗺️',
+        }
+        _SAFE_TYPES = {'city', 'town', 'village', 'tavern', 'shrine', 'temple', 'market', 'library'}
+        _DANGER_TYPES = {'dungeon', 'ruins', 'cave', 'arena'}
+
+        def _map_button_label(name: str, loc_type: str) -> str:
+            emoji = _LOC_EMOJI.get(loc_type, '📍')
+            # Smart truncate at word boundary, max 22 chars for the name part
+            display = name
+            if len(display) > 22:
+                truncated = display[:22].rsplit(' ', 1)[0]
+                display = truncated + '…' if truncated else display[:22] + '…'
+            return f"{emoji} {display}"
+
+        def _map_button_style(loc_type: str) -> discord.ButtonStyle:
+            if loc_type in _SAFE_TYPES:
+                return discord.ButtonStyle.success
+            if loc_type in _DANGER_TYPES:
+                return discord.ButtonStyle.danger
+            return discord.ButtonStyle.secondary
+
         discovered_locs = [l for l in all_locs if not l.is_hidden and l.map_x is not None and l.map_y is not None][:25]
         map_view = None
         if discovered_locs:
@@ -276,8 +302,8 @@ async def cmd_map(ctx):
                 row_locs = discovered_locs[i:i+5]
                 for loc in row_locs:
                     button = discord.ui.Button(
-                        label=loc.name[:30],
-                        style=discord.ButtonStyle.secondary,
+                        label=_map_button_label(loc.name, loc.location_type),
+                        style=_map_button_style(loc.location_type),
                         custom_id=f"map_loc_{loc.id}",
                         row=i // 5,
                     )
