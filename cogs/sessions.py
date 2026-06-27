@@ -4,9 +4,10 @@ from discord.ext import commands
 from sqlalchemy import select, desc
 from datetime import datetime
 from database.session import get_db
-from database.models import SessionLog, AIConfig, Character
+from database.models import SessionLog, AIConfig, Character, GuildConfig
 from services.utils import gm_only
-from services.ai_service import summarize_session
+from services.ai_service import summarize_session, generate_session_recap
+from sqlalchemy.orm.attributes import flag_modified
 
 session_group = app_commands.Group(name="session", description="Session management (GM only)")
 
@@ -144,6 +145,65 @@ async def session_end(interaction: discord.Interaction):
 
     embed.set_footer(text="LoreForge Session Log")
     await interaction.followup.send(embed=embed)
+
+    # ── Phase 6: AI Recap → recap channel + LoreEntry ──────────────────────
+    try:
+        async with get_db() as db:
+            gc = await db.execute(
+                select(GuildConfig).where(GuildConfig.guild_id == interaction.guild_id)
+            )
+            config = gc.scalar_one_or_none()
+        recap_channel_id = config.session_recap_channel_id if config else None
+
+        if recap_channel_id:
+            # Get last 20 WorldEvents for guild
+            from database.models import WorldEvent
+            async with get_db() as db:
+                we_result = await db.execute(
+                    select(WorldEvent).where(
+                        WorldEvent.guild_id == interaction.guild_id
+                    ).order_by(desc(WorldEvent.created_at)).limit(20)
+                )
+                world_events = list(we_result.scalars().all())
+            event_descriptions = [f"{e.event_type}: {e.narrative or e.event_type}" for e in world_events]
+            character_names = log.characters_present or []
+
+            recap_text = await generate_session_recap(event_descriptions, character_names)
+
+            if recap_channel_id:
+                recap_channel = interaction.guild.get_channel(recap_channel_id)
+                if recap_channel:
+                    recap_embed = discord.Embed(
+                        title="📜 Session Recap",
+                        description=recap_text,
+                        color=0x8B5CF6,
+                    )
+                    recap_embed.set_footer(text=f"Session #{log.id} • LoreForge")
+                    await recap_channel.send(embed=recap_embed)
+
+            # Save recap as LoreEntry
+            async with get_db() as db2:
+                from database.models import LoreEntry
+                session_number = log.title or f"Session {log.id}"
+                # Check if already exists
+                existing_recap = await db2.execute(
+                    select(LoreEntry).where(
+                        LoreEntry.guild_id == interaction.guild_id,
+                        LoreEntry.title.ilike(f"{session_number} Recap"),
+                    )
+                )
+                if not existing_recap.scalar_one_or_none():
+                    db2.add(LoreEntry(
+                        guild_id=interaction.guild_id,
+                        title=f"{session_number} Recap",
+                        content=recap_text,
+                        category="session",
+                        visibility="gm_only",
+                        tags=["session", "recap"],
+                        created_by=interaction.user.id,
+                    ))
+    except Exception as e:
+        print(f"[SessionRecap] Error posting recap: {e}")
 
 
 @session_group.command(name="summary", description="Generate or regenerate the summary for the most recent session")

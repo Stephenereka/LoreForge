@@ -49,7 +49,21 @@ def rep_progress_bar(rep_value: int) -> tuple[str, int, str, str]:
         return tier, 100, "██████████", info["icon"]
 
 
-async def change_reputation(character_id: int, guild_id: int, faction_id: int, amount: int, reason: str = "") -> dict:
+import discord
+
+from services.notifications import notify_player
+
+
+async def change_reputation(
+    character_id: int,
+    guild_id: int,
+    faction_id: int,
+    amount: int,
+    reason: str = "",
+    bot=None,
+    user_id: int = None,
+    faction_name: str = "",
+) -> dict:
     """Change a character's reputation with a faction. Returns result with tier change info."""
     async with get_db() as db:
         result = await db.execute(
@@ -78,6 +92,24 @@ async def change_reputation(character_id: int, guild_id: int, faction_id: int, a
 
         new_tier = get_tier(rep_row.reputation)
         tier_changed = old_tier != new_tier
+
+    # Notify player on tier change
+    if tier_changed and bot and user_id and faction_name:
+        tier_info = get_tier_info(new_tier)
+        embed = discord.Embed(
+            title=f"{tier_info['icon']} Faction Standing Change",
+            description=f"Your reputation with **{faction_name}** has changed!",
+            color=tier_info["color"],
+        )
+        embed.add_field(name="Old Standing", value=f"**{old_tier.capitalize()}**", inline=True)
+        embed.add_field(name="New Standing", value=f"**{new_tier.capitalize()}**", inline=True)
+        embed.add_field(name="Reputation Change", value=f"{amount:+d}", inline=True)
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+        try:
+            await notify_player(bot, user_id, guild_id, "faction_changes", embed)
+        except Exception:
+            pass
 
     return {
         "new_rep": rep_row.reputation,

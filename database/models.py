@@ -71,6 +71,17 @@ class Character(Base):
     relationships: Mapped[dict] = mapped_column(JSON, default=list)
     proxy_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    # Phase 6 Tier 2: Languages & Religion
+    languages: Mapped[dict] = mapped_column(JSON, default=list)  # list of language names
+    religion: Mapped[str] = mapped_column(String(200), nullable=True)
+
+    # Phase 6 Tier 3: Generational Play
+    age: Mapped[int] = mapped_column(Integer, default=25)
+    lifespan: Mapped[int] = mapped_column(Integer, default=80)
+    retired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    parent_character_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    legacy_items: Mapped[dict] = mapped_column(JSON, default=list)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -89,6 +100,7 @@ class GuildConfig(Base):
     log_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     gm_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     session_recap_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    current_era: Mapped[str] = mapped_column(String(200), nullable=True)
     world_map_url: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -891,3 +903,63 @@ class NotificationConfig(Base):
     world_events: Mapped[bool] = mapped_column(Boolean, default=False)
     npc_movements: Mapped[bool] = mapped_column(Boolean, default=False)
     lore_unlocks: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+# ── Phase 6 Tier 2: Investigation ─────────────────────────────────────────
+
+class Investigation(Base):
+    """Player investigation/mystery case."""
+    __tablename__ = "investigations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="open")  # open, solved, closed
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Clue(Base):
+    """A clue discovered during an investigation."""
+    __tablename__ = "clues"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    investigation_id: Mapped[int] = mapped_column(Integer, ForeignKey("investigations.id"), nullable=False)
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    discovered_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    connections: Mapped[dict] = mapped_column(JSON, default=list)  # list of connected clue_ids
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+# ── Phase 6 Tier 2: Language System ───────────────────────────────────────
+
+class Language(Base):
+    """A custom language in the world."""
+    __tablename__ = "languages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    script_type: Mapped[str] = mapped_column(String(100), nullable=True)
+    common_phrases: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+# ── Phase 6 Tier 2: Religion System ───────────────────────────────────────
+
+class Religion(Base):
+    """A religion/pantheon in the world."""
+    __tablename__ = "religions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    deity_name: Mapped[str] = mapped_column(String(200), nullable=True)
+    domains: Mapped[dict] = mapped_column(JSON, default=list)
+    holy_symbol: Mapped[str] = mapped_column(String(500), nullable=True)
+    tenets: Mapped[dict] = mapped_column(JSON, default=list)
+    clergy_notes: Mapped[str] = mapped_column(Text, nullable=True)
+    associated_faction_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

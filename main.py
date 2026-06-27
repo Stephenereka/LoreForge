@@ -4,6 +4,7 @@ import os
 import asyncio
 from dotenv import load_dotenv
 from database.session import init_db
+from services.living_world import LivingWorldService
 
 load_dotenv()
 
@@ -43,6 +44,11 @@ COGS = [
     "cogs.titles",
     "cogs.bestiary",
     "cogs.achievements",
+    "cogs.notifications",
+    "cogs.investigation",
+    "cogs.language",
+    "cogs.timeline",
+    "cogs.religion",
 ]
 
 async def _weather_task():
@@ -305,6 +311,8 @@ async def on_ready():
     bot.loop.create_task(_weather_task())
     bot.loop.create_task(_event_reminder_task())
     bot.loop.create_task(_time_update_task())
+    bot.living_world = LivingWorldService(bot)
+    bot.living_world.start()
 
     try:
         guild = discord.Object(id=1519154137017614427)

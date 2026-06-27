@@ -453,13 +453,168 @@ async def lore_submit(interaction: discord.Interaction, title: str):
     await interaction.response.send_modal(LoreSubmitModal(title))
 
 
+# ── Template-based lore creation ─────────────────────────────────────────────
+
+@lore_group.command(name="add-template", description="Create a lore entry using a structured template")
+@app_commands.describe(template_type="Template type", title="Entry title")
+@app_commands.autocomplete(template_type=lambda i, c: [
+    app_commands.Choice(name=t, value=t) for t in ["character", "item", "creature", "religion", "event", "organization", "magic"] if c.lower() in t.lower()
+])
+async def lore_add_template(interaction: discord.Interaction, template_type: str, title: str):
+    if not await is_gm(interaction):
+        await interaction.response.send_message("Only GMs can add lore.", ephemeral=True)
+        return
+
+    from services.lore_templates import TEMPLATES
+
+    template = TEMPLATES.get(template_type)
+    if not template:
+        await interaction.response.send_message(f"Unknown template type: {template_type}", ephemeral=True)
+        return
+
+    # Build modal with template fields
+    class TemplateModal(discord.ui.Modal, title=f"Lore: {title[:45]}"):
+        def __init__(self, fields: list[str]):
+            super().__init__()
+            self.inputs = {}
+            for field in fields:
+                label = field.replace("_", " ").title()[:45]
+                inp = discord.ui.TextInput(
+                    label=label,
+                    required=True,
+                    max_length=1024,
+                    style=discord.TextStyle.long if field in ("backstory", "lore_text", "stats_block", "secrets") else discord.TextStyle.short,
+                )
+                self.inputs[field] = inp
+                self.add_item(inp)
+
+        async def on_submit(self, modal_interaction: discord.Interaction):
+            field_data = {k: v.value for k, v in self.inputs.items()}
+            async with get_db() as db:
+                import json
+                entry = LoreEntry(
+                    guild_id=modal_interaction.guild_id,
+                    title=title,
+                    content=json.dumps(field_data),
+                    category=template_type,
+                    tags=[template_type],
+                    is_rumor=False,
+                    visibility="public",
+                    created_by=modal_interaction.user.id,
+                )
+                db.add(entry)
+                await db.commit()
+
+            from services.lore_templates import render_template_embed
+            embed = render_template_embed(title, template_type, field_data, modal_interaction.user.display_name)
+            await modal_interaction.response.send_message(embed=embed)
+
+    await interaction.response.send_modal(TemplateModal(template["fields"]))
+
+
+# ── /codex command ────────────────────────────────────────────────────────────
+
+@app_commands.command(name="codex", description="Unified world search — search lore, NPCs, locations, factions, and bestiary")
+@app_commands.describe(query="Search term")
+async def codex_cmd(interaction: discord.Interaction, query: str):
+    await interaction.response.defer(ephemeral=True)
+    from database.models import NPC, Location, Faction, BossTemplate
+
+    async with get_db() as db:
+        # LoreEntry search
+        lore_result = await db.execute(
+            select(LoreEntry).where(
+                LoreEntry.guild_id == interaction.guild_id,
+                LoreEntry.visibility == "public",
+                ((LoreEntry.title.ilike(f"%{query}%")) | (LoreEntry.content.ilike(f"%{query}%"))),
+            ).limit(3)
+        )
+        lore_matches = list(lore_result.scalars().all())
+
+        # NPC search
+        npc_result = await db.execute(
+            select(NPC).where(
+                NPC.guild_id == interaction.guild_id,
+                NPC.is_dead == False,
+                ((NPC.name.ilike(f"%{query}%")) | (NPC.description.ilike(f"%{query}%"))),
+            ).limit(3)
+        )
+        npc_matches = list(npc_result.scalars().all())
+
+        # Location search
+        loc_result = await db.execute(
+            select(Location).where(
+                Location.guild_id == interaction.guild_id,
+                Location.is_hidden == False,
+                ((Location.name.ilike(f"%{query}%")) | (Location.description.ilike(f"%{query}%"))),
+            ).limit(3)
+        )
+        loc_matches = list(loc_result.scalars().all())
+
+        # Faction search
+        fac_result = await db.execute(
+            select(Faction).where(
+                Faction.guild_id == interaction.guild_id,
+                ((Faction.name.ilike(f"%{query}%")) | (Faction.description.ilike(f"%{query}%"))),
+            ).limit(3)
+        )
+        fac_matches = list(fac_result.scalars().all())
+
+        # BossTemplate (Bestiary) search
+        boss_result = await db.execute(
+            select(BossTemplate).where(
+                BossTemplate.guild_id == interaction.guild_id,
+                ((BossTemplate.name.ilike(f"%{query}%")) | (BossTemplate.description.ilike(f"%{query}%"))),
+            ).limit(3)
+        )
+        boss_matches = list(boss_result.scalars().all())
+
+    has_any = lore_matches or npc_matches or loc_matches or fac_matches or boss_matches
+    if not has_any:
+        await interaction.followup.send(
+            f"No world entries found for '{query}'.",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title=f"📖 Codex Search: {query}",
+        color=0x8B5CF6,
+    )
+
+    if lore_matches:
+        lines = [f"**{e.title}** — {e.content[:80]}..." for e in lore_matches]
+        embed.add_field(name="📚 Lore", value="\n".join(lines), inline=False)
+
+    if npc_matches:
+        lines = [f"**{n.name}** ({n.title or 'No title'}) — {n.description[:80]}..." for n in npc_matches]
+        embed.add_field(name="👤 NPCs", value="\n".join(lines), inline=False)
+
+    if loc_matches:
+        lines = [f"**{l.name}** — {l.description[:80]}..." for l in loc_matches]
+        embed.add_field(name="🗺️ Locations", value="\n".join(lines), inline=False)
+
+    if fac_matches:
+        lines = [f"**{f.name}** — {f.description[:80]}..." for f in fac_matches]
+        embed.add_field(name="🏛️ Factions", value="\n".join(lines), inline=False)
+
+    if boss_matches:
+        lines = [f"**{b.name}** ({b.title or 'No title'}) — ❤️ {b.hp_max} HP" for b in boss_matches]
+        embed.add_field(name="⚔️ Bestiary", value="\n".join(lines), inline=False)
+
+    embed.set_footer(text=f"Use /lore view, /npc look, /location view for full details")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 class LoreCog(commands.Cog, name="Lore"):
     def __init__(self, bot):
         self.bot = bot
         bot.tree.add_command(lore_group)
+        bot.tree.add_command(codex_cmd)
 
     async def cog_unload(self):
         self.bot.tree.remove_command("lore")
+        self.bot.tree.remove_command("codex")
 
 
 async def setup(bot):

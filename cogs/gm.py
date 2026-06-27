@@ -5,7 +5,7 @@ from sqlalchemy import select, delete
 from datetime import datetime
 
 from database.session import get_db
-from database.models import Character, GuildConfig, GuildGM, PendingApproval
+from database.models import Character, GuildConfig, GuildGM, PendingApproval, BossTemplate, Location, NPC
 from services.utils import gm_only, owner_only, is_gm
 from cogs.character import _offer_attack_unlock
 from services.leveling import check_level_up, hp_gain_on_level, xp_bar
@@ -2139,6 +2139,320 @@ async def gm_title_list(interaction: discord.Interaction):
 
 
 # ---------------------------------------------------------------------------
+# /gm generate — Procedural content generation (Tier 2)
+# ---------------------------------------------------------------------------
+
+@boss_group.command(name="generate", description="Generate a procedural encounter and save as boss template")
+@app_commands.describe(difficulty="Difficulty level", location="Location context (e.g. 'the dark forest')")
+@app_commands.choices(difficulty=[
+    app_commands.Choice(name="Easy", value="easy"),
+    app_commands.Choice(name="Medium", value="medium"),
+    app_commands.Choice(name="Hard", value="hard"),
+    app_commands.Choice(name="Deadly", value="deadly"),
+])
+async def gm_generate_encounter(interaction: discord.Interaction, difficulty: app_commands.Choice[str], location: str):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer()
+
+    from services.procedural_gen import generate_encounter
+
+    gen = await generate_encounter(difficulty.value, location)
+    enemies_text = "\n".join(
+        f"• **{e['name']}** — ❤️ {e['hp']} HP, ⚔️ +{e['attack']} ATK, {e['damage']} DMG"
+        for e in gen.get("enemies", [])
+    ) or "None"
+    rewards = gen.get("rewards", {})
+    rewards_text = f"✨ {rewards.get('xp', 0)} XP  ·  💰 {rewards.get('gold', 0)} Gold"
+
+    embed = discord.Embed(
+        title=f"⚔️ Generated Encounter: {gen['name']}",
+        description=gen.get("description", ""),
+        color=0xEF4444,
+    )
+    embed.add_field(name="Enemies", value=enemies_text, inline=False)
+    embed.add_field(name="Rewards", value=rewards_text, inline=False)
+    embed.set_footer(text=f"Difficulty: {difficulty.value}")
+
+    class GenerateEncounterView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=120)
+            self.gen = gen
+            self.difficulty = difficulty.value
+            self.location = location
+
+        @discord.ui.button(label="💾 Save to DB", style=discord.ButtonStyle.success)
+        async def save_btn(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            if not await gm_only(interaction2):
+                return
+            async with get_db() as db:
+                enemies = self.gen.get("enemies", [])
+                if enemies:
+                    main_enemy = enemies[0]
+                    template = BossTemplate(
+                        guild_id=interaction2.guild_id,
+                        name=self.gen["name"],
+                        description=self.gen.get("description", ""),
+                        hp_max=main_enemy["hp"],
+                        armor_class=14,
+                        attack_bonus=main_enemy["attack"],
+                        damage_dice=main_enemy["damage"],
+                        damage_bonus=0,
+                        xp_value=self.gen.get("rewards", {}).get("xp", 200),
+                        gold_drop=self.gen.get("rewards", {}).get("gold", 50),
+                        created_by=interaction2.user.id,
+                    )
+                    db.add(template)
+                    await db.flush()
+                    await interaction2.response.edit_message(
+                        content=f"✅ Saved as boss template **{self.gen['name']}** (ID: {template.id})!",
+                        embed=None,
+                        view=None,
+                    )
+
+        @discord.ui.button(label="🔄 Regenerate", style=discord.ButtonStyle.secondary)
+        async def regen_btn(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            if not await gm_only(interaction2):
+                return
+            self.gen = await generate_encounter(self.difficulty, self.location)
+            enemies_text = "\n".join(
+                f"• **{e['name']}** — ❤️ {e['hp']} HP, ⚔️ +{e['attack']} ATK, {e['damage']} DMG"
+                for e in self.gen.get("enemies", [])
+            ) or "None"
+            rewards = self.gen.get("rewards", {})
+            embed2 = discord.Embed(
+                title=f"⚔️ Generated Encounter: {self.gen['name']}",
+                description=self.gen.get("description", ""),
+                color=0xEF4444,
+            )
+            embed2.add_field(name="Enemies", value=enemies_text, inline=False)
+            embed2.add_field(name="Rewards", value=f"✨ {rewards.get('xp', 0)} XP  ·  💰 {rewards.get('gold', 0)} Gold", inline=False)
+            await interaction2.response.edit_message(embed=embed2, view=self)
+
+        @discord.ui.button(label="🗑️ Discard", style=discord.ButtonStyle.danger)
+        async def discard_btn(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            await interaction2.response.edit_message(content="❌ Discarded.", embed=None, view=None)
+
+    await interaction.followup.send(embed=embed, view=GenerateEncounterView())
+
+
+# ── /gm generate quest ──────────────────────────────────────────────────────
+
+generate_group = app_commands.Group(name="generate", description="Procedural content generation", parent=gm_group)
+
+
+@generate_group.command(name="quest", description="Generate a procedural quest")
+@app_commands.describe(difficulty="Difficulty level", location="Quest location", theme="Optional theme")
+@app_commands.choices(difficulty=[
+    app_commands.Choice(name="Easy", value="easy"),
+    app_commands.Choice(name="Medium", value="medium"),
+    app_commands.Choice(name="Hard", value="hard"),
+    app_commands.Choice(name="Deadly", value="deadly"),
+])
+async def gm_generate_quest(interaction: discord.Interaction, difficulty: app_commands.Choice[str], location: str = "the realm", theme: str = None):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer()
+
+    from services.procedural_gen import generate_quest
+
+    gen = await generate_quest(difficulty.value, location, theme)
+    objectives_text = "\n".join(f"{i+1}. {o}" for i, o in enumerate(gen.get("objectives", [])))
+
+    embed = discord.Embed(
+        title=f"📜 Generated Quest: {gen['title']}",
+        description=gen.get("description", ""),
+        color=0xF59E0B,
+    )
+    embed.add_field(name="Objectives", value=objectives_text or "None", inline=False)
+    embed.add_field(name="Rewards", value=f"✨ {gen.get('reward_xp', 0)} XP  ·  💰 {gen.get('reward_gold', 0)} Gold", inline=True)
+    embed.add_field(name="NPC Giver", value=gen.get("npc_name", "Unknown"), inline=True)
+    embed.set_footer(text=f"Difficulty: {difficulty.value}")
+
+    class GenerateQuestView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=120)
+            self.gen = gen
+            self.difficulty = difficulty.value
+            self.location = location
+            self.theme = theme
+
+        @discord.ui.button(label="💾 Save to DB", style=discord.ButtonStyle.success)
+        async def save_btn(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            if not await gm_only(interaction2):
+                return
+            from database.models import Quest
+            async with get_db() as db:
+                quest = Quest(
+                    guild_id=interaction2.guild_id,
+                    name=self.gen["title"],
+                    description=self.gen.get("description", ""),
+                    is_active=True,
+                    reward_xp=self.gen.get("reward_xp", 500),
+                    reward_gold=self.gen.get("reward_gold", 200),
+                    quest_type="generated",
+                    created_by=interaction2.user.id,
+                )
+                db.add(quest)
+                await db.flush()
+                await interaction2.response.edit_message(
+                    content=f"✅ Saved as quest **{self.gen['title']}** (ID: {quest.id})!",
+                    embed=None,
+                    view=None,
+                )
+
+        @discord.ui.button(label="🔄 Regenerate", style=discord.ButtonStyle.secondary)
+        async def regen_btn(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            if not await gm_only(interaction2):
+                return
+            self.gen = await generate_quest(self.difficulty, self.location, self.theme)
+            objectives_text = "\n".join(f"{i+1}. {o}" for i, o in enumerate(self.gen.get("objectives", [])))
+            embed2 = discord.Embed(
+                title=f"📜 Generated Quest: {self.gen['title']}",
+                description=self.gen.get("description", ""),
+                color=0xF59E0B,
+            )
+            embed2.add_field(name="Objectives", value=objectives_text or "None", inline=False)
+            embed2.add_field(name="Rewards", value=f"✨ {self.gen.get('reward_xp', 0)} XP  ·  💰 {self.gen.get('reward_gold', 0)} Gold", inline=True)
+            embed2.add_field(name="NPC Giver", value=self.gen.get("npc_name", "Unknown"), inline=True)
+            await interaction2.response.edit_message(embed=embed2, view=self)
+
+        @discord.ui.button(label="🗑️ Discard", style=discord.ButtonStyle.danger)
+        async def discard_btn(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            await interaction2.response.edit_message(content="❌ Discarded.", embed=None, view=None)
+
+    await interaction.followup.send(embed=embed, view=GenerateQuestView())
+
+
+@generate_group.command(name="npc", description="Generate a procedural NPC")
+@app_commands.describe(location="Where the NPC is found", role="Their role (e.g. merchant, guard)")
+async def gm_generate_npc(interaction: discord.Interaction, location: str, role: str):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer()
+
+    from services.procedural_gen import generate_npc
+
+    gen = await generate_npc(location, role)
+    dialogue_text = "\n".join(f"*\"{d}\"*" for d in gen.get("dialogue", []))
+
+    embed = discord.Embed(
+        title=f"👤 Generated NPC: {gen['name']}",
+        description=f"**{gen.get('title', 'No title')}**\n\n{gen.get('description', '')}",
+        color=0x3B82F6,
+    )
+    embed.add_field(name="Personality", value=gen.get("personality", "Mysterious"), inline=True)
+    embed.add_field(name="Appearance", value=gen.get("appearance", "Ordinary"), inline=True)
+    embed.add_field(name="Attitude", value=gen.get("attitude", "neutral").capitalize(), inline=True)
+    if dialogue_text:
+        embed.add_field(name="Dialogue", value=dialogue_text[:500], inline=False)
+
+    class GenerateNPCView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=120)
+            self.gen = gen
+            self.location = location
+            self.role = role
+
+        @discord.ui.button(label="💾 Save to DB", style=discord.ButtonStyle.success)
+        async def save_btn(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            if not await gm_only(interaction2):
+                return
+            async with get_db() as db:
+                # Find a location to place them
+                loc_result = await db.execute(
+                    select(Location).where(
+                        Location.guild_id == interaction2.guild_id,
+                        Location.name.ilike(f"%{self.location}%"),
+                    )
+                )
+                loc = loc_result.scalar_one_or_none()
+                location_id = loc.id if loc else 1
+
+                npc = NPC(
+                    guild_id=interaction2.guild_id,
+                    name=self.gen["name"],
+                    title=self.gen.get("title", ""),
+                    description=self.gen.get("description", ""),
+                    location_id=location_id,
+                    disposition=self.gen.get("attitude", "neutral"),
+                    created_by=interaction2.user.id,
+                )
+                db.add(npc)
+                await db.flush()
+                await interaction2.response.edit_message(
+                    content=f"✅ Saved as NPC **{self.gen['name']}** (ID: {npc.id})!",
+                    embed=None,
+                    view=None,
+                )
+
+        @discord.ui.button(label="🔄 Regenerate", style=discord.ButtonStyle.secondary)
+        async def regen_btn(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            if not await gm_only(interaction2):
+                return
+            self.gen = await generate_npc(self.location, self.role)
+            dialogue_text = "\n".join(f"*\"{d}\"*" for d in self.gen.get("dialogue", []))
+            embed2 = discord.Embed(
+                title=f"👤 Generated NPC: {self.gen['name']}",
+                description=f"**{self.gen.get('title', 'No title')}**\n\n{self.gen.get('description', '')}",
+                color=0x3B82F6,
+            )
+            embed2.add_field(name="Personality", value=self.gen.get("personality", "Mysterious"), inline=True)
+            embed2.add_field(name="Appearance", value=self.gen.get("appearance", "Ordinary"), inline=True)
+            embed2.add_field(name="Attitude", value=self.gen.get("attitude", "neutral").capitalize(), inline=True)
+            if dialogue_text:
+                embed2.add_field(name="Dialogue", value=dialogue_text[:500], inline=False)
+            await interaction2.response.edit_message(embed=embed2, view=self)
+
+        @discord.ui.button(label="🗑️ Discard", style=discord.ButtonStyle.danger)
+        async def discard_btn(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            await interaction2.response.edit_message(content="❌ Discarded.", embed=None, view=None)
+
+    await interaction.followup.send(embed=embed, view=GenerateNPCView())
+
+
+# ── /gm world-pulse — Manually tick the living world ──────────────────────────
+
+@gm_group.command(name="world-pulse", description="Manually trigger the living world simulation tick (GM only)")
+async def gm_world_pulse(interaction: discord.Interaction):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+
+    if hasattr(interaction.client, 'living_world') and interaction.client.living_world:
+        await interaction.client.living_world._tick_all_guilds()
+        await interaction.followup.send("🌍 World pulse triggered! All guilds ticked.", ephemeral=True)
+    else:
+        await interaction.followup.send("⚠️ Living World service is not running.", ephemeral=True)
+
+
+# ── /npc letter — Send in-character letter to a player (GM only) ──────────────
+
+@app_commands.command(name="npc-letter", description="Send an in-character letter from an NPC to a player (GM only)")
+@app_commands.describe(user="Target player", content="Letter content")
+async def npc_letter_cmd(interaction: discord.Interaction, user: discord.Member, content: str):
+    if not await gm_only(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+
+    embed = discord.Embed(
+        title="📜 A Letter Has Arrived",
+        description=content,
+        color=0xD97706,
+    )
+    embed.set_footer(text="LoreForge — In-Character Mail")
+
+    try:
+        await user.send(embed=embed)
+        await interaction.followup.send(f"✅ Letter sent to {user.mention}.", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send(
+            f"⚠️ Could not DM {user.mention} — they may have DMs disabled.",
+            ephemeral=True,
+        )
+
+
+# ---------------------------------------------------------------------------
 # /gm vision — Send a custom vision to a player (Phase 6)
 # ---------------------------------------------------------------------------
 
@@ -2192,9 +2506,11 @@ class GmCog(commands.Cog, name="GM"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         bot.tree.add_command(gm_group)
+        bot.tree.add_command(npc_letter_cmd)
 
     async def cog_unload(self):
         self.bot.tree.remove_command("gm")
+        self.bot.tree.remove_command("npc-letter")
 
 
 async def setup(bot: commands.Bot):

@@ -285,3 +285,58 @@ async def summarize_session(
         "Write a 2-3 sentence narrative summary."
     )
     return await _deepseek_call(system_prompt, user_prompt, max_tokens=250)
+
+
+async def generate_session_recap(events: list[str], characters: list[str]) -> str:
+    """Generate a 3-paragraph narrative session recap from the event list. Returns fallback string on failure."""
+    if not events:
+        return "No significant events to recap."
+    events_text = "\n".join(f"• {e}" for e in events[:20])
+    characters_text = ", ".join(characters[:10]) if characters else "Unknown adventurers"
+    system_prompt = (
+        "You are a fantasy chronicle narrator. Write a 3-paragraph narrative recap "
+        "of an RPG session based on the events provided. Make it vivid, epic, and "
+        "engaging — like a chapter summary from a fantasy novel. Focus on key moments, "
+        "combat, discoveries, and character growth."
+    )
+    user_prompt = (
+        f"Characters: {characters_text}\n\n"
+        f"Session Events:\n{events_text}\n\n"
+        "Write a 3-paragraph narrative session recap. Each paragraph should be 2-4 sentences."
+    )
+    result = await _deepseek_call(system_prompt, user_prompt, max_tokens=400)
+    if result:
+        return result
+    return (
+        f"The session featuring {characters_text} came to a close. "
+        f"{len(events)} notable events were recorded, including battles, discoveries, and character moments. "
+        "The world continues to turn as our adventurers prepare for what lies ahead."
+    )
+
+
+async def generate_vision(character_name: str, location: str, recent_events: list[str], active_quests: list[str]) -> str:
+    """Generate a short 3-4 sentence dreamlike vision. Returns fallback string on failure."""
+    events_text = "; ".join(recent_events[:5]) if recent_events else "no recent events"
+    quests_text = "; ".join(active_quests[:3]) if active_quests else "none"
+    system_prompt = (
+        "You are a mystic oracle in a high fantasy world. Generate a short 3-4 sentence "
+        "dreamlike vision. Make it cryptic, poetic, and hint at future dangers or hidden secrets. "
+        "Never explicitly state facts — use metaphor, symbols, and omens."
+    )
+    user_prompt = (
+        f"Generate a vision for {character_name} who is in {location}.\n"
+        f"Their recent experiences: {events_text}\n"
+        f"Their active quests: {quests_text}\n\n"
+        "Write a short 3-4 sentence dreamlike vision."
+    )
+    result = await _deepseek_call(system_prompt, user_prompt, max_tokens=200)
+    if result:
+        return result
+    return (
+        f"In the quiet of the night, {character_name} sees fragments of a forgotten path — "
+        "shadows moving beneath familiar skies, whispers carried on a wind that does not reach the waking world. "
+        "Something stirs in the deep places of {location}, waiting."
+    )
+
+
+# ── Phase 6: Combat Narration ─────────────────────────────────────────────────

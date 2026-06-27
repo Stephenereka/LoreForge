@@ -831,6 +831,58 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
     action = action_data.get("action", "UNCLEAR")
     channel = session.status_message.channel if session.status_message else None
 
+    # ── Relationship bonuses ──────────────────────────────────────────────
+    rival_bonus = 0
+    ally_heal_bonus = 0
+    try:
+        player_uid = session.user_id_for(player)
+        if player_uid and isinstance(player_uid, int):
+            async with get_db() as db:
+                char_result = await db.execute(
+                    select(Character).where(
+                        Character.user_id == player_uid,
+                        Character.guild_id == session.guild_id,
+                    )
+                )
+                char_row = char_result.scalar_one_or_none()
+                if char_row:
+                    rels = char_row.relationships or []
+                    # Check if target is a rival
+                    if target:
+                        tgt_uid = session.user_id_for(target)
+                        if tgt_uid and isinstance(tgt_uid, int):
+                            tgt_char = (await db.execute(
+                                select(Character).where(
+                                    Character.user_id == tgt_uid,
+                                    Character.guild_id == session.guild_id,
+                                )
+                            )).scalar_one_or_none()
+                            if tgt_char:
+                                for rel in rels:
+                                    if rel.get("character_id") == tgt_char.id and rel.get("type") == "rival":
+                                        rival_bonus = 1
+                                        break
+                    # Check if any ally is in this session (for heal bonus)
+                    for rel in rels:
+                        if rel.get("type") == "ally":
+                            ally_char_id = rel.get("character_id")
+                            # Check if that ally is in this combat session
+                            for other_p, other_uid in zip(session.players, session.player_user_ids):
+                                if other_p is player:
+                                    continue
+                                if isinstance(other_uid, int):
+                                    other_char = (await db.execute(
+                                        select(Character).where(
+                                            Character.user_id == other_uid,
+                                            Character.guild_id == session.guild_id,
+                                        )
+                                    )).scalar_one_or_none()
+                                    if other_char and other_char.id == ally_char_id:
+                                        ally_heal_bonus = 2
+                                        break
+    except Exception:
+        pass
+
     if action in ("ATTACK", "SPELL", "SKILL") and target:
         attack_name = action_data.get("detected_attack")
         just_downed = False
@@ -842,16 +894,22 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
                 if channel:
                     await channel.send(line)
             if res["is_heal"]:
-                player.heal(res["heal_amount"])
-                session.add_log(f"💚 {p_name_log} heals **{res['heal_amount']} HP** from **{attack_name}**!")
+                heal_amt = res["heal_amount"]
+                if ally_heal_bonus > 0:
+                    heal_amt += ally_heal_bonus
+                    session.add_log(f"💚 Ally bond: +{ally_heal_bonus} bonus heal!")
+                player.heal(heal_amt)
+                session.add_log(f"💚 {p_name_log} heals **{heal_amt} HP** from **{attack_name}**!")
             elif res["miss"]:
                 session.add_log(f"🎲 {p_name_log} — natural 1 on **{attack_name}**!")
             elif res["hit"]:
                 if res["damage"] > 0:
                     was_conscious = not target.is_unconscious and not target.is_dead
-                    target.take_damage(res["damage"])
+                    bonus_dmg = res["damage"] + rival_bonus
+                    riva_note = " 🔥 Rival bonus: +1" if rival_bonus > 0 else ""
+                    target.take_damage(bonus_dmg)
                     crit = " *(Crit!)*" if res["crit"] else ""
-                    session.add_log(f"⚔️ **{attack_name}** — {p_name_log} hits {t_name_log} for **{res['damage']} dmg**{crit}")
+                    session.add_log(f"⚔️ **{attack_name}** — {p_name_log} hits {t_name_log} for **{bonus_dmg} dmg**{crit}{riva_note}")
                     if was_conscious and target.is_unconscious:
                         just_downed = True
                 for cond in res.get("conditions_applied", []):
@@ -872,10 +930,12 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
                 session.add_log(f"🎲 {p_name_log} — natural 1, missed!")
             elif result["attack_roll"] >= effective_ac(target):
                 was_conscious = not target.is_unconscious and not target.is_dead
-                target.take_damage(result["damage"])
+                bonus_dmg = result["damage"] + rival_bonus
+                riva_note = " 🔥 Rival bonus: +1" if rival_bonus > 0 else ""
+                target.take_damage(bonus_dmg)
                 crit = " *(Crit!)*" if result["is_crit"] else ""
                 sneak = f" +{result['sneak_dice']}d6 sneak" if result["sneak_dice"] else ""
-                session.add_log(f"⚔️ {p_name_log} hits {t_name_log} for **{result['damage']} dmg**{crit}{sneak}")
+                session.add_log(f"⚔️ {p_name_log} hits {t_name_log} for **{bonus_dmg} dmg**{crit}{sneak}{riva_note}")
                 if was_conscious and target.is_unconscious:
                     just_downed = True
             else:
@@ -979,7 +1039,11 @@ async def _resolve_player_action(session: CombatSession, action_data: dict):
         if not has_potion:
             session.add_log(f"❌ **{player.name}** reaches for a potion but has none!")
         else:
-            healed = player.heal(roll(4) + 2)
+            base_heal = roll(4) + 2
+            if ally_heal_bonus > 0:
+                base_heal += ally_heal_bonus
+                session.add_log(f"💚 Ally bond: +{ally_heal_bonus} bonus heal!")
+            healed = player.heal(base_heal)
             session.add_log(f"🧪 {player.name} drinks a potion — recovered **{healed} HP**!")
 
     # ── Boss integration: legendary action after player turn ──

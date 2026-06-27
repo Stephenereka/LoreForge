@@ -2807,6 +2807,351 @@ class LevelUpAttackView(discord.ui.View):
         self.stop()
 
 
+# ── /character retire — Generational Play ──────────────────────────────────────
+
+@character_group.command(name="retire", description="Retire your character — they become an NPC and can no longer adventure")
+async def character_retire(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+
+    char, chars = await resolve_character(interaction.user.id, interaction.guild_id)
+    if not char:
+        await interaction.followup.send("You don't have an active character.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="⚠️ Retire Character?",
+        description=f"**{char.name}** — Level {char.level} {char.race} {char.char_class}\n\n"
+                    "Retiring a character is **permanent**. They will:\n"
+                    "• Be marked as retired in their current location\n"
+                    "• Become an NPC that the GM can interact with\n"
+                    "• No longer be available for adventuring\n"
+                    "• Enable you to create new legacy characters\n\n"
+                    "**This cannot be undone.**",
+        color=0xF59E0B,
+    )
+    embed.add_field(name="Age", value=f"{char.age} years old (max {char.lifespan})", inline=True)
+    embed.set_footer(text="Are you sure?")
+
+    class RetireConfirmView(discord.ui.View):
+        @discord.ui.button(label="✅ Confirm Retirement", style=discord.ButtonStyle.danger)
+        async def confirm(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            async with get_db() as db:
+                result = await db.execute(select(Character).where(Character.id == char.id))
+                c = result.scalar_one_or_none()
+                if not c:
+                    await interaction2.response.send_message("Character not found.", ephemeral=True)
+                    return
+                c.is_dead = True
+                c.retired_at = datetime.now(timezone.utc)
+                # Also create an NPC entry in their current location
+                from database.models import NPC, CharacterLocation
+                loc_result = await db.execute(
+                    select(CharacterLocation).where(
+                        CharacterLocation.character_id == c.id,
+                        CharacterLocation.guild_id == interaction2.guild_id,
+                    )
+                )
+                char_loc = loc_result.scalar_one_or_none()
+                loc_id = char_loc.location_id if char_loc else None
+
+                npc = NPC(
+                    guild_id=interaction2.guild_id,
+                    name=c.name,
+                    title=f"Retired Adventurer (formerly {c.char_class})",
+                    description=c.backstory or f"A retired {c.race} {c.char_class} who has settled down after a life of adventure.",
+                    location_id=loc_id or 1,
+                    disposition="friendly",
+                    created_by=interaction2.user.id,
+                )
+                db.add(npc)
+                await db.commit()
+
+            embed2 = discord.Embed(
+                title="🕊️ Character Retired",
+                description=f"**{c.name}** has retired from adventuring and is now living in the world as an NPC.\n\n"
+                            f"Thank you for their journey, {interaction2.user.display_name}.",
+                color=0x6B7280,
+            )
+            await interaction2.response.edit_message(embed=embed2, view=None)
+
+        @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+        async def cancel(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            await interaction2.response.edit_message(content="Retirement cancelled.", embed=None, view=None)
+
+    await interaction.followup.send(embed=embed, view=RetireConfirmView(), ephemeral=True)
+
+
+# ── /character age — Show age and lifespan ────────────────────────────────────
+
+@character_group.command(name="age", description="View a character's age and lifespan")
+@app_commands.describe(character="Character name (leave blank for your own)")
+async def character_age(interaction: discord.Interaction, character: str = None):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+
+    if character:
+        async with get_db() as db:
+            result = await db.execute(
+                select(Character).where(
+                    Character.guild_id == interaction.guild_id,
+                    Character.name.ilike(f"%{character}%"),
+                )
+            )
+            char = result.scalar_one_or_none()
+    else:
+        char, _ = await resolve_character(interaction.user.id, interaction.guild_id)
+
+    if not char:
+        await interaction.followup.send("Character not found.", ephemeral=True)
+        return
+
+    # Calculate progress
+    pct = min(1.0, max(0.0, char.age / max(char.lifespan, 1)))
+    bar = "█" * int(pct * 10) + "░" * (10 - int(pct * 10))
+
+    embed = discord.Embed(
+        title=f"📅 {char.name} — Age & Lifespan",
+        color=0x6366F1,
+    )
+    embed.add_field(name="Current Age", value=f"**{char.age}** years", inline=True)
+    embed.add_field(name="Maximum Lifespan", value=f"**{char.lifespan}** years", inline=True)
+    embed.add_field(name="Progress", value=f"`{bar}` **{round(pct * 100)}%**", inline=False)
+
+    status = []
+    if pct < 0.25:
+        status.append("🟢 **Youth** — Full of vitality and potential.")
+    elif pct < 0.5:
+        status.append("🟡 **Prime** — At the peak of your power.")
+    elif pct < 0.75:
+        status.append("🟠 **Middle Age** — Wiser, but the years are showing.")
+    elif pct < 0.95:
+        status.append("🔴 **Elder** — Your best adventures may be behind you.")
+    else:
+        status.append("💀 **Twilight** — Every moment is precious.")
+
+    if char.retired_at:
+        status.append(f"\n🕊️ **Retired** on {char.retired_at.strftime('%Y-%m-%d')}")
+    elif char.is_dead:
+        status.append("\n💀 **Deceased**")
+
+    embed.add_field(name="Status", value="\n".join(status), inline=False)
+
+    # Race-based lifespan notes
+    race_lifespans = {
+        "Elf": 750, "Dwarf": 350, "Halfling": 250,
+        "Human": 80, "Half-Orc": 75, "Dragonborn": 80,
+        "Tiefling": 100,
+    }
+    if char.race in race_lifespans:
+        embed.set_footer(text=f"As a {char.race}, you could live up to {race_lifespans[char.race]} years.")
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+# ── /character legacy — Show legacy statistics ────────────────────────────────
+
+@character_group.command(name="legacy", description="View a character's legacy — achievements, stats, and history")
+@app_commands.describe(character="Character name (leave blank for your own)")
+async def character_legacy(interaction: discord.Interaction, character: str = None):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+
+    if character:
+        async with get_db() as db:
+            result = await db.execute(
+                select(Character).where(
+                    Character.guild_id == interaction.guild_id,
+                    Character.name.ilike(f"%{character}%"),
+                )
+            )
+            char = result.scalar_one_or_none()
+    else:
+        char, _ = await resolve_character(interaction.user.id, interaction.guild_id)
+
+    if not char:
+        await interaction.followup.send("Character not found.", ephemeral=True)
+        return
+
+    from database.models import Achievement, WorldEvent, Quest, PlayerQuest
+
+    async with get_db() as db:
+        # Achievements
+        ach_result = await db.execute(
+            select(Achievement).where(
+                Achievement.character_id == char.id,
+                Achievement.guild_id == interaction.guild_id,
+            )
+        )
+        achievements = list(ach_result.scalars().all())
+
+        # World events mentioning the character
+        event_result = await db.execute(
+            select(WorldEvent).where(
+                WorldEvent.guild_id == interaction.guild_id,
+                WorldEvent.description.ilike(f"%{char.name}%"),
+            ).order_by(WorldEvent.created_at.desc()).limit(10)
+        )
+        events = list(event_result.scalars().all())
+
+        # Completed quests
+        quest_result = await db.execute(
+            select(PlayerQuest).where(
+                PlayerQuest.character_id == char.id,
+                PlayerQuest.guild_id == interaction.guild_id,
+                PlayerQuest.status == "completed",
+            )
+        )
+        completed_quests = list(quest_result.scalars().all())
+
+    embed = discord.Embed(
+        title=f"🏛️ {char.name} — Legacy",
+        description=f"*{char.race} {char.char_class}* | Level {char.level} | {char.age} years old",
+        color=0xF1C40F,
+    )
+
+    embed.add_field(name="Level Reached", value=str(char.level), inline=True)
+    embed.add_field(name="Total XP Earned", value=f"{char.xp:,}", inline=True)
+    embed.add_field(name="Quests Completed", value=str(len(completed_quests)), inline=True)
+    embed.add_field(name="Achievements", value=str(len(achievements)), inline=True)
+    embed.add_field(name="Notable Events", value=str(len(events)), inline=True)
+
+    # Gold + balance
+    embed.add_field(name="Wealth", value=f"💰 {char.gold} gp + 💎 {char.balance} SS", inline=True)
+
+    if events:
+        event_lines = [f"• {e.description[:100]}" for e in events[:5]]
+        embed.add_field(name="📜 Recent History", value="\n".join(event_lines), inline=False)
+
+    if achievements:
+        from services.achievements import ACHIEVEMENTS
+        ach_names = []
+        for a in achievements:
+            info = ACHIEVEMENTS.get(a.achievement_key, {})
+            ach_names.append(f"• {info.get('icon', '🏅')} {info.get('name', a.achievement_key)}")
+        embed.add_field(name="🏅 Achievements", value="\n".join(ach_names[:5]), inline=False)
+
+    if char.retired_at:
+        embed.add_field(name="🕊️ Retired", value=f"On {char.retired_at.strftime('%Y-%m-%d')}", inline=True)
+        # Check if this character has legacy children
+        async with get_db() as db:
+            legacy_result = await db.execute(
+                select(Character).where(Character.parent_character_id == char.id)
+            )
+            legacy_chars = list(legacy_result.scalars().all())
+            if legacy_chars:
+                embed.add_field(
+                    name="🌱 Legacy Characters",
+                    value="\n".join(f"• {c.name} (Lv{c.level} {c.char_class})" for c in legacy_chars),
+                    inline=False,
+                )
+
+    embed.set_footer(text="A character's legacy lives on forever.")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+# ── /visions — View character visions ────────────────────────────────────────
+
+@character_group.command(name="visions", description="View your character's dreams and visions")
+@app_commands.describe(character="Character name (leave blank for your own)")
+async def character_visions(interaction: discord.Interaction, character: str = None):
+    if not interaction.guild_id:
+        await interaction.response.send_message("LoreForge only works inside a server.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+
+    if character:
+        async with get_db() as db:
+            result = await db.execute(
+                select(Character).where(
+                    Character.guild_id == interaction.guild_id,
+                    Character.name.ilike(f"%{character}%"),
+                )
+            )
+            char = result.scalar_one_or_none()
+    else:
+        char, _ = await resolve_character(interaction.user.id, interaction.guild_id)
+
+    if not char:
+        await interaction.followup.send("Character not found.", ephemeral=True)
+        return
+
+    from database.models import Vision
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(Vision).where(
+                Vision.character_id == char.id,
+                Vision.guild_id == interaction.guild_id,
+            ).order_by(Vision.received_at.desc())
+        )
+        visions = list(result.scalars().all())
+
+    if not visions:
+        await interaction.followup.send(
+            f"**{char.name}** has no visions yet. Try resting in a mystical location to receive one.",
+            ephemeral=True,
+        )
+        return
+
+    # Paginate: 5 per page
+    per_page = 5
+    total_pages = max(1, (len(visions) + per_page - 1) // per_page)
+
+    class VisionView(discord.ui.View):
+        def __init__(self, visions_list, page=1):
+            super().__init__(timeout=120)
+            self.visions_list = visions_list
+            self.page = page
+            self._update_buttons()
+
+        def _update_buttons(self):
+            self.prev_btn.disabled = self.page <= 1
+            self.next_btn.disabled = self.page >= total_pages
+
+        def _build_embed(self):
+            start = (self.page - 1) * per_page
+            end = start + per_page
+            page_visions = self.visions_list[start:end]
+
+            embed = discord.Embed(
+                title=f"💫 {char.name}'s Visions",
+                color=0x6366F1,
+            )
+            for v in page_visions:
+                date_str = v.received_at.strftime("%Y-%m-%d") if hasattr(v.received_at, 'strftime') else str(v.received_at)[:10]
+                trigger_emoji = {"long_rest": "🌙", "gm_custom": "✨", "rest": "💤"}.get(v.trigger, "💫")
+                embed.add_field(
+                    name=f"{trigger_emoji} {date_str} — via {v.trigger.replace('_', ' ').title()}",
+                    value=v.vision_text[:500],
+                    inline=False,
+                )
+
+            embed.set_footer(text=f"Page {self.page}/{total_pages} • {len(self.visions_list)} vision(s)")
+            return embed
+
+        @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
+        async def prev_btn(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            self.page -= 1
+            self._update_buttons()
+            await interaction2.response.edit_message(embed=self._build_embed(), view=self)
+
+        @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.primary)
+        async def next_btn(self, interaction2: discord.Interaction, btn: discord.ui.Button):
+            self.page += 1
+            self._update_buttons()
+            await interaction2.response.edit_message(embed=self._build_embed(), view=self)
+
+    view = VisionView(visions, page=1)
+    await interaction.followup.send(embed=view._build_embed(), view=view, ephemeral=True)
+
+
 # ── Cog ───────────────────────────────────────────────────────────────────────
 
 class CharacterCog(commands.Cog, name="Character"):

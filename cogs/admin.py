@@ -442,7 +442,59 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
     e.set_footer(text="Page 10 / 11  —  Phase 4: AI, Bosses & New Classes")
     pages.append(e)
 
-    # Page 11 — GM + Server Setup (only shown to GMs)
+    # Page 11 — Phase 6 Tier 2: Investigation, Language, Timeline, Religion, Codex, Notifications, Visions
+    e = discord.Embed(title="🔍 Phase 6 — Investigation, Languages, Timeline & Religion", color=0x7C3AED)
+    e.add_field(name="📖 Unified Codex Search", value=(
+        "`/codex <query>` — Search **Lore**, **NPCs**, **Locations**, **Factions**, and **Bestiary** all at once (ILIKE match)\n"
+        "*Shows first 3 matches per category in a single embed.*"
+    ), inline=False)
+    e.add_field(name="🔍 Investigations", value=(
+        "`/investigation start <name> <desc>` — Start an investigation (GM only)\n"
+        "`/investigation clue <inv_name> <text>` — Add a clue you discovered\n"
+        "`/investigation board [inv_name]` — Evidence board with connected clues\n"
+        "`/investigation connect <id_a> <id_b>` — Link two clues together\n"
+        "`/investigation theory <inv_name> <text>` — Submit a theory (DMs the GM)\n"
+        "`/investigation reveal <inv_name> <text>` — Big reveal! (GM only)\n"
+        "`/investigation list` — List all open investigations"
+    ), inline=False)
+    e.add_field(name="🗣️ Languages", value=(
+        "`/language create <name> [script]` — Create a language (GM only)\n"
+        "`/language learn <name>` — Learn a language (costs 500 Spirit Stones)\n"
+        "`/language list` — List all languages with speakers\n"
+        "`/language speak <name> <msg>` — Speak in a language (scrambled if unknown)\n"
+        "`/language add-phrase <name> <word> <trans>` — Add vocabulary (GM only)"
+    ), inline=False)
+    e.add_field(name="📜 Timeline", value=(
+        "`/timeline view [page]` — Chronological world events (10 per page)\n"
+        "`/timeline add <title> <desc>` — Add a manual event (GM only)\n"
+        "`/timeline era <name>` — Set the current world era (GM only)"
+    ), inline=False)
+    e.add_field(name="⛪ Religion & Prayer", value=(
+        "`/religion create <name> [deity] [domains]` — Found a religion (GM only)\n"
+        "`/religion list` — List all religions\n"
+        "`/religion view <name>` — Full details (deity, domains, tenets, followers)\n"
+        "`/religion edit <name>` — Edit clergy notes & holy symbol (GM only)\n"
+        "`/religion set-deity <name> <deity>` — Set the deity (GM only)\n"
+        "`/religion add-tenet <name> <tenet>` — Add a tenet (GM only)\n"
+        "`/religion worship <name>` — Set your character's religion\n"
+        "`/prayer` — 1/day divine blessing (1d20+WIS, 15+: gain 2d6 temp HP)"
+    ), inline=False)
+    e.add_field(name="💫 Visions & Dreams", value=(
+        "`/character visions [name]` — View your character's received visions (paginated)\n"
+        "*Visions come from long rests (20% chance) and GM custom commands.*"
+    ), inline=False)
+    e.add_field(name="🔔 Notifications", value=(
+        "`/notifications configure` — Toggle DMs for: Faction changes, Quests, World events, NPC movements, Lore unlocks"
+    ), inline=False)
+    e.add_field(name="📜 AI Session Recaps", value=(
+        "`/session end` — Now **auto-generates** a narrated session recap!\n"
+        "Poster to the configured recap channel and saved as a LoreEntry (GM-only visibility).\n"
+        "*Uses DeepSeek AI to write a 3-paragraph fantasy chronicle.*"
+    ), inline=False)
+    e.set_footer(text="Page 11 / 12 — Phase 6: Investigation, Languages & Religion")
+    pages.append(e)
+
+    # Page 12 — GM + Server Setup (only shown to GMs)
     if not show_gm:
         # Skip GM page for non-GM users
         pass
@@ -513,13 +565,29 @@ def _help_pages(show_gm: bool = False) -> list[discord.Embed]:
                 "`/faction create/edit/delete` — Manage factions\n"
                 "`/gm faction award` — Award faction reputation\n"
                 "`/lore add/edit/delete` — Create and manage lore events\n"
+                "`/lore add-template <type> <title>` — Create a lore entry using a structured template\n"
                 "`/weather set <type>` — Override weather\n"
                 "`/time advance <amount> <unit>` — Advance world time\n"
                 "`/announce <message>` — Post world announcement"
             ),
             inline=False,
         )
-        e.set_footer(text="Page 11 / 11  —  GM & Server")
+        e.add_field(
+            name="GM — Phase 6 Tools",
+            value=(
+                "`/gm generate quest [diff] [loc] [theme]` — AI-generate a quest (preview + Save/Regen/Discard)\n"
+                "`/gm generate npc [loc] [role]` — AI-generate an NPC\n"
+                "`/gm generate encounter [diff] [loc]` — AI-generate a combat encounter (as boss template)\n"
+                "`/gm world-pulse` — Manually trigger the living world simulation tick\n"
+                "`/gm vision <@user> <text>` — Send a custom vision/dream to a player\n"
+                "`/npc-letter <@user> <content>` — Send an in-character letter to a player (DM)\n"
+                "`/timeline add <title> <desc>` — Add a manual timeline event\n"
+                "`/timeline era <name>` — Set the current world era\n"
+                "`/lore add-template <type> <title>` — Create a lore entry with a structured template"
+            ),
+            inline=False,
+        )
+        e.set_footer(text="Page 12 / 12  —  GM & Server")
         pages.append(e)
 
     # Update all footers dynamically so page count is always accurate

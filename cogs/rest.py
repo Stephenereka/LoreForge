@@ -8,6 +8,9 @@ from services.combat_engine import modifier
 from cogs.combat import _sessions
 from cogs.character import resolve_character
 from cogs.housing import get_housing_xp_bonus
+from services.ai_service import generate_vision
+from database.models import Vision, WorldEvent, Quest
+from datetime import timezone
 import random
 import math
 
@@ -185,6 +188,56 @@ async def rest_long(interaction: discord.Interaction):
 
     embed.set_footer(text="LoreForge — Well rested and ready.")
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ── Phase 6: Vision on long rest (20% chance) ─────────────────────────
+    try:
+        if random.random() < 0.20:
+            async with get_db() as db:
+                # Get last 5 WorldEvents
+                we_result = await db.execute(
+                    select(WorldEvent).where(
+                        WorldEvent.guild_id == interaction.guild_id,
+                    ).order_by(WorldEvent.created_at.desc()).limit(5)
+                )
+                world_events = list(we_result.scalars().all())
+                event_descs = [f"{e.event_type}: {e.narrative or ''}" for e in world_events]
+
+                # Get active quests
+                q_result = await db.execute(
+                    select(Quest).where(
+                        Quest.guild_id == interaction.guild_id,
+                        Quest.is_active == True,
+                    ).limit(5)
+                )
+                quests = list(q_result.scalars().all())
+                quest_titles = [q.name for q in quests]
+
+                location_name = "their current location"
+
+            vision_text = await generate_vision(
+                char.name, location_name, event_descs, quest_titles
+            )
+
+            async with get_db() as db:
+                db.add(Vision(
+                    character_id=char.id,
+                    guild_id=interaction.guild_id,
+                    vision_text=vision_text,
+                    trigger="long_rest",
+                ))
+
+            vision_embed = discord.Embed(
+                title="💫 A Vision Comes to You...",
+                description=vision_text,
+                color=0x6366F1,
+            )
+            vision_embed.set_footer(text="Only you can see this.")
+            try:
+                await interaction.followup.send(embed=vision_embed, ephemeral=True)
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[VisionRest] Error: {e}")
 
 
 class RestCog(commands.Cog, name="Rest"):

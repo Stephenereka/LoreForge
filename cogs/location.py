@@ -265,7 +265,58 @@ async def cmd_map(ctx):
         if current:
             embed.set_footer(text=f"⭐ You are in {current.name}")
     embed.set_image(url="attachment://world_map.png")
-    await ctx.send(embed=embed, file=file)
+
+    # Clickable map buttons — show up to 25 discovered locations
+    discovered_locs = [l for l in all_locs if not l.is_hidden and l.map_x is not None and l.map_y is not None][:25]
+    map_view = None
+    if discovered_locs:
+        map_view = discord.ui.View(timeout=120)
+        for i in range(0, min(len(discovered_locs), 25), 5):
+            row_locs = discovered_locs[i:i+5]
+            for loc in row_locs:
+                button = discord.ui.Button(
+                    label=loc.name[:30],
+                    style=discord.ButtonStyle.secondary,
+                    custom_id=f"map_loc_{loc.id}",
+                    row=i // 5,
+                )
+                map_view.add_item(button)
+
+        async def map_button_callback(interaction: discord.Interaction):
+            custom_id = interaction.data.get("custom_id", "")
+            if not custom_id.startswith("map_loc_"):
+                return
+            loc_id = int(custom_id.replace("map_loc_", ""))
+            async with get_db() as db:
+                loc_result = await db.execute(
+                    select(Location).where(Location.id == loc_id, Location.guild_id == interaction.guild_id)
+                )
+                loc = loc_result.scalar_one_or_none()
+                if not loc:
+                    await interaction.response.send_message("Location not found.", ephemeral=True)
+                    return
+                npc_result = await db.execute(
+                    select(NPC).where(
+                        NPC.guild_id == interaction.guild_id,
+                        NPC.location_id == loc.id,
+                        NPC.is_dead == False,
+                    )
+                )
+                npcs = list(npc_result.scalars().all())
+            exits = await get_exits(loc.id, interaction.guild_id)
+            time_info = await get_world_time(interaction.guild_id)
+            weather_info = await get_weather(interaction.guild_id)
+            loc_embed = location_embed(loc, exits, time_info, weather_info, loc.is_indoors)
+            if npcs:
+                npc_lines = [f"**{n.name}**" + (f" — *{n.title}*" if n.title else "") for n in npcs[:5]]
+                loc_embed.add_field(name="👥 People Here", value="\n".join(npc_lines), inline=False)
+            await interaction.response.send_message(embed=loc_embed, ephemeral=True)
+
+        for item in map_view.children:
+            if isinstance(item, discord.ui.Button):
+                item.callback = map_button_callback
+
+    await ctx.send(embed=embed, file=file, view=map_view)
 
 
 @commands.hybrid_command(name="search", description="Search the area for secrets")
