@@ -72,8 +72,9 @@ async def sessions_page(
         duration = ""
         if s.started_at and s.ended_at:
             delta = s.ended_at - s.started_at
-            hours = delta.seconds // 3600
-            minutes = (delta.seconds % 3600) // 60
+            total_seconds = int(delta.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
             if hours > 0:
                 duration = f"{hours}h {minutes}m"
             else:

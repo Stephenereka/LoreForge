@@ -112,9 +112,9 @@ async def characters_page(
     char_list = []
     for c in characters:
         avatar = c.avatar_url or "https://cdn.discordapp.com/embed/avatars/0.png"
-        hp_pct = round((c.hp_current / max(c.hp_max, 1)) * 100, 1)
+        hp_pct = min(round((c.hp_current / max(c.hp_max, 1)) * 100, 1), 100.0)
         max_xp_for_level = c.level * 100  # simplified XP threshold display
-        xp_pct = round((c.xp / max(max_xp_for_level, 1)) * 100, 1)
+        xp_pct = min(round((c.xp / max(max_xp_for_level, 1)) * 100, 1), 100.0)
 
         char_list.append({
             "id": c.id,
@@ -148,6 +148,7 @@ async def characters_page(
             "inventory": c.inventory or [],
             "gold": c.gold,
             "balance": c.balance,
+            "xp_pct": xp_pct,
         })
 
     return templates.TemplateResponse(

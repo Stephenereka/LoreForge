@@ -88,7 +88,7 @@ async def bestiary_page(
     # Build NPC data
     npc_list = []
     for n in npcs:
-        hp_pct = round((n.hp_current / max(n.hp_max, 1)) * 100, 1)
+        hp_pct = min(round((n.hp_current / max(n.hp_max, 1)) * 100, 1), 100.0)
         npc_list.append({
             "id": n.id,
             "name": n.name,

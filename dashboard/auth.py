@@ -149,5 +149,9 @@ def get_avatar_url(user: dict) -> str:
     if avatar_hash:
         ext = "gif" if avatar_hash.startswith("a_") else "png"
         return f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{ext}"
-    default_index = int(user["discriminator"]) % 5 if user.get("discriminator") else 0
+    discriminator = user.get("discriminator")
+    if discriminator and discriminator != "0":
+        default_index = int(discriminator) % 5
+    else:
+        default_index = (int(user_id) >> 22) % 6
     return f"https://cdn.discordapp.com/embed/avatars/{default_index}.png"

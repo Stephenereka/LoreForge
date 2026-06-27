@@ -18,30 +18,30 @@
         <div class="flex-1">
             {% if sessions %}
             <div class="space-y-4">
-                {% for session in sessions %}
+                {% for sess in sessions %}
                 <details class="bg-[#16213e] border border-[#4a3f6b] rounded-xl overflow-hidden card-glow">
                     <summary class="px-6 py-4 cursor-pointer hover:bg-[#1a1a2e]/50 transition-colors">
                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                             <div>
                                 <h3 class="font-bold" style="font-family: 'Crimson Text', serif;">
-                                    {{ session.title }}
+                                    {{ sess.title }}
                                 </h3>
-                                <span class="text-xs text-[#64748b]">{{ session.started_at }}</span>
+                                <span class="text-xs text-[#64748b]">{{ sess.started_at }}</span>
                             </div>
                             <div class="flex items-center gap-4 text-xs text-[#94a3b8]">
-                                <span>⏱ {{ session.duration }}</span>
-                                <span>⚔️ {{ session.combat_count }} combats</span>
-                                <span>⭐ {{ session.total_xp }} XP</span>
+                                <span>⏱ {{ sess.duration }}</span>
+                                <span>⚔️ {{ sess.combat_count }} combats</span>
+                                <span>⭐ {{ sess.total_xp }} XP</span>
                             </div>
                         </div>
                     </summary>
                     <div class="px-6 pb-4 border-t border-[#4a3f6b]/30 pt-4">
                         <!-- Characters Present -->
-                        {% if session.characters_present %}
+                        {% if sess.characters_present %}
                         <div class="mb-4">
                             <h4 class="text-xs text-[#94a3b8] uppercase tracking-wider mb-2">Characters Present</h4>
                             <div class="flex flex-wrap gap-2">
-                                {% for char_name in session.characters_present %}
+                                {% for char_name in sess.characters_present %}
                                 <span class="text-xs bg-[#1a1a2e] text-[#e2e8f0] px-2 py-1 rounded">{{ char_name }}</span>
                                 {% endfor %}
                             </div>
@@ -50,19 +50,19 @@
 
                         <!-- Combat & XP -->
                         <div class="flex flex-wrap gap-4 mb-4 text-sm">
-                            <span class="text-[#94a3b8]">⚔️ Combats: <strong class="text-[#e2e8f0]">{{ session.combat_count }}</strong></span>
-                            <span class="text-[#94a3b8]">⭐ Total XP: <strong class="text-[#F59E0B]">{{ session.total_xp }}</strong></span>
-                            {% if session.quest_completions %}
-                            <span class="text-[#94a3b8]">🎯 Quests: <strong class="text-[#e2e8f0]">{{ session.quest_completions }}</strong></span>
+                            <span class="text-[#94a3b8]">⚔️ Combats: <strong class="text-[#e2e8f0]">{{ sess.combat_count }}</strong></span>
+                            <span class="text-[#94a3b8]">⭐ Total XP: <strong class="text-[#F59E0B]">{{ sess.total_xp }}</strong></span>
+                            {% if sess.quest_completions %}
+                            <span class="text-[#94a3b8]">🎯 Quests: <strong class="text-[#e2e8f0]">{{ sess.quest_completions }}</strong></span>
                             {% endif %}
                         </div>
 
                         <!-- Summary -->
-                        {% if session.summary_text %}
+                        {% if sess.summary_text %}
                         <div>
                             <h4 class="text-xs text-[#94a3b8] uppercase tracking-wider mb-2">Summary</h4>
                             <div class="text-sm text-[#cbd5e1] leading-relaxed">
-                                {{ session.summary_text | replace('\n', '<br>') | safe }}
+                                {{ sess.summary_text | replace('\n', '<br>') | safe }}
                             </div>
                         </div>
                         {% else %}
