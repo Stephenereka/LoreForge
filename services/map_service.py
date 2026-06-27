@@ -55,7 +55,7 @@ async def fetch_world_map_async(
 
     # Fetch from Pollinations (in executor since it's sync I/O)
     import asyncio
-    data = await asyncio.get_event_loop().run_in_executor(
+    data = await asyncio.get_running_loop().run_in_executor(
         None, lambda: fetch_world_map(world_name, guild_id, force=force)
     )
     if data:
@@ -109,8 +109,8 @@ def generate_world_map_overlay(
         if loc.get("is_hidden") and not show_hidden:
             continue
 
-        lx = int((loc.get("map_x", 50) / 100) * width)
-        ly = int((loc.get("map_y", 50) / 100) * height)
+        lx = int(((loc.get("map_x") or 50) / 100) * width)
+        ly = int(((loc.get("map_y") or 50) / 100) * height)
 
         loc_type = loc.get("location_type", "wilderness")
         is_player = loc.get("id") == player_location_id
